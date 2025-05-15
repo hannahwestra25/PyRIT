@@ -26,7 +26,7 @@ from pyrit.prompt_target.batch_helper import batch_task_async
 
 logger = logging.getLogger(__name__)
 
-#test
+# test
 class SkeletonKeyOrchestrator(Orchestrator):
     """
     Creates an orchestrator that executes a skeleton key jailbreak.
