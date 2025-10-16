@@ -4,7 +4,7 @@ CMD:=python -m
 PYMODULE:=pyrit
 TESTS:=tests
 UNIT_TESTS:=tests/unit
-INTEGRATION_TESTS:=tests/integration
+INTEGRATION_TESTS:=tests/integration/targets
 
 all: pre-commit
 
