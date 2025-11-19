@@ -25,12 +25,7 @@ jobs:
       SecretsFilter: 'env-global'
       RunAsPreJob: false
   - bash: df -all -h
-    name: check_disk_space_before_swap
-  - bash: df -i
-    name: check_inode
-  - bash: 
-      sudo umount /tmp
-    name: free_disk_space
+    name: check_disk
   - bash: |
       python -c "
       import os;
@@ -45,10 +40,14 @@ jobs:
   - bash: |
       cp build_scripts/env_local_integration_test .env.local
     displayName: "Create .env.local from example"
+  - bash: df -all -h
+    name: check_disk
   - bash: pip install --upgrade setuptools pip packaging
     name: upgrade_pip_and_setuptools_before_installing_PyRIT
   - bash: sudo apt-get install python3-tk
     name: install_tkinter
+  - bash: df -all -h
+    name: check_disk
   - bash: |
       set -e
       # Detect Ubuntu version
@@ -73,6 +72,8 @@ jobs:
 
       echo "Microsoft ODBC Driver 18 installed successfully."
     displayName: 'Install ODBC Driver 18 for SQL Server'
+  - bash: df -all -h
+    name: check_disk
   - bash: pip install .[dev,all] -v
     name: install_PyRIT
   # This step ensures that integration tests are run outside of the PyRIT repository to test that .env files are accessed correctly.
