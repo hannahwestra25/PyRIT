@@ -30,7 +30,7 @@ jobs:
       sudo apt clean
       docker rmi $(docker image ls -aq)
       df -h
-    name: free disk space
+    name: free_disk_space
   - bash: |
       python -c "
       import os;
