@@ -26,8 +26,10 @@ jobs:
       RunAsPreJob: false
   - bash: df -all -h
     name: check_disk_space_before_swap
+  - bash: df -i
+    name: check_inode
   - bash: 
-      sudo apt clean
+      sudo umount /tmp
     name: free_disk_space
   - bash: |
       python -c "
