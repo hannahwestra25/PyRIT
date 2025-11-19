@@ -24,12 +24,10 @@ jobs:
       KeyVaultName: 'pyrit-environment'
       SecretsFilter: 'env-global'
       RunAsPreJob: false
+  - bash: df -all -h
+    name: check_disk_space_before_swap
   - bash: 
-      sudo swapoff -a
-      sudo rm -f /swapfile
       sudo apt clean
-      docker rmi $(docker image ls -aq)
-      df -h
     name: free_disk_space
   - bash: |
       python -c "
