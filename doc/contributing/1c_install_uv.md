@@ -10,29 +10,38 @@ This guide covers setting up a PyRIT development environment using [uv](https://
 - **Automatic virtual environment management**
 - **Compatible with existing pyproject.toml**
 
-## Prerequisites
+## Prerequisite software
 
 1. **Install uv**: Download from [https://github.com/astral-sh/uv](https://github.com/astral-sh/uv) or use:
+   for windows:
    ```powershell
-   powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+   powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+   ```
+   for macOS and Linux
+   ```
+   curl -LsSf https://astral.sh/uv/install.sh | sh
+   ```
+   or
+   ```
+   wget -qO- https://astral.sh/uv/install.sh | sh
    ```
 
 2. **Python 3.12**: uv will automatically download and use the correct Python version based on `.python-version`
 
-## Setup Steps
+3. **Git**. Git is required to clone the repo locally. It is available to download [here](https://git-scm.com/downloads).
+    ```bash
+    git clone https://github.com/Azure/PyRIT
+    ```
 
-### 1. Clone the Repository
+## Installation with uv
 
-```powershell
-git clone https://github.com/Azure/PyRIT.git
-cd PyRIT
-```
+This is a guide for how to install PyRIT using uv
 
-### 2. Initialize uv Environment
+1. Navigate to the directory where you cloned the PyRIT repo.
 
-The repository includes a `.python-version` file that pins Python 3.12. Run:
+2. The repository includes a `.python-version` file that pins Python 3.12. Run:
 
-```powershell
+```bash
 uv sync --extra dev
 ```
 
@@ -43,46 +52,70 @@ This command will:
 - Install all dependencies including dev tools (pytest, black, ruff, etc.)
 - Create a `uv.lock` file for reproducible builds
 
-### 3. Verify Installation
+3. Verify Installation
 
-```powershell
-uv run python -c "import pyrit; pyrit.show_versions()"
+```bash
+uv pip show pyrit
 ```
 
 You should see output showing PyRIT version 0.10.0.dev0 and your Python dependencies.
 
-## Usage
+## VS Code Integration
+
+VS Code should automatically detect the `.venv` virtual environment. If not:
+
+1. Press `Ctrl+Shift+P`
+2. Type "Python: Select Interpreter"
+3. Choose `.venv\Scripts\python.exe`
+
+### Running Jupyter Notebooks
+You can create a Jupyter kernel by first installing ipykernel:
+```bash
+uv add --dev ipykernel
+```
+then, create the kernel using:
+```bash
+uv run ipython kernel install --user --env VIRTUAL_ENV $(pwd)/.venv --name=pyrit-dev
+```
+Start the server using
+```bash
+uv run jupyter lab
+```
+or using VS Code, open a Jupyter Notebook (.ipynb file) window, in the top search bar of VS Code, type `>Notebook: Select Notebook Kernel` > `Python Environments...` to choose the `pyrit-dev` kernel when executing code in the notebooks, like those in `examples`. You can also choose a kernel with the "Select Kernel" button on the top-right corner of a Notebook.
+
+This will be the kernel that runs all code examples in Python Notebooks.
+
 
 ### Running Python Scripts
 
 Use `uv run` to execute Python with the virtual environment:
 
-```powershell
+```bash
 uv run python your_script.py
 ```
 
 ### Running Tests
 
-```powershell
+```bash
 uv run pytest tests/
 ```
 
 ### Running Specific Test Files
 
-```powershell
+```bash
 uv run pytest tests/unit/test_something.py
 ```
 
 ### Using PyRIT CLI Tools
 
-```powershell
+```bash
 uv run pyrit_scan --help
 uv run pyrit_shell
 ```
 
 ### Running Jupyter Notebooks
 
-```powershell
+```bash
 uv run jupyter lab
 ```
 
@@ -90,7 +123,7 @@ uv run jupyter lab
 
 PyRIT has several optional dependency groups. Install them as needed:
 
-```powershell
+```bash
 # For Hugging Face models
 uv sync --extra huggingface
 
@@ -107,44 +140,36 @@ uv sync --extra dev --extra playwright --extra gcg
 
 Edit `pyproject.toml` to add dependencies, then run:
 
-```powershell
+```bash
 uv sync
 ```
 
 ### Updating Dependencies
 
-```powershell
+```bash
 uv lock --upgrade
 uv sync
 ```
 
 ### Running Code Formatters
 
-```powershell
+```bash
 uv run black .
 uv run ruff check --fix .
 ```
 
 ### Running Type Checker
 
-```powershell
+```bash
 uv run mypy pyrit/
 ```
 
 ### Pre-commit Hooks
 
-```powershell
+```bash
 uv run pre-commit install
 uv run pre-commit run --all-files
 ```
-
-## VS Code Integration
-
-VS Code should automatically detect the `.venv` virtual environment. If not:
-
-1. Press `Ctrl+Shift+P`
-2. Type "Python: Select Interpreter"
-3. Choose `.venv\Scripts\python.exe`
 
 ## Troubleshooting
 
@@ -173,7 +198,7 @@ uv sync --extra dev
 
 PyRIT is installed in editable mode, so changes to the source code are immediately reflected. If you see import errors:
 
-```powershell
+```bash
 uv sync --reinstall-package pyrit
 ```
 

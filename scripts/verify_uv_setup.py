@@ -4,6 +4,7 @@ Simple test script to verify uv-based PyRIT setup works correctly.
 """
 
 import sys
+
 print(f"Python version: {sys.version}")
 print(f"Python executable: {sys.executable}")
 print()
@@ -11,6 +12,7 @@ print()
 # Test basic PyRIT imports
 try:
     import pyrit
+
     print(f"✓ PyRIT version: {pyrit.__version__}")
 except Exception as e:
     print(f"✗ Failed to import pyrit: {e}")
@@ -50,6 +52,6 @@ for module_name, class_name in test_imports:
     except Exception as e:
         print(f"✗ {module_name}.{class_name}: {e}")
 
-print("\n" + "="*50)
+print("\n" + "=" * 50)
 print("PyRIT setup verification complete!")
-print("="*50)
+print("=" * 50)

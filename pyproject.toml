@@ -168,6 +168,11 @@ line-length = 120
 requires = ["setuptools>=64.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
+[dependency-groups]
+dev = [
+    "ipykernel>=7.1.0",
+]
+
 [tool.setuptools.packages.find]
 include = ["pyrit", "pyrit.*"]
 

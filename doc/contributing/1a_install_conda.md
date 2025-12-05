@@ -42,7 +42,7 @@ This is a guide for how to install PyRIT into a `conda` environment.
    cd $GIT_PROJECT_HOME/pyrit
    ```
 
-1. Initialize environment.
+2. Initialize environment.
 
     ```bash
     conda create -n pyrit-dev python=3.11
