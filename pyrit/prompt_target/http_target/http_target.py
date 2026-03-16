@@ -32,8 +32,6 @@ class HTTPTarget(PromptTarget):
 
     """
 
-    _DEFAULT_CAPABILITIES: TargetCapabilities = TargetCapabilities(supports_multi_message_pieces=False)
-
     def __init__(
         self,
         http_request: str,
@@ -78,8 +76,7 @@ class HTTPTarget(PromptTarget):
             max_requests_per_minute=max_requests_per_minute,
             endpoint=endpoint,
             model_name=model_name,
-            custom_capabilities=custom_capabilities if custom_capabilities is not None else type(self)._DEFAULT_CAPABILITIES
-
+            custom_capabilities=custom_capabilities,
         )
         self.http_request = http_request
         self.callback_function = callback_function

@@ -54,10 +54,13 @@ class PlaywrightTarget(PromptTarget):
     SUPPORTED_DATA_TYPES = {"text", "image_path"}
     _DEFAULT_CAPABILITIES: TargetCapabilities = TargetCapabilities(
         supports_multi_turn=True,
-        input_modalities=frozenset({
-            frozenset(["text"]),
-            frozenset(["text", "image_path"]),
-        }),
+        supports_multi_message_pieces=True,
+        input_modalities=frozenset(
+            {
+                frozenset(["text"]),
+                frozenset(["text", "image_path"]),
+            }
+        ),
     )
 
     def __init__(
@@ -82,10 +85,7 @@ class PlaywrightTarget(PromptTarget):
         """
         endpoint = page.url if page else ""
         super().__init__(
-            max_requests_per_minute=max_requests_per_minute,
-            endpoint=endpoint,
-            custom_capabilities=custom_capabilities
-
+            max_requests_per_minute=max_requests_per_minute, endpoint=endpoint, custom_capabilities=custom_capabilities
         )
         self._interaction_func = interaction_func
         self._page = page

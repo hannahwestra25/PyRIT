@@ -25,8 +25,6 @@ class CrucibleTarget(PromptTarget):
 
     API_KEY_ENVIRONMENT_VARIABLE: str = "CRUCIBLE_API_KEY"
 
-    _DEFAULT_CAPABILITIES: TargetCapabilities = TargetCapabilities(supports_multi_message_pieces=False)
-
     def __init__(
         self,
         *,

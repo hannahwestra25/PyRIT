@@ -70,16 +70,20 @@ class RealtimeTarget(OpenAITarget, PromptChatTarget):
 
     _DEFAULT_CAPABILITIES: TargetCapabilities = TargetCapabilities(
         supports_multi_turn=True,
-        supports_multi_message_pieces=False,
-        input_modalities=frozenset({
-            frozenset(["text"]),
-            frozenset(["text", "audio_path"]),
-        }),
-        output_modalities=frozenset({
-            frozenset(["text"]),
-            frozenset(["audio_path"]),
-            frozenset(["text", "audio_path"]),
-        }),
+        supports_multi_message_pieces=True,
+        input_modalities=frozenset(
+            {
+                frozenset(["text"]),
+                frozenset(["text", "audio_path"]),
+            }
+        ),
+        output_modalities=frozenset(
+            {
+                frozenset(["text"]),
+                frozenset(["audio_path"]),
+                frozenset(["text", "audio_path"]),
+            }
+        ),
     )
 
     def __init__(

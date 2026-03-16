@@ -30,13 +30,12 @@ class OpenAIImageTarget(OpenAITarget):
     _MAX_INPUT_IMAGES = 16
     _DEFAULT_CAPABILITIES: TargetCapabilities = TargetCapabilities(
         supports_multi_turn=False,
-        input_modalities=frozenset({
-            frozenset(["text"]),
-            frozenset(["text", "image_path"]),
-        }),
-        output_modalities=frozenset({
-            frozenset(["image_path"]),
-        }),
+        supports_multi_message_pieces=True,
+        output_modalities=frozenset(
+            {
+                frozenset(["image_path"]),
+            }
+        ),
     )
 
     def __init__(

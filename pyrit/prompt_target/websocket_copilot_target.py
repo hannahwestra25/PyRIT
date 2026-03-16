@@ -75,10 +75,13 @@ class WebSocketCopilotTarget(PromptTarget):
     CONNECTION_TIMEOUT_SECONDS: int = 30
     _DEFAULT_CAPABILITIES: TargetCapabilities = TargetCapabilities(
         supports_multi_turn=True,
-        input_modalities=frozenset({
-            frozenset(["text"]),
-            frozenset(["text", "image_path"]),
-        }),
+        supports_multi_message_pieces=True,
+        input_modalities=frozenset(
+            {
+                frozenset(["text"]),
+                frozenset(["text", "image_path"]),
+            }
+        ),
     )
 
     def __init__(

@@ -48,8 +48,7 @@ class PromptShieldTarget(PromptTarget):
 
     ENDPOINT_URI_ENVIRONMENT_VARIABLE: str = "AZURE_CONTENT_SAFETY_API_ENDPOINT"
     API_KEY_ENVIRONMENT_VARIABLE: str = "AZURE_CONTENT_SAFETY_API_KEY"
-
-    _DEFAULT_CAPABILITIES: TargetCapabilities = TargetCapabilities(supports_multi_message_pieces=False)
+    _DEFAULT_CAPABILITIES: TargetCapabilities = TargetCapabilities(supports_multi_message_pieces=True)
 
     _endpoint: str
     _api_key: str | Callable[[], str] | None
@@ -90,7 +89,11 @@ class PromptShieldTarget(PromptTarget):
         endpoint_value = default_values.get_required_value(
             env_var_name=self.ENDPOINT_URI_ENVIRONMENT_VARIABLE, passed_value=endpoint
         )
-        super().__init__(max_requests_per_minute=max_requests_per_minute, endpoint=endpoint_value, custom_capabilities=custom_capabilities)
+        super().__init__(
+            max_requests_per_minute=max_requests_per_minute,
+            endpoint=endpoint_value,
+            custom_capabilities=custom_capabilities,
+        )
 
         self._api_version = api_version
 

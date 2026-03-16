@@ -39,8 +39,6 @@ class GandalfLevel(enum.Enum):
 class GandalfTarget(PromptTarget):
     """A prompt target for the Gandalf security challenge."""
 
-    _DEFAULT_CAPABILITIES: TargetCapabilities = TargetCapabilities(supports_multi_message_pieces=False)
-
     def __init__(
         self,
         *,
@@ -58,7 +56,9 @@ class GandalfTarget(PromptTarget):
                 will be capped at the value provided.
         """
         endpoint = "https://gandalf-api.lakera.ai/api/send-message"
-        super().__init__(max_requests_per_minute=max_requests_per_minute, endpoint=endpoint, custom_capabilities=custom_capabilities)
+        super().__init__(
+            max_requests_per_minute=max_requests_per_minute, endpoint=endpoint, custom_capabilities=custom_capabilities
+        )
 
         self._defender = level.value
 

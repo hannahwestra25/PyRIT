@@ -8,6 +8,7 @@ from pyrit.common.net_utility import make_request_and_raise_if_error_async
 from pyrit.identifiers import ComponentIdentifier
 from pyrit.models import Message, construct_response_from_request
 from pyrit.prompt_target.common.prompt_target import PromptTarget
+from pyrit.prompt_target.common.target_capabilities import TargetCapabilities
 from pyrit.prompt_target.common.utils import limit_requests_per_minute, validate_temperature, validate_top_p
 
 logger = logging.getLogger(__name__)
@@ -19,6 +20,8 @@ class HuggingFaceEndpointTarget(PromptTarget):
 
     Inherits from PromptTarget to comply with the current design standards.
     """
+
+    _DEFAULT_CAPABILITIES: TargetCapabilities = TargetCapabilities(supports_multi_message_pieces=True)
 
     def __init__(
         self,

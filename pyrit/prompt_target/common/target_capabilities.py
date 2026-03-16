@@ -24,10 +24,16 @@ class TargetCapabilities:
     supports_multi_turn: bool = False
 
     # Whether the target natively supports multiple message pieces in a single request.
-    supports_multi_message_pieces: bool = True
+    supports_multi_message_pieces: bool = False
+
+    # Whether the target natively supports JSON schema (e.g., via a "json" response format).
+    supports_json_schema: bool = False
 
     # Whether the target natively supports JSON output (e.g., via a "json" response format).
-    supports_json_response: bool = False
+    supports_json_output: bool = False
+
+    # Whether the target allows the attack history to be modified
+    supports_editable_history: bool = False
 
     # The input modalities supported by the target (e.g., "text", "image").
     input_modalities: frozenset[frozenset[PromptDataType]] = frozenset({frozenset(["text"])})
@@ -49,7 +55,11 @@ class TargetCapabilities:
         for f in fields(required_capabilities):
             required_value = getattr(required_capabilities, f.name)
             self_value = getattr(self, f.name)
-            if isinstance(required_value, frozenset) and required_value and isinstance(next(iter(required_value)), frozenset):
+            if (
+                isinstance(required_value, frozenset)
+                and required_value
+                and isinstance(next(iter(required_value)), frozenset)
+            ):
                 missing = required_value - self_value
                 if missing:
                     unmet.append(f"{f.name}: missing {missing}")

@@ -41,6 +41,10 @@ class AzureMLChatTarget(PromptChatTarget):
     endpoint_uri_environment_variable: str = "AZURE_ML_MANAGED_ENDPOINT"
     api_key_environment_variable: str = "AZURE_ML_KEY"
 
+    _DEFAULT_CAPABILITIES: TargetCapabilities = TargetCapabilities(
+        supports_multi_message_pieces=True, supports_editable_history=True
+    )
+
     def __init__(
         self,
         *,

@@ -67,16 +67,8 @@ class OpenAIChatTarget(OpenAITarget, PromptChatTarget):
 
     _DEFAULT_CAPABILITIES: TargetCapabilities = TargetCapabilities(
         supports_multi_turn=True,
-        supports_json_response=True,
-        input_modalities=frozenset({
-            frozenset(["text"]),  # All models support text-only
-            frozenset(["text", "image_path"]),  # API supports vision when model does
-            frozenset(["text", "audio_path"]),  # API supports audio input when model does
-        }),
-        output_modalities=frozenset({
-            frozenset(["text"]),  # Currently only text output
-            frozenset(["audio_path"]),  # Audio output when audio_response_config is set
-        }),
+        supports_json_output=True,
+        supports_multi_message_pieces=True,
     )
 
     def __init__(
@@ -159,7 +151,7 @@ class OpenAIChatTarget(OpenAITarget, PromptChatTarget):
         if custom_capabilities is not None:
             effective_capabilities = custom_capabilities
         else:
-            effective_capabilities = replace(type(self)._DEFAULT_CAPABILITIES, supports_json_response=is_json_supported)
+            effective_capabilities = replace(type(self)._DEFAULT_CAPABILITIES, supports_json_output=is_json_supported)
         super().__init__(custom_capabilities=effective_capabilities, **kwargs)
 
         # Validate temperature and top_p

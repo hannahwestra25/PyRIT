@@ -54,7 +54,8 @@ class OpenAIVideoTarget(OpenAITarget):
     SUPPORTED_IMAGE_FORMATS: list[str] = ["image/jpeg", "image/png", "image/webp"]
     _DEFAULT_CAPABILITIES: TargetCapabilities = TargetCapabilities(
         supports_multi_turn=False,
-        input_modalities=frozenset({frozenset(["text"]), frozenset(["text", "image_path"]), frozenset(["text", "video_path"])}),
+        supports_multi_message_pieces=True,
+        input_modalities=frozenset({frozenset(["text"]), frozenset(["text", "image_path"])}),
         output_modalities=frozenset({frozenset(["video_path"])}),
     )
 

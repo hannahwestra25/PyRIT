@@ -93,6 +93,7 @@ class OpenAITarget(PromptTarget):
     """
 
     ADDITIONAL_REQUEST_HEADERS: str = "OPENAI_ADDITIONAL_REQUEST_HEADERS"
+    _DEFAULT_CAPABILITIES: TargetCapabilities = TargetCapabilities(supports_multi_message_pieces=True)
 
     model_name_environment_variable: str
     endpoint_environment_variable: str
@@ -715,4 +716,4 @@ class OpenAITarget(PromptTarget):
         Returns:
             bool: True if JSON response is supported, False otherwise.
         """
-        return self._capabilities.supports_json_response
+        return self._capabilities.supports_json_output

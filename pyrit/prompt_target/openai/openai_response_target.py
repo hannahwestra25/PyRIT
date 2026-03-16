@@ -70,15 +70,18 @@ class OpenAIResponseTarget(OpenAITarget, PromptChatTarget):
 
     _DEFAULT_CAPABILITIES: TargetCapabilities = TargetCapabilities(
         supports_multi_turn=True,
-        supports_json_response=True,
-        input_modalities=frozenset({
-            frozenset(["text"]),
-            frozenset(["text", "image_path"]),
-            frozenset(["function_call"]),
-            frozenset(["tool_call"]),
-            frozenset(["function_call_output"]),
-            frozenset(["reasoning"]),
-        })
+        supports_json_output=True,
+        supports_multi_message_pieces=True,
+        input_modalities=frozenset(
+            {
+                frozenset(["text"]),
+                frozenset(["text", "image_path"]),
+                frozenset(["function_call"]),
+                frozenset(["tool_call"]),
+                frozenset(["function_call_output"]),
+                frozenset(["reasoning"]),
+            }
+        ),
     )
 
     def __init__(

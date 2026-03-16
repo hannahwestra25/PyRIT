@@ -21,7 +21,9 @@ class PromptChatTarget(PromptTarget):
     Realtime chat targets or OpenAI completions are NOT PromptChatTargets. You don't send the conversation history.
     """
 
-    _DEFAULT_CAPABILITIES: TargetCapabilities = TargetCapabilities(supports_multi_turn=True)
+    _DEFAULT_CAPABILITIES: TargetCapabilities = TargetCapabilities(
+        supports_multi_turn=True, supports_multi_message_pieces=True
+    )
 
     def __init__(
         self,
@@ -117,7 +119,7 @@ class PromptChatTarget(PromptTarget):
         """
         config = _JsonResponseConfig.from_metadata(metadata=message_piece.prompt_metadata)
 
-        if config.enabled and not self.capabilities.supports_json_response:
+        if config.enabled and not self.capabilities.supports_json_output:
             target_name = self.get_identifier().class_name
             raise ValueError(f"This target {target_name} does not support JSON response format.")
 

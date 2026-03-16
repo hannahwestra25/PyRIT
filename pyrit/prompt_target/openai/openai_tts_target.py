@@ -28,9 +28,8 @@ class OpenAITTSTarget(OpenAITarget):
     """A prompt target for OpenAI Text-to-Speech (TTS) endpoints."""
 
     _DEFAULT_CAPABILITIES: TargetCapabilities = TargetCapabilities(
-        supports_multi_message_pieces=False,
         output_modalities=frozenset({frozenset(["audio_path"])}),
-                )
+    )
 
     def __init__(
         self,

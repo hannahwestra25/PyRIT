@@ -86,10 +86,9 @@ class TestTargetCapabilitiesModalities:
             api_key="mock-api-key",
         )
         assert any("text" in combo for combo in target.capabilities.input_modalities)
-        assert any("image_path" in combo for combo in target.capabilities.input_modalities)
-        assert any("audio_path" in combo for combo in target.capabilities.input_modalities)
         assert any("text" in combo for combo in target.capabilities.output_modalities)
-        assert any("audio_path" in combo for combo in target.capabilities.output_modalities)
+        assert target.capabilities.supports_json_output is True
+        assert target.capabilities.supports_multi_message_pieces is True
 
     def test_openai_image_target_modalities(self):
         from pyrit.prompt_target import OpenAIImageTarget
@@ -100,8 +99,8 @@ class TestTargetCapabilitiesModalities:
             api_key="mock-api-key",
         )
         assert any("text" in combo for combo in target.capabilities.input_modalities)
-        assert any("image_path" in combo for combo in target.capabilities.input_modalities)
         assert target.capabilities.output_modalities == frozenset({frozenset(["image_path"])})
+        assert target.capabilities.supports_multi_message_pieces is True
 
     def test_openai_tts_target_modalities(self):
         from pyrit.prompt_target import OpenAITTSTarget
@@ -124,8 +123,8 @@ class TestTargetCapabilitiesModalities:
         )
         assert any("text" in combo for combo in target.capabilities.input_modalities)
         assert any("image_path" in combo for combo in target.capabilities.input_modalities)
-        assert any("video_path" in combo for combo in target.capabilities.input_modalities)
         assert target.capabilities.output_modalities == frozenset({frozenset(["video_path"])})
+        assert target.capabilities.supports_multi_message_pieces is True
 
     def test_openai_realtime_target_modalities(self):
         from pyrit.prompt_target import RealtimeTarget
@@ -151,6 +150,8 @@ class TestTargetCapabilitiesModalities:
         assert any("text" in combo for combo in target.capabilities.input_modalities)
         assert any("image_path" in combo for combo in target.capabilities.input_modalities)
         assert target.capabilities.output_modalities == frozenset({frozenset(["text"])})
+        assert target.capabilities.supports_json_output is True
+        assert target.capabilities.supports_multi_message_pieces is True
 
     def test_openai_completion_target_modalities(self):
         from pyrit.prompt_target import OpenAICompletionTarget
@@ -214,6 +215,23 @@ class TestTargetCapabilitiesModalities:
         assert any("text" in combo for combo in target.capabilities.input_modalities)
         assert any("image_path" in combo for combo in target.capabilities.input_modalities)
         assert target.capabilities.output_modalities == frozenset({frozenset(["text"])})
+
+    def test_hugging_face_chat_target_capabilities(self):
+        from pyrit.prompt_target import HuggingFaceChatTarget
+
+        caps = HuggingFaceChatTarget._DEFAULT_CAPABILITIES
+        assert caps.supports_editable_history is True
+        assert caps.supports_multi_turn is True
+
+    def test_azure_ml_chat_target_capabilities(self):
+        from pyrit.prompt_target import AzureMLChatTarget
+
+        target = AzureMLChatTarget(
+            endpoint="https://mock.azure.com/score",
+            api_key="mock-api-key",
+        )
+        assert target.capabilities.supports_editable_history is True
+        assert target.capabilities.supports_multi_message_pieces is True
 
     def test_custom_capabilities_override_modalities(self):
         from pyrit.prompt_target import OpenAIChatTarget, TargetCapabilities
@@ -295,6 +313,24 @@ class TestTargetCapabilitiesAssertSatisfies:
         with pytest.raises(ValueError, match="supports_multi_turn") as exc_info:
             caps.assert_satifies(required)
         assert "input_modalities" in str(exc_info.value)
+
+    def test_assert_satisfies_fails_on_json_output(self):
+        caps = TargetCapabilities(supports_json_output=False)
+        required = TargetCapabilities(supports_json_output=True)
+        with pytest.raises(ValueError, match="supports_json_output"):
+            caps.assert_satifies(required)
+
+    def test_assert_satisfies_fails_on_editable_history(self):
+        caps = TargetCapabilities(supports_editable_history=False)
+        required = TargetCapabilities(supports_editable_history=True)
+        with pytest.raises(ValueError, match="supports_editable_history"):
+            caps.assert_satifies(required)
+
+    def test_assert_satisfies_fails_on_json_schema(self):
+        caps = TargetCapabilities(supports_json_schema=False)
+        required = TargetCapabilities(supports_json_schema=True)
+        with pytest.raises(ValueError, match="supports_json_schema"):
+            caps.assert_satifies(required)
 
     def test_assert_satisfies_ignores_false_required_bools(self):
         """When a required capability bool is False, it should not be flagged as unmet."""

@@ -36,8 +36,7 @@ class HuggingFaceChatTarget(PromptChatTarget):
     """
 
     _DEFAULT_CAPABILITIES: TargetCapabilities = TargetCapabilities(
-        supports_multi_turn=True,
-        supports_multi_message_pieces=False,
+        supports_multi_turn=True, supports_editable_history=True
     )
 
     # Class-level cache for model and tokenizer
@@ -407,7 +406,7 @@ class HuggingFaceChatTarget(PromptChatTarget):
         Returns:
             bool: True if JSON response is supported, False otherwise.
         """
-        return False
+        return self.capabilities.supports_json_output
 
     @classmethod
     def enable_cache(cls) -> None:
