@@ -69,6 +69,7 @@ class HuggingFaceChatTarget(PromptChatTarget):
         torch_dtype: Optional["torch.dtype"] = None,
         attn_implementation: Optional[str] = None,
         max_requests_per_minute: Optional[int] = None,
+        custom_capabilities: Optional[TargetCapabilities] = None,
     ) -> None:
         """
         Initialize the HuggingFaceChatTarget.
@@ -89,6 +90,7 @@ class HuggingFaceChatTarget(PromptChatTarget):
             torch_dtype (Optional[torch.dtype]): Torch data type for model weights.
             attn_implementation (Optional[str]): Attention implementation type.
             max_requests_per_minute (Optional[int]): The maximum number of requests per minute. Defaults to None.
+            custom_capabilities (Optional[TargetCapabilities]): Override the default capabilities for this target instance. Defaults to None
 
         Raises:
             ValueError: If neither or both of `model_id` and `model_path` are provided.
@@ -96,7 +98,11 @@ class HuggingFaceChatTarget(PromptChatTarget):
         """
         model_name = model_id if model_id else model_path if model_path else ""
 
-        super().__init__(max_requests_per_minute=max_requests_per_minute, model_name=model_name)
+        super().__init__(
+            max_requests_per_minute=max_requests_per_minute,
+            model_name=model_name,
+            custom_capabilities=custom_capabilities,
+        )
 
         if not model_id and not model_path:
             raise ValueError("Either `model_id` or `model_path` must be provided.")

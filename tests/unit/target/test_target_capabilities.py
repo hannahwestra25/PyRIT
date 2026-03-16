@@ -6,14 +6,76 @@ import pytest
 from pyrit.prompt_target.common.target_capabilities import TargetCapabilities
 
 
+class TestDefaultCapabilitiesDefined:
+    """Verify that every concrete PromptTarget subclass defines _DEFAULT_CAPABILITIES."""
+
+    def _all_concrete_target_classes(self):
+        from pyrit.prompt_target import (
+            AzureBlobStorageTarget,
+            AzureMLChatTarget,
+            CrucibleTarget,
+            GandalfTarget,
+            HTTPTarget,
+            HTTPXAPITarget,
+            HuggingFaceChatTarget,
+            HuggingFaceEndpointTarget,
+            OpenAIChatTarget,
+            OpenAICompletionTarget,
+            OpenAIImageTarget,
+            OpenAIResponseTarget,
+            OpenAITTSTarget,
+            OpenAIVideoTarget,
+            PlaywrightCopilotTarget,
+            PlaywrightTarget,
+            PromptShieldTarget,
+            RealtimeTarget,
+            TextTarget,
+            WebSocketCopilotTarget,
+        )
+
+        return [
+            AzureBlobStorageTarget,
+            AzureMLChatTarget,
+            CrucibleTarget,
+            GandalfTarget,
+            HTTPTarget,
+            HTTPXAPITarget,
+            HuggingFaceChatTarget,
+            HuggingFaceEndpointTarget,
+            OpenAIChatTarget,
+            OpenAICompletionTarget,
+            OpenAIImageTarget,
+            OpenAIResponseTarget,
+            OpenAITTSTarget,
+            OpenAIVideoTarget,
+            PlaywrightCopilotTarget,
+            PlaywrightTarget,
+            PromptShieldTarget,
+            RealtimeTarget,
+            TextTarget,
+            WebSocketCopilotTarget,
+        ]
+
+    def test_all_targets_have_default_capabilities(self):
+        """Every concrete target must have _DEFAULT_CAPABILITIES as a TargetCapabilities instance."""
+        for cls in self._all_concrete_target_classes():
+            assert hasattr(cls, "_DEFAULT_CAPABILITIES"), (
+                f"{cls.__name__} is missing _DEFAULT_CAPABILITIES class attribute"
+            )
+            assert isinstance(cls._DEFAULT_CAPABILITIES, TargetCapabilities), (
+                f"{cls.__name__}._DEFAULT_CAPABILITIES must be a TargetCapabilities instance, "
+                f"got {type(cls._DEFAULT_CAPABILITIES)}"
+            )
+
+
 @pytest.mark.usefixtures("patch_central_database")
 class TestTargetCapabilitiesModalities:
     """Test that each target declares the correct input/output modalities via _DEFAULT_CAPABILITIES."""
 
     def test_default_capabilities_are_text_only(self):
         caps = TargetCapabilities()
-        assert caps.input_modalities == ["text"]
-        assert caps.output_modalities == ["text"]
+        assert caps.input_modalities == frozenset({frozenset(["text"])})
+        assert caps.output_modalities == frozenset({frozenset(["text"])})
 
     def test_openai_chat_target_modalities(self):
         from pyrit.prompt_target import OpenAIChatTarget
@@ -23,11 +85,11 @@ class TestTargetCapabilitiesModalities:
             endpoint="https://mock.azure.com/",
             api_key="mock-api-key",
         )
-        assert "text" in target.capabilities.input_modalities
-        assert "image_path" in target.capabilities.input_modalities
-        assert "audio_path" in target.capabilities.input_modalities
-        assert "text" in target.capabilities.output_modalities
-        assert "audio_path" in target.capabilities.output_modalities
+        assert any("text" in combo for combo in target.capabilities.input_modalities)
+        assert any("image_path" in combo for combo in target.capabilities.input_modalities)
+        assert any("audio_path" in combo for combo in target.capabilities.input_modalities)
+        assert any("text" in combo for combo in target.capabilities.output_modalities)
+        assert any("audio_path" in combo for combo in target.capabilities.output_modalities)
 
     def test_openai_image_target_modalities(self):
         from pyrit.prompt_target import OpenAIImageTarget
@@ -37,9 +99,9 @@ class TestTargetCapabilitiesModalities:
             endpoint="https://mock.azure.com/",
             api_key="mock-api-key",
         )
-        assert "text" in target.capabilities.input_modalities
-        assert "image_path" in target.capabilities.input_modalities
-        assert target.capabilities.output_modalities == ["image_path"]
+        assert any("text" in combo for combo in target.capabilities.input_modalities)
+        assert any("image_path" in combo for combo in target.capabilities.input_modalities)
+        assert target.capabilities.output_modalities == frozenset({frozenset(["image_path"])})
 
     def test_openai_tts_target_modalities(self):
         from pyrit.prompt_target import OpenAITTSTarget
@@ -49,8 +111,8 @@ class TestTargetCapabilitiesModalities:
             endpoint="https://mock.azure.com/",
             api_key="mock-api-key",
         )
-        assert target.capabilities.input_modalities == ["text"]
-        assert target.capabilities.output_modalities == ["audio_path"]
+        assert target.capabilities.input_modalities == frozenset({frozenset(["text"])})
+        assert target.capabilities.output_modalities == frozenset({frozenset(["audio_path"])})
 
     def test_openai_video_target_modalities(self):
         from pyrit.prompt_target import OpenAIVideoTarget
@@ -60,9 +122,10 @@ class TestTargetCapabilitiesModalities:
             endpoint="https://mock.azure.com/",
             api_key="mock-api-key",
         )
-        assert "text" in target.capabilities.input_modalities
-        assert "image_path" in target.capabilities.input_modalities
-        assert target.capabilities.output_modalities == ["video_path"]
+        assert any("text" in combo for combo in target.capabilities.input_modalities)
+        assert any("image_path" in combo for combo in target.capabilities.input_modalities)
+        assert any("video_path" in combo for combo in target.capabilities.input_modalities)
+        assert target.capabilities.output_modalities == frozenset({frozenset(["video_path"])})
 
     def test_openai_realtime_target_modalities(self):
         from pyrit.prompt_target import RealtimeTarget
@@ -72,10 +135,10 @@ class TestTargetCapabilitiesModalities:
             endpoint="https://mock.azure.com/",
             api_key="mock-api-key",
         )
-        assert "text" in target.capabilities.input_modalities
-        assert "audio_path" in target.capabilities.input_modalities
-        assert "text" in target.capabilities.output_modalities
-        assert "audio_path" in target.capabilities.output_modalities
+        assert any("text" in combo for combo in target.capabilities.input_modalities)
+        assert any("audio_path" in combo for combo in target.capabilities.input_modalities)
+        assert any("text" in combo for combo in target.capabilities.output_modalities)
+        assert any("audio_path" in combo for combo in target.capabilities.output_modalities)
 
     def test_openai_response_target_modalities(self):
         from pyrit.prompt_target import OpenAIResponseTarget
@@ -85,9 +148,9 @@ class TestTargetCapabilitiesModalities:
             endpoint="https://mock.azure.com/",
             api_key="mock-api-key",
         )
-        assert "text" in target.capabilities.input_modalities
-        assert "image_path" in target.capabilities.input_modalities
-        assert target.capabilities.output_modalities == ["text"]
+        assert any("text" in combo for combo in target.capabilities.input_modalities)
+        assert any("image_path" in combo for combo in target.capabilities.input_modalities)
+        assert target.capabilities.output_modalities == frozenset({frozenset(["text"])})
 
     def test_openai_completion_target_modalities(self):
         from pyrit.prompt_target import OpenAICompletionTarget
@@ -97,8 +160,8 @@ class TestTargetCapabilitiesModalities:
             endpoint="https://mock.azure.com/",
             api_key="mock-api-key",
         )
-        assert target.capabilities.input_modalities == ["text"]
-        assert target.capabilities.output_modalities == ["text"]
+        assert target.capabilities.input_modalities == frozenset({frozenset(["text"])})
+        assert target.capabilities.output_modalities == frozenset({frozenset(["text"])})
 
     def test_azure_blob_storage_target_modalities(self):
         from pyrit.prompt_target import AzureBlobStorageTarget
@@ -107,16 +170,16 @@ class TestTargetCapabilitiesModalities:
             container_url="https://mock.blob.core.windows.net/container",
             sas_token="mock-sas-token",
         )
-        assert "text" in target.capabilities.input_modalities
-        assert "url" in target.capabilities.input_modalities
-        assert target.capabilities.output_modalities == ["url"]
+        assert any("text" in combo for combo in target.capabilities.input_modalities)
+        assert any("url" in combo for combo in target.capabilities.input_modalities)
+        assert target.capabilities.output_modalities == frozenset({frozenset(["url"])})
 
     def test_text_target_modalities(self):
         from pyrit.prompt_target import TextTarget
 
         target = TextTarget()
-        assert target.capabilities.input_modalities == ["text"]
-        assert target.capabilities.output_modalities == ["text"]
+        assert target.capabilities.input_modalities == frozenset({frozenset(["text"])})
+        assert target.capabilities.output_modalities == frozenset({frozenset(["text"])})
 
     def test_playwright_target_modalities(self):
         from unittest.mock import MagicMock
@@ -127,9 +190,9 @@ class TestTargetCapabilitiesModalities:
             interaction_func=MagicMock(),
             page=MagicMock(),
         )
-        assert "text" in target.capabilities.input_modalities
-        assert "image_path" in target.capabilities.input_modalities
-        assert target.capabilities.output_modalities == ["text"]
+        assert any("text" in combo for combo in target.capabilities.input_modalities)
+        assert any("image_path" in combo for combo in target.capabilities.input_modalities)
+        assert target.capabilities.output_modalities == frozenset({frozenset(["text"])})
 
     def test_playwright_copilot_target_modalities(self):
         from unittest.mock import MagicMock
@@ -137,10 +200,10 @@ class TestTargetCapabilitiesModalities:
         from pyrit.prompt_target import PlaywrightCopilotTarget
 
         target = PlaywrightCopilotTarget(page=MagicMock())
-        assert "text" in target.capabilities.input_modalities
-        assert "image_path" in target.capabilities.input_modalities
-        assert "text" in target.capabilities.output_modalities
-        assert "image_path" in target.capabilities.output_modalities
+        assert any("text" in combo for combo in target.capabilities.input_modalities)
+        assert any("image_path" in combo for combo in target.capabilities.input_modalities)
+        assert any("text" in combo for combo in target.capabilities.output_modalities)
+        assert any("image_path" in combo for combo in target.capabilities.output_modalities)
 
     def test_websocket_copilot_target_modalities(self):
         from unittest.mock import MagicMock
@@ -148,17 +211,17 @@ class TestTargetCapabilitiesModalities:
         from pyrit.prompt_target import WebSocketCopilotTarget
 
         target = WebSocketCopilotTarget(authenticator=MagicMock())
-        assert "text" in target.capabilities.input_modalities
-        assert "image_path" in target.capabilities.input_modalities
-        assert target.capabilities.output_modalities == ["text"]
+        assert any("text" in combo for combo in target.capabilities.input_modalities)
+        assert any("image_path" in combo for combo in target.capabilities.input_modalities)
+        assert target.capabilities.output_modalities == frozenset({frozenset(["text"])})
 
     def test_custom_capabilities_override_modalities(self):
         from pyrit.prompt_target import OpenAIChatTarget, TargetCapabilities
 
         custom = TargetCapabilities(
             supports_multi_turn=True,
-            input_modalities=["text"],
-            output_modalities=["text"],
+            input_modalities=frozenset({frozenset(["text"])}),
+            output_modalities=frozenset({frozenset(["text"])}),
         )
         target = OpenAIChatTarget(
             model_name="test-model",
@@ -166,8 +229,8 @@ class TestTargetCapabilitiesModalities:
             api_key="mock-api-key",
             custom_capabilities=custom,
         )
-        assert target.capabilities.input_modalities == ["text"]
-        assert target.capabilities.output_modalities == ["text"]
+        assert target.capabilities.input_modalities == frozenset({frozenset(["text"])})
+        assert target.capabilities.output_modalities == frozenset({frozenset(["text"])})
 
 
 class TestTargetCapabilitiesAssertSatisfies:
@@ -176,13 +239,13 @@ class TestTargetCapabilitiesAssertSatisfies:
     def test_assert_satisfies_passes_when_all_met(self):
         caps = TargetCapabilities(
             supports_multi_turn=True,
-            input_modalities=["text", "image_path"],
-            output_modalities=["text"],
+            input_modalities=frozenset({frozenset(["text"]), frozenset(["image_path"])}),
+            output_modalities=frozenset({frozenset(["text"])}),
         )
         required = TargetCapabilities(
             supports_multi_turn=True,
-            input_modalities=["text"],
-            output_modalities=["text"],
+            input_modalities=frozenset({frozenset(["text"])}),
+            output_modalities=frozenset({frozenset(["text"])}),
         )
         caps.assert_satifies(required)  # should not raise
 
@@ -193,25 +256,25 @@ class TestTargetCapabilitiesAssertSatisfies:
             caps.assert_satifies(required)
 
     def test_assert_satisfies_fails_on_missing_input_modality(self):
-        caps = TargetCapabilities(input_modalities=["text"])
-        required = TargetCapabilities(input_modalities=["text", "image_path"])
+        caps = TargetCapabilities(input_modalities=frozenset({frozenset(["text"])}))
+        required = TargetCapabilities(input_modalities=frozenset({frozenset(["text"]), frozenset(["image_path"])}))
         with pytest.raises(ValueError, match="input_modalities"):
             caps.assert_satifies(required)
 
     def test_assert_satisfies_fails_on_missing_output_modality(self):
-        caps = TargetCapabilities(output_modalities=["text"])
-        required = TargetCapabilities(output_modalities=["text", "audio_path"])
+        caps = TargetCapabilities(output_modalities=frozenset({frozenset(["text"])}))
+        required = TargetCapabilities(output_modalities=frozenset({frozenset(["text"]), frozenset(["audio_path"])}))
         with pytest.raises(ValueError, match="output_modalities"):
             caps.assert_satifies(required)
 
     def test_assert_satisfies_passes_when_superset_of_required_modalities(self):
         caps = TargetCapabilities(
-            input_modalities=["text", "image_path", "audio_path"],
-            output_modalities=["text", "audio_path"],
+            input_modalities=frozenset({frozenset(["text"]), frozenset(["image_path"]), frozenset(["audio_path"])}),
+            output_modalities=frozenset({frozenset(["text"]), frozenset(["audio_path"])}),
         )
         required = TargetCapabilities(
-            input_modalities=["text", "image_path"],
-            output_modalities=["text"],
+            input_modalities=frozenset({frozenset(["text"]), frozenset(["image_path"])}),
+            output_modalities=frozenset({frozenset(["text"])}),
         )
         caps.assert_satifies(required)  # should not raise
 
@@ -223,11 +286,11 @@ class TestTargetCapabilitiesAssertSatisfies:
     def test_assert_satisfies_fails_multiple_unmet(self):
         caps = TargetCapabilities(
             supports_multi_turn=False,
-            input_modalities=["text"],
+            input_modalities=frozenset({frozenset(["text"])}),
         )
         required = TargetCapabilities(
             supports_multi_turn=True,
-            input_modalities=["text", "image_path"],
+            input_modalities=frozenset({frozenset(["text"]), frozenset(["image_path"])}),
         )
         with pytest.raises(ValueError, match="supports_multi_turn") as exc_info:
             caps.assert_satifies(required)

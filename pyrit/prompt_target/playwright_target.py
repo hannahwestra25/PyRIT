@@ -54,7 +54,10 @@ class PlaywrightTarget(PromptTarget):
     SUPPORTED_DATA_TYPES = {"text", "image_path"}
     _DEFAULT_CAPABILITIES: TargetCapabilities = TargetCapabilities(
         supports_multi_turn=True,
-        input_modalities=["text", "image_path"],
+        input_modalities=frozenset({
+            frozenset(["text"]),
+            frozenset(["text", "image_path"]),
+        }),
     )
 
     def __init__(
@@ -63,6 +66,7 @@ class PlaywrightTarget(PromptTarget):
         interaction_func: InteractionFunction,
         page: "Page",
         max_requests_per_minute: Optional[int] = None,
+        custom_capabilities: Optional[TargetCapabilities] = None,
     ) -> None:
         """
         Initialize the Playwright target.
@@ -73,9 +77,16 @@ class PlaywrightTarget(PromptTarget):
             max_requests_per_minute (int, Optional): Number of requests the target can handle per
                 minute before hitting a rate limit. The number of requests sent to the target
                 will be capped at the value provided.
+            custom_capabilities (TargetCapabilities, Optional): Override the default capabilities for
+                this target instance. Defaults to None.
         """
         endpoint = page.url if page else ""
-        super().__init__(max_requests_per_minute=max_requests_per_minute, endpoint=endpoint)
+        super().__init__(
+            max_requests_per_minute=max_requests_per_minute,
+            endpoint=endpoint,
+            custom_capabilities=custom_capabilities
+
+        )
         self._interaction_func = interaction_func
         self._page = page
 

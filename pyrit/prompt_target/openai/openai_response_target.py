@@ -71,14 +71,14 @@ class OpenAIResponseTarget(OpenAITarget, PromptChatTarget):
     _DEFAULT_CAPABILITIES: TargetCapabilities = TargetCapabilities(
         supports_multi_turn=True,
         supports_json_response=True,
-        input_modalities=[
-            "text",
-            "image_path",
-            "function_call",
-            "tool_call",
-            "function_call_output",
-            "reasoning",
-        ],
+        input_modalities=frozenset({
+            frozenset(["text"]),
+            frozenset(["text", "image_path"]),
+            frozenset(["function_call"]),
+            frozenset(["tool_call"]),
+            frozenset(["function_call_output"]),
+            frozenset(["reasoning"]),
+        })
     )
 
     def __init__(
@@ -92,6 +92,7 @@ class OpenAIResponseTarget(OpenAITarget, PromptChatTarget):
         reasoning_summary: Optional[Literal["auto", "concise", "detailed"]] = None,
         extra_body_parameters: Optional[dict[str, Any]] = None,
         fail_on_missing_function: bool = False,
+        custom_capabilities: Optional[TargetCapabilities] = None,
         **kwargs: Any,
     ) -> None:
         """
@@ -99,6 +100,12 @@ class OpenAIResponseTarget(OpenAITarget, PromptChatTarget):
 
         Args:
             custom_functions: Mapping of user-defined function names (e.g., "my_func").
+            model_name (str, Optional): The name of the model (or deployment name in Azure).
+                If no value is provided, the OPENAI_RESPONSES_MODEL environment variable will be used.
+            endpoint (str, Optional): The target URL for the OpenAI service.
+            api_key (str, Optional): The API key for accessing the Azure OpenAI service.
+                Defaults to the OPENAI_RESPONSES_KEY environment variable.
+            headers (str, Optional): Headers of the endpoint (JSON).
             max_requests_per_minute (int, Optional): Number of requests the target can handle per
                 minute before hitting a rate limit. The number of requests sent to the target
                 will be capped at the value provided.
@@ -116,12 +123,21 @@ class OpenAIResponseTarget(OpenAITarget, PromptChatTarget):
             reasoning_summary (Literal["auto", "concise", "detailed"], Optional): Controls
                 whether a summary of the model's reasoning is included in the response.
                 Defaults to None (no summary).
+            is_json_supported (bool, Optional): If True, the target will support formatting responses as JSON by
+                setting the response_format header. Official OpenAI models all support this, but if you are using
+                this target with different models, is_json_supported should be set correctly to avoid issues when
+                using adversarial infrastructure (e.g. Crescendo scorers will set this flag).
             extra_body_parameters (dict, Optional): Additional parameters to be included in the request body.
             fail_on_missing_function: if True, raise when a function_call references
                 an unknown function or does not output a function; if False, return a structured error so we can
                 wrap it as function_call_output and let the model potentially recover
                 (e.g., pick another tool or ask for clarification).
+            custom_capabilities (TargetCapabilities, Optional): Override the default capabilities for
+                this target instance. Defaults to None.
             **kwargs: Additional keyword arguments passed to the parent OpenAITarget class.
+             httpx_client_kwargs (dict, Optional): Additional kwargs to be passed to the ``httpx.AsyncClient()``
+                constructor. For example, to specify a 3 minute timeout: ``httpx_client_kwargs={"timeout": 180}``
+
 
         Raises:
             PyritException: If the temperature or top_p values are out of bounds.
@@ -133,7 +149,7 @@ class OpenAIResponseTarget(OpenAITarget, PromptChatTarget):
             json.JSONDecodeError: If the response from the target is not valid JSON.
             Exception: If the request fails for any other reason.
         """
-        super().__init__(**kwargs)
+        super().__init__(custom_capabilities=custom_capabilities, **kwargs)
 
         # Validate temperature and top_p
         validate_temperature(temperature)

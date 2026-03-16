@@ -68,8 +68,15 @@ class OpenAIChatTarget(OpenAITarget, PromptChatTarget):
     _DEFAULT_CAPABILITIES: TargetCapabilities = TargetCapabilities(
         supports_multi_turn=True,
         supports_json_response=True,
-        input_modalities=["text", "image_path", "audio_path"],
-        output_modalities=["text", "audio_path"],
+        input_modalities=frozenset({
+            frozenset(["text"]),  # All models support text-only
+            frozenset(["text", "image_path"]),  # API supports vision when model does
+            frozenset(["text", "audio_path"]),  # API supports audio input when model does
+        }),
+        output_modalities=frozenset({
+            frozenset(["text"]),  # Currently only text output
+            frozenset(["audio_path"]),  # Audio output when audio_response_config is set
+        }),
     )
 
     def __init__(
@@ -91,10 +98,20 @@ class OpenAIChatTarget(OpenAITarget, PromptChatTarget):
     ) -> None:
         """
         Args:
+            model_name (str, Optional): The name of the model.
+                If no value is provided, the OPENAI_CHAT_MODEL environment variable will be used.
+            endpoint (str, Optional): The target URL for the OpenAI service.
+            api_key (str | Callable[[], str], Optional): The API key for accessing the OpenAI service,
+                or a callable that returns an access token. For Azure endpoints with Entra authentication,
+                pass a token provider from pyrit.auth (e.g., get_azure_openai_auth(endpoint)).
+                Defaults to the `OPENAI_CHAT_KEY` environment variable.
+            headers (str, Optional): Headers of the endpoint (JSON).
+            max_requests_per_minute (int, Optional): Number of requests the target can handle per
+                minute before hitting a rate limit. The number of requests sent to the target
+                will be capped at the value provided.
             max_completion_tokens (int, Optional): An upper bound for the number of tokens that
                 can be generated for a completion, including visible output tokens and
                 reasoning tokens.
-
                 NOTE: Specify this value when using an o1 series model.
             max_tokens (int, Optional): The maximum number of tokens that can be
                 generated in the chat completion. This value can be used to control
@@ -123,6 +140,8 @@ class OpenAIChatTarget(OpenAITarget, PromptChatTarget):
             extra_body_parameters (dict, Optional): Additional parameters to be included in the request body.
             custom_capabilities (TargetCapabilities, Optional): Override the default target capabilities.
             **kwargs: Additional keyword arguments passed to the parent OpenAITarget class.
+            httpx_client_kwargs (dict, Optional): Additional kwargs to be passed to the ``httpx.AsyncClient()``
+                constructor. For example, to specify a 3 minute timeout: ``httpx_client_kwargs={"timeout": 180}``
 
         Raises:
             PyritException: If the temperature or top_p values are out of bounds.

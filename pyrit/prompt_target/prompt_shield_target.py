@@ -63,6 +63,7 @@ class PromptShieldTarget(PromptTarget):
         api_version: Optional[str] = "2024-09-01",
         field: Optional[PromptShieldEntryField] = None,
         max_requests_per_minute: Optional[int] = None,
+        custom_capabilities: Optional[TargetCapabilities] = None,
     ) -> None:
         """
         Class that initializes an Azure Content Safety Prompt Shield Target.
@@ -83,11 +84,13 @@ class PromptShieldTarget(PromptTarget):
             max_requests_per_minute (int, Optional): Number of requests the target can handle per
                 minute before hitting a rate limit. The number of requests sent to the target
                 will be capped at the value provided.
+            custom_capabilities (TargetCapabilities, Optional): Override the default capabilities for
+                this target instance. Defaults to None.
         """
         endpoint_value = default_values.get_required_value(
             env_var_name=self.ENDPOINT_URI_ENVIRONMENT_VARIABLE, passed_value=endpoint
         )
-        super().__init__(max_requests_per_minute=max_requests_per_minute, endpoint=endpoint_value)
+        super().__init__(max_requests_per_minute=max_requests_per_minute, endpoint=endpoint_value, custom_capabilities=custom_capabilities)
 
         self._api_version = api_version
 

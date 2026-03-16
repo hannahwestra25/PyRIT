@@ -30,8 +30,13 @@ class OpenAIImageTarget(OpenAITarget):
     _MAX_INPUT_IMAGES = 16
     _DEFAULT_CAPABILITIES: TargetCapabilities = TargetCapabilities(
         supports_multi_turn=False,
-        input_modalities=["text", "image_path"],
-        output_modalities=["image_path"],
+        input_modalities=frozenset({
+            frozenset(["text"]),
+            frozenset(["text", "image_path"]),
+        }),
+        output_modalities=frozenset({
+            frozenset(["image_path"]),
+        }),
     )
 
     def __init__(
@@ -42,6 +47,7 @@ class OpenAIImageTarget(OpenAITarget):
         output_format: Optional[Literal["png", "jpeg", "webp"]] = None,
         quality: Optional[Literal["standard", "hd", "low", "medium", "high"]] = None,
         style: Optional[Literal["natural", "vivid"]] = None,
+        custom_capabilities: Optional[TargetCapabilities] = None,
         *args: Any,
         **kwargs: Any,
     ) -> None:
@@ -49,6 +55,17 @@ class OpenAIImageTarget(OpenAITarget):
         Initialize the image target with specified parameters.
 
         Args:
+            model_name (str, Optional): The name of the model (or deployment name in Azure).
+                If no value is provided, the OPENAI_IMAGE_MODEL environment variable will be used.
+            endpoint (str, Optional): The target URL for the OpenAI service.
+            api_key (str | Callable[[], str], Optional): The API key for accessing the OpenAI service,
+                or a callable that returns an access token. For Azure endpoints with Entra authentication,
+                pass a token provider from pyrit.auth (e.g., get_azure_openai_auth(endpoint)).
+                Defaults to the `OPENAI_IMAGE_API_KEY` environment variable.
+            headers (str, Optional): Headers of the endpoint (JSON).
+            max_requests_per_minute (int, Optional): Number of requests the target can handle per
+                minute before hitting a rate limit. The number of requests sent to the target
+                will be capped at the value provided.
             image_size (Literal, Optional): The size of the generated image.
                 Accepts "256x256", "512x512", "1024x1024", "1536x1024",
                 "1024x1536", "1792x1024", or "1024x1792".
@@ -69,6 +86,8 @@ class OpenAIImageTarget(OpenAITarget):
             style (Literal["natural", "vivid"], Optional): The style of the generated images.
                 This parameter is only supported for DALL-E-3.
                 Default is to not specify.
+            custom_capabilities (TargetCapabilities, Optional): Override the default capabilities for
+                this target instance. Defaults to None.
             *args: Additional positional arguments to be passed to AzureOpenAITarget.
             **kwargs: Additional keyword arguments to be passed to AzureOpenAITarget.
             httpx_client_kwargs (dict, Optional): Additional kwargs to be passed to the
@@ -80,7 +99,7 @@ class OpenAIImageTarget(OpenAITarget):
         self.style = style
         self.image_size = image_size
 
-        super().__init__(*args, **kwargs)
+        super().__init__(custom_capabilities=custom_capabilities, *args, **kwargs)
 
     def _set_openai_env_configuration_vars(self) -> None:
         self.model_name_environment_variable = "OPENAI_IMAGE_MODEL"

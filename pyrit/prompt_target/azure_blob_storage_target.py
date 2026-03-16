@@ -51,8 +51,13 @@ class AzureBlobStorageTarget(PromptTarget):
     SAS_TOKEN_ENVIRONMENT_VARIABLE: str = "AZURE_STORAGE_ACCOUNT_SAS_TOKEN"
 
     _DEFAULT_CAPABILITIES: TargetCapabilities = TargetCapabilities(
-        input_modalities=["text", "url"],
-        output_modalities=["url"],
+        input_modalities=frozenset({
+            frozenset(["text"]),
+            frozenset(["url"]),
+        }),
+        output_modalities=frozenset({
+            frozenset(["url"]),
+        }),
         supports_multi_message_pieces=False,
     )
 
@@ -63,6 +68,7 @@ class AzureBlobStorageTarget(PromptTarget):
         sas_token: Optional[str] = None,
         blob_content_type: SupportedContentType = SupportedContentType.PLAIN_TEXT,
         max_requests_per_minute: Optional[int] = None,
+        custom_capabilities: Optional[TargetCapabilities] = None,
     ) -> None:
         """
         Initialize the Azure Blob Storage target.
@@ -75,6 +81,8 @@ class AzureBlobStorageTarget(PromptTarget):
             blob_content_type (SupportedContentType): The content type for blobs.
                 Defaults to PLAIN_TEXT.
             max_requests_per_minute (int, Optional): Maximum number of requests per minute.
+            custom_capabilities (TargetCapabilities, Optional): Override the default capabilities for
+                this target instance. Defaults to None.
         """
         self._blob_content_type: str = blob_content_type.value
 
@@ -85,7 +93,11 @@ class AzureBlobStorageTarget(PromptTarget):
         self._sas_token: Optional[str] = sas_token
         self._client_async: Optional[AsyncContainerClient] = None
 
-        super().__init__(endpoint=self._container_url, max_requests_per_minute=max_requests_per_minute)
+        super().__init__(
+            endpoint=self._container_url,
+            max_requests_per_minute=max_requests_per_minute,
+            custom_capabilities=custom_capabilities,
+        )
 
     def _build_identifier(self) -> ComponentIdentifier:
         """

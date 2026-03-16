@@ -23,12 +23,21 @@ class PromptTarget(Identifiable):
 
     _memory: MemoryInterface
 
-    #: A list of PromptConverters that are supported by the prompt target.
-    #: An empty list implies that the prompt target supports all converters.
+    # A list of PromptConverters that are supported by the prompt target.
+    # An empty list implies that the prompt target supports all converters.
     supported_converters: list[Any]
 
     _identifier: Optional[ComponentIdentifier] = None
 
+    # Class-level default capabilities for this target type.
+    #
+    # Subclasses **should** override this when their capabilities differ from the base
+    # defaults (e.g., to declare multi-turn support or non-text modalities).
+    # Overriding is *optional* — if a subclass does not define ``_DEFAULT_CAPABILITIES``,
+    # it inherits the base-class default (text-only, single-turn, no JSON response).
+    #
+    # Per-instance overrides are also possible via the ``custom_capabilities``
+    # constructor parameter, which takes precedence over the class-level value.
     _DEFAULT_CAPABILITIES: TargetCapabilities = TargetCapabilities()
 
     def __init__(
@@ -89,7 +98,8 @@ class PromptTarget(Identifiable):
 
         Raises:
             ValueError: if the target does not support the provided message pieces or if the message
-                violates any constraints based on the target's capabilities.
+                violates any constraints based on the target's capabilities. This includes checks
+                for the number of message pieces, supported data types, and multi-turn conversation support.
 
         """
         n_pieces = len(message.message_pieces)
@@ -98,13 +108,14 @@ class PromptTarget(Identifiable):
 
         for piece in message.message_pieces:
             piece_type = piece.converted_value_data_type
-            if piece_type not in self.capabilities.input_modalities:
-                supported_types = ", ".join(sorted(self.capabilities.input_modalities))
+            supported_types_flat = {t for combo in self.capabilities.input_modalities for t in combo}
+            if piece_type not in supported_types_flat:
+                supported_types = ", ".join(sorted(supported_types_flat))
                 raise ValueError(
                     f"This target supports only the following data types: {supported_types}. Received: {piece_type}."
                 )
 
-        if not self.supports_multi_turn:
+        if not self.capabilities.supports_multi_turn:
             request = message.message_pieces[0]
             messages = self._memory.get_message_pieces(conversation_id=request.conversation_id)
 
@@ -157,21 +168,12 @@ class PromptTarget(Identifiable):
             "endpoint": self._endpoint,
             "model_name": model_name,
             "max_requests_per_minute": self._max_requests_per_minute,
-            "supports_multi_turn": self.supports_multi_turn,
+            "supports_multi_turn": self.capabilities.supports_multi_turn,
         }
         if params:
             all_params.update(params)
 
         return ComponentIdentifier.of(self, params=all_params, children=children)
-
-    def is_json_response_supported(self) -> bool:
-        """
-         Method to determine if JSON response format is supported by the target.
-
-        Returns:
-            bool: True if JSON response is supported, False otherwise.
-        """
-        return self.capabilities.supports_json_response
 
     @property
     def capabilities(self) -> TargetCapabilities:
@@ -187,19 +189,6 @@ class PromptTarget(Identifiable):
             TargetCapabilities: The capabilities for this target.
         """
         return self._capabilities
-
-    @property
-    def supports_multi_turn(self) -> bool:
-        """
-        Whether this target supports multi-turn conversations.
-
-        Convenience property that delegates to ``self.capabilities.supports_multi_turn``.
-
-        Returns:
-            bool: False by default. Subclasses declare multi-turn support by setting
-                ``_DEFAULT_CAPABILITIES`` or passing ``capabilities`` to the constructor.
-        """
-        return self._capabilities.supports_multi_turn
 
     def _build_identifier(self) -> ComponentIdentifier:
         """

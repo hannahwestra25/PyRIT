@@ -30,15 +30,6 @@ class HTTPTarget(PromptTarget):
     """
     HTTP_Target is for endpoints that do not have an API and instead require HTTP request(s) to send a prompt.
 
-    Parameters:
-        http_request (str): the header parameters as a request (i.e., from Burp)
-        prompt_regex_string (str): the placeholder for the prompt
-            (default is {PROMPT}) which will be replaced by the actual prompt.
-            make sure to modify the http request to have this included, otherwise it will not be properly replaced!
-        use_tls: (bool): whether to use TLS or not. Default is True
-        callback_function (function): function to parse HTTP response.
-            These are the customizable functions which determine how to parse the output
-        httpx_client_kwargs: (dict): additional keyword arguments to pass to the HTTP client
     """
 
     _DEFAULT_CAPABILITIES: TargetCapabilities = TargetCapabilities(supports_multi_message_pieces=False)
@@ -52,19 +43,24 @@ class HTTPTarget(PromptTarget):
         max_requests_per_minute: Optional[int] = None,
         client: Optional[httpx.AsyncClient] = None,
         model_name: str = "",
+        custom_capabilities: Optional[TargetCapabilities] = None,
         **httpx_client_kwargs: Any,
     ) -> None:
         """
         Initialize the HTTPTarget.
 
         Args:
-            http_request (str): The raw HTTP request string.
-            prompt_regex_string (str): Regex string to match prompt location. Defaults to "{PROMPT}".
+            http_request (str): the header parameters as a request (i.e., from Burp)
+            prompt_regex_string (str): the placeholder for the prompt
+                (default is {PROMPT}) which will be replaced by the actual prompt.
+                make sure to modify the http request to have this included, otherwise it will not be properly replaced!
             use_tls (bool): Whether to use TLS. Defaults to True.
             callback_function (Callable, Optional): Function to parse HTTP response.
             max_requests_per_minute (int, Optional): Maximum number of requests per minute.
             client (httpx.AsyncClient, Optional): Pre-configured httpx client.
             model_name (str): The model name. Defaults to empty string.
+            custom_capabilities (TargetCapabilities, Optional): Override the default capabilities for
+                this target instance. Defaults to None.
             **httpx_client_kwargs: Additional keyword arguments for httpx.AsyncClient.
 
         Raises:
@@ -78,7 +74,13 @@ class HTTPTarget(PromptTarget):
         # This will fail early if the http_request is malformed
         _, _, endpoint, _, _ = self.parse_raw_http_request(http_request)
 
-        super().__init__(max_requests_per_minute=max_requests_per_minute, endpoint=endpoint, model_name=model_name)
+        super().__init__(
+            max_requests_per_minute=max_requests_per_minute,
+            endpoint=endpoint,
+            model_name=model_name,
+            custom_capabilities=custom_capabilities if custom_capabilities is not None else type(self)._DEFAULT_CAPABILITIES
+
+        )
         self.http_request = http_request
         self.callback_function = callback_function
         self.prompt_regex_string = prompt_regex_string

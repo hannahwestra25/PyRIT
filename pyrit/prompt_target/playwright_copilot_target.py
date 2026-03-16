@@ -7,7 +7,7 @@ import time
 from contextlib import suppress
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Union
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 from pyrit.identifiers import ComponentIdentifier
 from pyrit.models import (
@@ -81,8 +81,15 @@ class PlaywrightCopilotTarget(PromptTarget):
     SUPPORTED_DATA_TYPES = {"text", "image_path"}
     _DEFAULT_CAPABILITIES: TargetCapabilities = TargetCapabilities(
         supports_multi_turn=True,
-        input_modalities=["text", "image_path"],
-        output_modalities=["text", "image_path"],
+        input_modalities=frozenset({
+            frozenset(["text"]),
+            frozenset(["text", "image_path"]),
+        }),
+        output_modalities=frozenset({
+            frozenset(["text"]),
+            frozenset(["image_path"]),
+            frozenset(["text", "image_path"]),
+        }),
     )
 
     # Placeholder text constants
@@ -113,6 +120,7 @@ class PlaywrightCopilotTarget(PromptTarget):
         *,
         page: "Page",
         copilot_type: CopilotType = CopilotType.CONSUMER,
+        custom_capabilities: Optional[TargetCapabilities] = None,
     ) -> None:
         """
         Initialize the Playwright Copilot target.
@@ -121,12 +129,14 @@ class PlaywrightCopilotTarget(PromptTarget):
             page (Page): The Playwright page object for browser interaction.
             copilot_type (CopilotType): The type of Copilot to interact with.
                 Defaults to CopilotType.CONSUMER.
+            custom_capabilities (TargetCapabilities, Optional): Override the default capabilities for
+                this target instance. Defaults to None.
 
         Raises:
             RuntimeError: If the Playwright page is not initialized.
             ValueError: If the page URL doesn't match the specified copilot_type.
         """
-        super().__init__()
+        super().__init__(custom_capabilities=custom_capabilities)
         self._page = page
         self._type = copilot_type
 

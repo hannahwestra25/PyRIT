@@ -20,6 +20,7 @@ from pyrit.models import (
     construct_response_from_request,
 )
 from pyrit.prompt_target.common.prompt_chat_target import PromptChatTarget
+from pyrit.prompt_target.common.target_capabilities import TargetCapabilities
 from pyrit.prompt_target.common.utils import limit_requests_per_minute, validate_temperature, validate_top_p
 
 logger = logging.getLogger(__name__)
@@ -52,6 +53,7 @@ class AzureMLChatTarget(PromptChatTarget):
         top_p: float = 1.0,
         repetition_penalty: float = 1.0,
         max_requests_per_minute: Optional[int] = None,
+        custom_capabilities: Optional[TargetCapabilities] = None,
         **param_kwargs: Any,
     ) -> None:
         """
@@ -89,7 +91,11 @@ class AzureMLChatTarget(PromptChatTarget):
             env_var_name=self.endpoint_uri_environment_variable, passed_value=endpoint
         )
         PromptChatTarget.__init__(
-            self, max_requests_per_minute=max_requests_per_minute, endpoint=endpoint_value, model_name=model_name
+            self,
+            max_requests_per_minute=max_requests_per_minute,
+            endpoint=endpoint_value,
+            model_name=model_name,
+            custom_capabilities=custom_capabilities,
         )
 
         self._initialize_vars(endpoint=endpoint, api_key=api_key)

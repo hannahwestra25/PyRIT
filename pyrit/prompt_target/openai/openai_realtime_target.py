@@ -71,8 +71,15 @@ class RealtimeTarget(OpenAITarget, PromptChatTarget):
     _DEFAULT_CAPABILITIES: TargetCapabilities = TargetCapabilities(
         supports_multi_turn=True,
         supports_multi_message_pieces=False,
-        input_modalities=["text", "audio_path"],
-        output_modalities=["text", "audio_path"],
+        input_modalities=frozenset({
+            frozenset(["text"]),
+            frozenset(["text", "audio_path"]),
+        }),
+        output_modalities=frozenset({
+            frozenset(["text"]),
+            frozenset(["audio_path"]),
+            frozenset(["text", "audio_path"]),
+        }),
     )
 
     def __init__(
@@ -80,6 +87,7 @@ class RealtimeTarget(OpenAITarget, PromptChatTarget):
         *,
         voice: Optional[RealTimeVoice] = None,
         existing_convo: Optional[dict[str, Any]] = None,
+        custom_capabilities: Optional[TargetCapabilities] = None,
         **kwargs: Any,
     ) -> None:
         """
@@ -101,11 +109,13 @@ class RealtimeTarget(OpenAITarget, PromptChatTarget):
             voice (literal str, Optional): The voice to use. Defaults to None.
                 the only supported voices by the AzureOpenAI Realtime API are "alloy", "echo", and "shimmer".
             existing_convo (dict[str, websockets.WebSocketClientProtocol], Optional): Existing conversations.
+            custom_capabilities (TargetCapabilities, Optional): Override the default capabilities for
+                this target instance. Defaults to None.
             **kwargs: Additional keyword arguments passed to the parent OpenAITarget class.
             httpx_client_kwargs (dict, Optional): Additional kwargs to be passed to the ``httpx.AsyncClient()``
                 constructor. For example, to specify a 3 minute timeout: ``httpx_client_kwargs={"timeout": 180}``
         """
-        super().__init__(**kwargs)
+        super().__init__(custom_capabilities=custom_capabilities, **kwargs)
 
         self.voice = voice
         self._existing_conversation = existing_convo if existing_convo is not None else {}

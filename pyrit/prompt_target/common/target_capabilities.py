@@ -1,7 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, fields
 
 from pyrit.models import PromptDataType
 
@@ -30,10 +30,10 @@ class TargetCapabilities:
     supports_json_response: bool = False
 
     # The input modalities supported by the target (e.g., "text", "image").
-    input_modalities: list[PromptDataType] = field(default_factory=lambda: ["text"])
+    input_modalities: frozenset[frozenset[PromptDataType]] = frozenset({frozenset(["text"])})
 
     # The output modalities supported by the target (e.g., "text", "image").
-    output_modalities: list[PromptDataType] = field(default_factory=lambda: ["text"])
+    output_modalities: frozenset[frozenset[PromptDataType]] = frozenset({frozenset(["text"])})
 
     def assert_satifies(self, required_capabilities: "TargetCapabilities") -> None:
         """
@@ -49,8 +49,8 @@ class TargetCapabilities:
         for f in fields(required_capabilities):
             required_value = getattr(required_capabilities, f.name)
             self_value = getattr(self, f.name)
-            if isinstance(required_value, list):
-                missing = set(required_value) - set(self_value)
+            if isinstance(required_value, frozenset) and required_value and isinstance(next(iter(required_value)), frozenset):
+                missing = required_value - self_value
                 if missing:
                     unmet.append(f"{f.name}: missing {missing}")
             elif required_value and not self_value:

@@ -54,8 +54,8 @@ class OpenAIVideoTarget(OpenAITarget):
     SUPPORTED_IMAGE_FORMATS: list[str] = ["image/jpeg", "image/png", "image/webp"]
     _DEFAULT_CAPABILITIES: TargetCapabilities = TargetCapabilities(
         supports_multi_turn=False,
-        input_modalities=["text", "image_path"],
-        output_modalities=["video_path"],
+        input_modalities=frozenset({frozenset(["text"]), frozenset(["text", "image_path"]), frozenset(["text", "video_path"])}),
+        output_modalities=frozenset({frozenset(["video_path"])}),
     )
 
     def __init__(
@@ -63,6 +63,7 @@ class OpenAIVideoTarget(OpenAITarget):
         *,
         resolution_dimensions: VideoSize = "1280x720",
         n_seconds: int | VideoSeconds = 4,
+        custom_capabilities: Optional[TargetCapabilities] = None,
         **kwargs: Any,
     ) -> None:
         """
@@ -88,6 +89,8 @@ class OpenAIVideoTarget(OpenAITarget):
             n_seconds (int | VideoSeconds, Optional): The duration of the generated video.
                 Accepts an int (4, 8, 12) or a VideoSeconds string ("4", "8", "12").
                 Defaults to 4.
+            custom_capabilities (TargetCapabilities, Optional): Override the default capabilities for
+                this target instance. Defaults to None.
             **kwargs: Additional keyword arguments passed to the parent OpenAITarget class.
             httpx_client_kwargs (dict, Optional): Additional kwargs to be passed to the ``httpx.AsyncClient()``
                 constructor. For example, to specify a 3 minute timeout: ``httpx_client_kwargs={"timeout": 180}``
@@ -97,7 +100,7 @@ class OpenAIVideoTarget(OpenAITarget):
             MessagePiece. The video_id is returned in the response metadata after any successful
             generation (``response.message_pieces[0].prompt_metadata["video_id"]``).
         """
-        super().__init__(**kwargs)
+        super().__init__(custom_capabilities=custom_capabilities, **kwargs)
 
         self._n_seconds: VideoSeconds = (
             cast("VideoSeconds", str(n_seconds)) if isinstance(n_seconds, int) else n_seconds

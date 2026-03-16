@@ -29,6 +29,7 @@ class OpenAICompletionTarget(OpenAITarget):
         presence_penalty: Optional[float] = None,
         frequency_penalty: Optional[float] = None,
         n: Optional[int] = None,
+        custom_capabilities: Optional[TargetCapabilities] = None,
         *args: Any,
         **kwargs: Any,
     ) -> None:
@@ -62,12 +63,14 @@ class OpenAICompletionTarget(OpenAITarget):
                 tokens based on their existing frequency in the text so far, decreasing the model's likelihood to
                 repeat the same line verbatim.
             n (int, Optional): How many completions to generate for each prompt.
+            custom_capabilities (TargetCapabilities, Optional): Override the default capabilities for
+                this target instance. Defaults to None.
             *args: Variable length argument list passed to the parent class.
             **kwargs: Additional keyword arguments passed to the parent OpenAITarget class.
             httpx_client_kwargs (dict, Optional): Additional kwargs to be passed to the ``httpx.AsyncClient()``
                 constructor. For example, to specify a 3 minute timeout: ``httpx_client_kwargs={"timeout": 180}``
         """
-        super().__init__(*args, **kwargs)
+        super().__init__(custom_capabilities=custom_capabilities, *args, **kwargs)
 
         self._max_tokens = max_tokens
         self._temperature = temperature
