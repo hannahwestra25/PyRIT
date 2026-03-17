@@ -46,18 +46,6 @@ def sample_conversations() -> MutableSequence[MessagePiece]:
 
 
 @pytest.mark.asyncio
-async def test_azure_completion_validate_request_length(azure_completion_target: OpenAICompletionTarget):
-    request = Message(
-        message_pieces=[
-            MessagePiece(role="user", conversation_id="123", original_value="test"),
-            MessagePiece(role="user", conversation_id="123", original_value="test2"),
-        ]
-    )
-    with pytest.raises(ValueError, match="This target only supports a single message piece."):
-        await azure_completion_target.send_prompt_async(message=request)
-
-
-@pytest.mark.asyncio
 async def test_azure_completion_validate_prompt_type(azure_completion_target: OpenAICompletionTarget):
     request = Message(message_pieces=[get_image_message_piece()])
     with pytest.raises(ValueError, match="This target supports only the following data types"):

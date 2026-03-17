@@ -34,6 +34,7 @@ from pyrit.prompt_target import (
     OpenAIResponseTarget,
     PromptChatTarget,
 )
+from pyrit.prompt_target.common.target_capabilities import TargetCapabilities
 
 
 def fake_construct_response_from_request(request, response_text_pieces):
@@ -255,7 +256,23 @@ async def test_construct_request_body_serializes_complex_message(
 
 
 @pytest.mark.asyncio
-async def test_send_prompt_async_empty_response_adds_to_memory(openai_response_json: dict, target: OpenAIChatTarget):
+async def test_send_prompt_async_empty_response_adds_to_memory(openai_response_json: dict, patch_central_database):
+    target = OpenAIChatTarget(
+        model_name="gpt-o",
+        endpoint="https://mock.azure.com/",
+        api_key="mock-api-key",
+        custom_capabilities=TargetCapabilities(
+            supports_multi_turn=True,
+            supports_json_output=True,
+            supports_multi_message_pieces=True,
+            input_modalities=frozenset(
+                {
+                    frozenset(["text"]),
+                    frozenset(["text", "image_path"]),
+                }
+            ),
+        ),
+    )
     mock_memory = MagicMock()
     mock_memory.get_conversation.return_value = []
     mock_memory.add_message_to_memory = AsyncMock()
@@ -355,7 +372,23 @@ async def test_send_prompt_async_bad_request_error_adds_to_memory(target: OpenAI
 
 
 @pytest.mark.asyncio
-async def test_send_prompt_async(openai_response_json: dict, target: OpenAIChatTarget):
+async def test_send_prompt_async(openai_response_json: dict, patch_central_database):
+    target = OpenAIChatTarget(
+        model_name="gpt-o",
+        endpoint="https://mock.azure.com/",
+        api_key="mock-api-key",
+        custom_capabilities=TargetCapabilities(
+            supports_multi_turn=True,
+            supports_json_output=True,
+            supports_multi_message_pieces=True,
+            input_modalities=frozenset(
+                {
+                    frozenset(["text"]),
+                    frozenset(["text", "image_path"]),
+                }
+            ),
+        ),
+    )
     with NamedTemporaryFile(suffix=".jpg", delete=False) as tmp_file:
         tmp_file_name = tmp_file.name
     assert os.path.exists(tmp_file_name)
@@ -403,7 +436,23 @@ async def test_send_prompt_async(openai_response_json: dict, target: OpenAIChatT
 
 
 @pytest.mark.asyncio
-async def test_send_prompt_async_empty_response_retries(openai_response_json: dict, target: OpenAIChatTarget):
+async def test_send_prompt_async_empty_response_retries(openai_response_json: dict, patch_central_database):
+    target = OpenAIChatTarget(
+        model_name="gpt-o",
+        endpoint="https://mock.azure.com/",
+        api_key="mock-api-key",
+        custom_capabilities=TargetCapabilities(
+            supports_multi_turn=True,
+            supports_json_output=True,
+            supports_multi_message_pieces=True,
+            input_modalities=frozenset(
+                {
+                    frozenset(["text"]),
+                    frozenset(["text", "image_path"]),
+                }
+            ),
+        ),
+    )
     with NamedTemporaryFile(suffix=".jpg", delete=False) as tmp_file:
         tmp_file_name = tmp_file.name
     assert os.path.exists(tmp_file_name)

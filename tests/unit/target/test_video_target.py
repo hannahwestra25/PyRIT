@@ -12,6 +12,20 @@ from unit.mocks import get_sample_conversations
 from pyrit.exceptions import RateLimitException
 from pyrit.models import Message, MessagePiece
 from pyrit.prompt_target import OpenAIVideoTarget
+from pyrit.prompt_target.common.target_capabilities import TargetCapabilities
+
+_VIDEO_PATH_CAPABILITIES = TargetCapabilities(
+    supports_multi_turn=False,
+    supports_multi_message_pieces=True,
+    input_modalities=frozenset(
+        {
+            frozenset(["text"]),
+            frozenset(["text", "image_path"]),
+            frozenset(["text", "video_path"]),
+        }
+    ),
+    output_modalities=frozenset({frozenset(["video_path"])}),
+)
 
 
 @pytest.fixture
@@ -532,6 +546,7 @@ class TestVideoTargetRemix:
             endpoint="https://api.openai.com/v1",
             api_key="test",
             model_name="sora-2",
+            custom_capabilities=_VIDEO_PATH_CAPABILITIES,
         )
 
     @pytest.mark.asyncio
@@ -993,6 +1008,7 @@ class TestVideoTargetRemixValidation:
             endpoint="https://api.openai.com/v1",
             api_key="test",
             model_name="sora-2",
+            custom_capabilities=_VIDEO_PATH_CAPABILITIES,
         )
 
     def test_validate_accepts_text_and_video_path(self, video_target: OpenAIVideoTarget) -> None:

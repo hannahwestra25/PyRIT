@@ -51,7 +51,6 @@ class AzureBlobStorageTarget(PromptTarget):
     SAS_TOKEN_ENVIRONMENT_VARIABLE: str = "AZURE_STORAGE_ACCOUNT_SAS_TOKEN"
 
     _DEFAULT_CAPABILITIES: TargetCapabilities = TargetCapabilities(
-        supports_multi_message_pieces=True,
         input_modalities=frozenset(
             {
                 frozenset(["text"]),

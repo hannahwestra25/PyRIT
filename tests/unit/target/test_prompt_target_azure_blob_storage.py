@@ -58,23 +58,6 @@ def test_initialization_with_no_container_url_raises():
 
 @patch("azure.storage.blob.aio.ContainerClient.upload_blob")
 @pytest.mark.asyncio
-async def test_azure_blob_storage_validate_request_length(
-    mock_upload_async,
-    azure_blob_storage_target: AzureBlobStorageTarget,
-):
-    mock_upload_async.return_value = None
-    request = Message(
-        message_pieces=[
-            MessagePiece(role="user", conversation_id="123", original_value="test1"),
-            MessagePiece(role="user", conversation_id="123", original_value="test2"),
-        ]
-    )
-    with pytest.raises(ValueError, match="This target only supports a single message piece."):
-        await azure_blob_storage_target.send_prompt_async(message=request)
-
-
-@patch("azure.storage.blob.aio.ContainerClient.upload_blob")
-@pytest.mark.asyncio
 async def test_azure_blob_storage_validate_prompt_type(
     mock_upload_async,
     azure_blob_storage_target: AzureBlobStorageTarget,

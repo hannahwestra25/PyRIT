@@ -15,6 +15,7 @@ from pyrit.exceptions.exception_classes import (
 )
 from pyrit.models import Message, MessagePiece
 from pyrit.prompt_target import OpenAIImageTarget
+from pyrit.prompt_target.common.target_capabilities import TargetCapabilities
 
 
 @pytest.fixture
@@ -23,6 +24,17 @@ def image_target(patch_central_database) -> OpenAIImageTarget:
         model_name="dall-e-3",
         endpoint="test",
         api_key="test",
+        custom_capabilities=TargetCapabilities(
+            supports_multi_turn=False,
+            supports_multi_message_pieces=True,
+            input_modalities=frozenset(
+                {
+                    frozenset(["text"]),
+                    frozenset(["text", "image_path"]),
+                }
+            ),
+            output_modalities=frozenset({frozenset(["image_path"])}),
+        ),
     )
 
 
