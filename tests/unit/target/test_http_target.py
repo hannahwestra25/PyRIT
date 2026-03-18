@@ -151,7 +151,7 @@ async def test_send_prompt_async_validation(mock_http_target):
     with pytest.raises(ValueError) as value_error:
         await mock_http_target.send_prompt_async(message=invalid_message)
 
-    assert str(value_error.value) == "This target only supports a single message piece. Received: 0 pieces."
+    assert str(value_error.value) == "Message must contain at least one message piece. Received: 0 pieces."
 
 
 @pytest.mark.asyncio
