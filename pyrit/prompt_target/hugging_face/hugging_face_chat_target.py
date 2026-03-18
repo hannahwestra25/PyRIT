@@ -89,7 +89,8 @@ class HuggingFaceChatTarget(PromptChatTarget):
             torch_dtype (Optional[torch.dtype]): Torch data type for model weights.
             attn_implementation (Optional[str]): Attention implementation type.
             max_requests_per_minute (Optional[int]): The maximum number of requests per minute. Defaults to None.
-            custom_capabilities (Optional[TargetCapabilities]): Override the default capabilities for this target instance. Defaults to None
+            custom_capabilities (Optional[TargetCapabilities]): Override the default capabilities for this target
+            instance. Defaults to None
 
         Raises:
             ValueError: If neither or both of `model_id` and `model_path` are provided.

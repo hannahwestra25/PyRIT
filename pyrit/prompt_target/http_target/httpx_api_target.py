@@ -55,7 +55,8 @@ class HTTPXAPITarget(HTTPTarget):
         Args:
             http_url (str): The URL to send the HTTP request to.
             method (str): The HTTP method to use (GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS). Defaults to "POST".
-            file_path (str, Optional): Path to a file to upload. If not provided, we attempt to pull it from the prompt's `converted_value`.
+            file_path (str, Optional): Path to a file to upload. If not provided, we attempt to pull it from the
+            prompt's `converted_value`.
             json_data (dict, Optional): JSON data to send in the request body (for POST/PUT/PATCH).
             form_data (dict, Optional): Form data to send in the request body (for POST/PUT/PATCH).
             params (dict, Optional): Query parameters to include in the request URL (for GET/HEAD).
@@ -63,7 +64,8 @@ class HTTPXAPITarget(HTTPTarget):
             http2 (bool, Optional): Whether to use HTTP/2. If None, defaults to False.
             callback_function (Callable, Optional): Function to parse the HTTP response.
             max_requests_per_minute (int, Optional): Maximum number of requests per minute.
-            custom_capabilities (TargetCapabilities, Optional): Override the default capabilities for this target instance. Defaults to None.
+            custom_capabilities (TargetCapabilities, Optional): Override the default capabilities for this target instance.
+            Defaults to None.
             **httpx_client_kwargs: Additional keyword arguments to pass to the httpx.AsyncClient constructor.
 
         Raises:

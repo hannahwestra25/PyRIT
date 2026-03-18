@@ -97,7 +97,7 @@ class OpenAIImageTarget(OpenAITarget):
         self.style = style
         self.image_size = image_size
 
-        super().__init__(custom_capabilities=custom_capabilities, *args, **kwargs)
+        super().__init__(*args, custom_capabilities=custom_capabilities, **kwargs)
 
     def _set_openai_env_configuration_vars(self) -> None:
         self.model_name_environment_variable = "OPENAI_IMAGE_MODEL"
