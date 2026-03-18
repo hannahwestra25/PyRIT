@@ -73,7 +73,9 @@ class PromptTarget(Identifiable):
         self._model_name = model_name
         self._underlying_model = underlying_model
         self._capabilities = (
-            custom_capabilities if custom_capabilities is not None else type(self)._DEFAULT_CAPABILITIES
+            custom_capabilities
+            if custom_capabilities is not None
+            else type(self).get_default_capabilities(underlying_model)
         )
 
         if self._verbose:
@@ -189,6 +191,31 @@ class PromptTarget(Identifiable):
             TargetCapabilities: The capabilities for this target.
         """
         return self._capabilities
+
+    @classmethod
+    def get_default_capabilities(cls, underlying_model: Optional[str]) -> TargetCapabilities:
+        """
+        Return the capabilities for the given underlying model, falling back to
+        the class-level ``_DEFAULT_CAPABILITIES`` when the model is not recognized.
+
+        Args:
+            underlying_model (str | None): The underlying model name (e.g., "gpt-4o"),
+                or None if not specified.
+
+        Returns:
+            TargetCapabilities: Known capabilities for the model, or the class's own
+            ``_DEFAULT_CAPABILITIES`` if the model is unrecognized or not provided.
+        """
+        if underlying_model:
+            known = TargetCapabilities.get_known_capabilities(underlying_model)
+            if known is not None:
+                return known
+            logger.warning(
+                "No known capabilities for model '%s'. Falling back to %s._DEFAULT_CAPABILITIES.",
+                underlying_model,
+                cls.__name__,
+            )
+        return cls._DEFAULT_CAPABILITIES
 
     def _build_identifier(self) -> ComponentIdentifier:
         """

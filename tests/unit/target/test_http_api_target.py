@@ -73,17 +73,12 @@ async def test_send_prompt_async_no_file(mock_request, patch_central_database):
 @pytest.mark.asyncio
 @patch("httpx.AsyncClient.request")
 async def test_send_prompt_async_validation(mock_request, patch_central_database):
-    # HTTPXAPITarget accepts only text; sending an image_path piece should raise ValueError
-    message_piece = MessagePiece(
-        role="user",
-        original_value="image.png",
-        converted_value="image.png",
-        converted_value_data_type="image_path",
-    )
-    message = Message(message_pieces=[message_piece])
+    # Create an invalid message (empty message_pieces)
+    message = MagicMock()
+    message.message_pieces = []
     target = HTTPXAPITarget(http_url="http://example.com/validate/", method="POST", timeout=180)
 
     with pytest.raises(ValueError) as excinfo:
         await target.send_prompt_async(message=message)
 
-    assert "This target supports only the following data types" in str(excinfo.value)
+    assert "This target only supports a single message piece." in str(excinfo.value)

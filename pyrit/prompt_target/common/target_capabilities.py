@@ -2,6 +2,7 @@
 # Licensed under the MIT license.
 
 from dataclasses import dataclass, fields
+from typing import Optional
 
 from pyrit.models import PromptDataType
 
@@ -26,10 +27,11 @@ class TargetCapabilities:
     # Whether the target natively supports multiple message pieces in a single request.
     supports_multi_message_pieces: bool = False
 
-    # Whether the target natively supports JSON schema (e.g., via a "json" response format).
+    # Whether the target natively supports constraining output to a provided JSON schema.
     supports_json_schema: bool = False
 
-    # Whether the target natively supports JSON output (e.g., via a "json" response format).
+    # Whether the target natively supports JSON output (e.g., via a "json" response format), which ensures the output
+    # is valid JSON.
     supports_json_output: bool = False
 
     # Whether the target allows the attack history to be modified
@@ -67,3 +69,84 @@ class TargetCapabilities:
                 unmet.append(f.name)
         if unmet:
             raise ValueError(f"Target does not satisfy the following capabilities: {', '.join(unmet)}")
+
+    @staticmethod
+    def get_known_capabilities(underlying_model: str) -> "Optional[TargetCapabilities]":
+        """
+        Return the known capabilities for a specific underlying model, or None if unrecognized.
+
+        Args:
+            underlying_model (str): The underlying model name (e.g., "gpt-4o").
+
+        Returns:
+            TargetCapabilities | None: The known capabilities for the model, or None if the model
+            is not recognized.
+        """
+        if underlying_model == "gpt-4o":
+            return TargetCapabilities(
+                supports_multi_turn=True,
+                supports_multi_message_pieces=True,
+                supports_json_output=True,
+                input_modalities=frozenset(
+                    {
+                        frozenset({"text"}),
+                        frozenset({"image_path"}),
+                        frozenset({"text", "image_path"}),
+                    }
+                ),
+                output_modalities=frozenset(
+                    {
+                        frozenset({"text"}),
+                    }
+                ),
+            )
+        if underlying_model in ["gpt-5.4", "gpt-5.1", "gpt-5", "gpt-5.4-mini"]:
+            return TargetCapabilities(
+                supports_multi_turn=True,
+                supports_multi_message_pieces=True,
+                supports_json_schema=True,
+                supports_json_output=True,
+                input_modalities=frozenset(
+                    {frozenset({"text", "image_path"}), frozenset({"image_path"}), frozenset({"text"})}
+                ),
+                output_modalities=frozenset({frozenset({"text"})}),
+            )
+        if underlying_model == "gpt-realtime-1.5":
+            return TargetCapabilities(
+                supports_multi_turn=True,
+                supports_multi_message_pieces=True,
+                supports_editable_history=True,
+                input_modalities=frozenset(
+                    {
+                        frozenset({"text"}),
+                        frozenset({"audio_path"}),
+                        frozenset({"image_path"}),
+                        frozenset({"text", "audio_path"}),
+                        frozenset({"text", "image_path"}),
+                        frozenset({"audio_path", "image_path"}),
+                        frozenset({"text", "audio_path", "image_path"}),
+                    }
+                ),
+                output_modalities=frozenset(
+                    {
+                        frozenset({"text"}),
+                        frozenset({"audio_path"}),
+                        frozenset({"text", "audio_path"}),
+                    }
+                ),
+            )
+        if underlying_model == "tts":
+            return TargetCapabilities(
+                output_modalities=frozenset({frozenset({"audio_path"})}),
+            )
+        if underlying_model == "sora-2":
+            return TargetCapabilities(
+                supports_multi_turn=True,
+                supports_multi_message_pieces=True,
+                input_modalities=frozenset(
+                    {frozenset({"text", "image_path"}), frozenset({"image_path"}), frozenset({"text"})}
+                ),
+                output_modalities=frozenset({frozenset({"audio_path", "video_path"}), frozenset({"video_path"})}),
+            )
+
+        return None
