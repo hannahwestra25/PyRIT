@@ -34,7 +34,7 @@ class TargetCapabilities:
     # is valid JSON.
     supports_json_output: bool = False
 
-    # Whether the target allows the attack history to be modified. Implies that the target supports 
+    # Whether the target allows the attack history to be modified. Implies that the target supports
     # multi-turn interactions and that the attack history is not immutable once set.
     supports_editable_history: bool = False
 
