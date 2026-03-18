@@ -70,7 +70,7 @@ class OpenAICompletionTarget(OpenAITarget):
             httpx_client_kwargs (dict, Optional): Additional kwargs to be passed to the ``httpx.AsyncClient()``
                 constructor. For example, to specify a 3 minute timeout: ``httpx_client_kwargs={"timeout": 180}``
         """
-        super().__init__(custom_capabilities=custom_capabilities, *args, **kwargs)
+        super().__init__(*args, custom_capabilities=custom_capabilities, **kwargs)
 
         self._max_tokens = max_tokens
         self._temperature = temperature
