@@ -113,7 +113,8 @@ class PromptTarget(Identifiable):
         )
         if not self.capabilities.supports_multi_message_pieces and n_pieces != 1:
             raise ValueError(
-                f"This target only supports a single message piece. Received: {n_pieces} pieces. {custom_capabilities_message}"
+                f"This target only supports a single message piece. Received: {n_pieces} pieces. "
+                f"{custom_capabilities_message}"
             )
 
         for piece in message.message_pieces:
@@ -122,7 +123,8 @@ class PromptTarget(Identifiable):
             if piece_type not in supported_types_flat:
                 supported_types = ", ".join(sorted(supported_types_flat))
                 raise ValueError(
-                    f"This target supports only the following data types: {supported_types}. Received: {piece_type}. {custom_capabilities_message}"
+                    f"This target supports only the following data types: {supported_types}. Received: {piece_type}. "
+                    f"{custom_capabilities_message}"
                 )
 
         if not self.capabilities.supports_multi_turn:
