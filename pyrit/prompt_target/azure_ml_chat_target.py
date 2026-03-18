@@ -85,8 +85,8 @@ class AzureMLChatTarget(PromptChatTarget):
             max_requests_per_minute (int, Optional): Number of requests the target can handle per
                 minute before hitting a rate limit. The number of requests sent to the target
                 will be capped at the value provided.
-            custom_capabilities (TargetCapabilities, Optional): Override the default capabilities for this target instance.
-                Useful for targets whose capabilities depend on deployment configuration.
+            custom_capabilities (TargetCapabilities, Optional): Override the default capabilities for this target
+                instance. Useful for targets whose capabilities depend on deployment configuration.
             **param_kwargs: Additional parameters to pass to the model for generating responses. Example
                 parameters can be found here: https://huggingface.co/docs/api-inference/tasks/text-generation.
                 Note that the link above may not be comprehensive, and specific acceptable parameters may be

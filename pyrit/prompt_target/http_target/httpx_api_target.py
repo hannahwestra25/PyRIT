@@ -64,7 +64,8 @@ class HTTPXAPITarget(HTTPTarget):
             http2 (bool, Optional): Whether to use HTTP/2. If None, defaults to False.
             callback_function (Callable, Optional): Function to parse the HTTP response.
             max_requests_per_minute (int, Optional): Maximum number of requests per minute.
-            custom_capabilities (TargetCapabilities, Optional): Override the default capabilities for this target instance.
+            custom_capabilities (TargetCapabilities, Optional): Override the default capabilities for this target
+            instance.
             Defaults to None.
             **httpx_client_kwargs: Additional keyword arguments to pass to the httpx.AsyncClient constructor.
 

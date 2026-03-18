@@ -2,7 +2,7 @@
 # Licensed under the MIT license.
 
 from dataclasses import dataclass, fields
-from typing import Optional
+from typing import Optional, cast
 
 from pyrit.models import PromptDataType
 
@@ -82,71 +82,81 @@ class TargetCapabilities:
             TargetCapabilities | None: The known capabilities for the model, or None if the model
             is not recognized.
         """
-        if underlying_model == "gpt-4o":
-            return TargetCapabilities(
-                supports_multi_turn=True,
-                supports_multi_message_pieces=True,
-                supports_json_output=True,
-                input_modalities=frozenset(
-                    {
-                        frozenset({"text"}),
-                        frozenset({"image_path"}),
-                        frozenset({"text", "image_path"}),
-                    }
-                ),
-                output_modalities=frozenset(
-                    {
-                        frozenset({"text"}),
-                    }
-                ),
-            )
-        if underlying_model in ["gpt-5.4", "gpt-5.1", "gpt-5", "gpt-5.4-mini"]:
-            return TargetCapabilities(
-                supports_multi_turn=True,
-                supports_multi_message_pieces=True,
-                supports_json_schema=True,
-                supports_json_output=True,
-                input_modalities=frozenset(
-                    {frozenset({"text", "image_path"}), frozenset({"image_path"}), frozenset({"text"})}
-                ),
-                output_modalities=frozenset({frozenset({"text"})}),
-            )
-        if underlying_model == "gpt-realtime-1.5":
-            return TargetCapabilities(
-                supports_multi_turn=True,
-                supports_multi_message_pieces=True,
-                supports_editable_history=True,
-                input_modalities=frozenset(
-                    {
-                        frozenset({"text"}),
-                        frozenset({"audio_path"}),
-                        frozenset({"image_path"}),
-                        frozenset({"text", "audio_path"}),
-                        frozenset({"text", "image_path"}),
-                        frozenset({"audio_path", "image_path"}),
-                        frozenset({"text", "audio_path", "image_path"}),
-                    }
-                ),
-                output_modalities=frozenset(
-                    {
-                        frozenset({"text"}),
-                        frozenset({"audio_path"}),
-                        frozenset({"text", "audio_path"}),
-                    }
-                ),
-            )
-        if underlying_model == "tts":
-            return TargetCapabilities(
-                output_modalities=frozenset({frozenset({"audio_path"})}),
-            )
-        if underlying_model == "sora-2":
-            return TargetCapabilities(
-                supports_multi_turn=True,
-                supports_multi_message_pieces=True,
-                input_modalities=frozenset(
-                    {frozenset({"text", "image_path"}), frozenset({"image_path"}), frozenset({"text"})}
-                ),
-                output_modalities=frozenset({frozenset({"audio_path", "video_path"}), frozenset({"video_path"})}),
-            )
+        return _KNOWN_CAPABILITIES.get(underlying_model)
 
-        return None
+
+# ---------------------------------------------------------------------------
+# Known capability profiles — add new models here.
+# Shared profiles are defined once and referenced by multiple model names.
+# ---------------------------------------------------------------------------
+
+_TEXT_IMAGE_INPUT: frozenset[frozenset[PromptDataType]] = cast(
+    "frozenset[frozenset[PromptDataType]]",
+    frozenset({frozenset({"text"}), frozenset({"image_path"}), frozenset({"text", "image_path"})}),
+)
+_TEXT_OUTPUT: frozenset[frozenset[PromptDataType]] = cast(
+    "frozenset[frozenset[PromptDataType]]",
+    frozenset({frozenset({"text"})}),
+)
+
+_GPT_4O = TargetCapabilities(
+    supports_multi_turn=True,
+    supports_multi_message_pieces=True,
+    supports_json_output=True,
+    input_modalities=_TEXT_IMAGE_INPUT,
+    output_modalities=_TEXT_OUTPUT,
+)
+
+_GPT_5 = TargetCapabilities(
+    supports_multi_turn=True,
+    supports_multi_message_pieces=True,
+    supports_json_schema=True,
+    supports_json_output=True,
+    input_modalities=_TEXT_IMAGE_INPUT,
+    output_modalities=_TEXT_OUTPUT,
+)
+
+_GPT_REALTIME_1_5 = TargetCapabilities(
+    supports_multi_turn=True,
+    supports_multi_message_pieces=True,
+    supports_editable_history=True,
+    input_modalities=frozenset(
+        {
+            frozenset({"text"}),
+            frozenset({"audio_path"}),
+            frozenset({"image_path"}),
+            frozenset({"text", "audio_path"}),
+            frozenset({"text", "image_path"}),
+            frozenset({"audio_path", "image_path"}),
+            frozenset({"text", "audio_path", "image_path"}),
+        }
+    ),
+    output_modalities=frozenset(
+        {
+            frozenset({"text"}),
+            frozenset({"audio_path"}),
+            frozenset({"text", "audio_path"}),
+        }
+    ),
+)
+
+_TTS = TargetCapabilities(
+    output_modalities=frozenset({frozenset({"audio_path"})}),
+)
+
+_SORA_2 = TargetCapabilities(
+    supports_multi_turn=True,
+    supports_multi_message_pieces=True,
+    input_modalities=_TEXT_IMAGE_INPUT,
+    output_modalities=frozenset({frozenset({"audio_path", "video_path"}), frozenset({"video_path"})}),
+)
+
+_KNOWN_CAPABILITIES: dict[str, TargetCapabilities] = {
+    "gpt-4o": _GPT_4O,
+    "gpt-5": _GPT_5,
+    "gpt-5.1": _GPT_5,
+    "gpt-5.4": _GPT_5,
+    "gpt-realtime-1.5": _GPT_REALTIME_1_5,
+    "tts": _TTS,
+    "sora-2": _SORA_2,
+}

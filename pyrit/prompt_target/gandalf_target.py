@@ -54,7 +54,8 @@ class GandalfTarget(PromptTarget):
             max_requests_per_minute (int, Optional): Number of requests the target can handle per
                 minute before hitting a rate limit. The number of requests sent to the target
                 will be capped at the value provided.
-            custom_capabilities (TargetCapabilities, Optional): Override the default capabilities for this target instance.
+            custom_capabilities (TargetCapabilities, Optional): Override the default capabilities for this
+              target instance.
         """
         endpoint = "https://gandalf-api.lakera.ai/api/send-message"
         super().__init__(
