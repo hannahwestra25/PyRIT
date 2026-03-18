@@ -434,7 +434,11 @@ class TestVideoTargetValidation:
             converted_value_data_type="audio_path",
             conversation_id=conversation_id,
         )
-        with pytest.raises(ValueError, match="This target supports only the following data types"):
+        with pytest.raises(
+            ValueError,
+            match="This target supports only the following data types.*If your target does support this, set the"
+            " custom_capabilities parameter accordingly",
+        ):
             video_target._validate_request(message=Message([msg_text, msg_audio]))
 
     def test_validate_rejects_remix_with_image(self, video_target: OpenAIVideoTarget):
@@ -994,7 +998,11 @@ def test_video_validate_previous_conversations(
 
     request = Message(message_pieces=[message_piece])
 
-    with pytest.raises(ValueError, match="This target only supports a single turn conversation."):
+    with pytest.raises(
+        ValueError,
+        match="This target only supports a single turn conversation.*If your target does support this, set the"
+        " custom_capabilities parameter accordingly",
+    ):
         video_target._validate_request(message=request)
 
 

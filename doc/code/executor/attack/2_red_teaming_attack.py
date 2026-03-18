@@ -282,6 +282,7 @@ adversarial_config = AttackAdversarialConfig(
 scoring_config = AttackScoringConfig(
     objective_scorer=SelfAskTrueFalseScorer(
         chat_target=OpenAIChatTarget(
+            # The scorer evaluates image outputs from the attack; override capabilities to support image input modalities.
             custom_capabilities=TargetCapabilities(
                 supports_multi_message_pieces=True,
                 supports_multi_turn=True,

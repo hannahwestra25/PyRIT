@@ -65,14 +65,22 @@ async def test_tts_validate_request_length(tts_target: OpenAITTSTarget):
             MessagePiece(role="user", conversation_id="123", original_value="test2"),
         ]
     )
-    with pytest.raises(ValueError, match="This target only supports a single message piece."):
+    with pytest.raises(
+        ValueError,
+        match="This target only supports a single message piece.*If your target does support this, set the"
+        " custom_capabilities parameter accordingly",
+    ):
         await tts_target.send_prompt_async(message=request)
 
 
 @pytest.mark.asyncio
 async def test_tts_validate_prompt_type(tts_target: OpenAITTSTarget):
     request = Message(message_pieces=[get_image_message_piece()])
-    with pytest.raises(ValueError, match="This target supports only the following data types"):
+    with pytest.raises(
+        ValueError,
+        match="This target supports only the following data types.*If your target does support this, set the"
+        " custom_capabilities parameter accordingly",
+    ):
         await tts_target.send_prompt_async(message=request)
 
 
@@ -92,7 +100,11 @@ async def test_tts_validate_previous_conversations(
 
     with patch("pyrit.common.net_utility.make_request_and_raise_if_error_async") as mock_request:
         mock_request.return_value = MagicMock(content=b"audio data")
-        with pytest.raises(ValueError, match="This target only supports a single turn conversation."):
+        with pytest.raises(
+            ValueError,
+            match="This target only supports a single turn conversation.*If your target does support this, set the"
+            " custom_capabilities parameter accordingly",
+        ):
             await tts_target.send_prompt_async(message=request)
 
 

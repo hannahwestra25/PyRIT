@@ -139,6 +139,7 @@ api_key = get_azure_openai_auth(endpoint)
 chat_target = OpenAIChatTarget(
     endpoint=endpoint,
     api_key=api_key,
+    # Override default (text-only) capabilities to enable image input, multi-turn, and JSON output for this multi-modal example.
     custom_capabilities=TargetCapabilities(
         supports_multi_turn=True,
         supports_json_output=True,
@@ -151,6 +152,7 @@ scorer = SelfAskTrueFalseScorer(
     chat_target=OpenAIChatTarget(
         endpoint=endpoint,
         api_key=api_key,
+        # The scorer also needs to read image responses; override capabilities to support image input modalities.
         custom_capabilities=TargetCapabilities(
             supports_multi_turn=True,
             supports_json_output=True,

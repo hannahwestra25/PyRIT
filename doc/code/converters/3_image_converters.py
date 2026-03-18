@@ -179,6 +179,7 @@ from pyrit.models import SeedGroup, SeedPrompt
 from pyrit.prompt_target import OpenAIChatTarget
 
 llm_target = OpenAIChatTarget(
+    # The target needs to accept a multi-piece message containing an image; override the default text-only capabilities.
     custom_capabilities=TargetCapabilities(
         supports_multi_message_pieces=True,
         supports_multi_turn=True,

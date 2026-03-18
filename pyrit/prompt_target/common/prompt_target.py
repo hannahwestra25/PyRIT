@@ -105,8 +105,16 @@ class PromptTarget(Identifiable):
 
         """
         n_pieces = len(message.message_pieces)
+        if n_pieces == 0:
+            raise ValueError("Message must contain at least one message piece. Received: 0 pieces.")
+
+        custom_capabilities_message = (
+            "If your target does support this, set the custom_capabilities parameter accordingly."
+        )
         if not self.capabilities.supports_multi_message_pieces and n_pieces != 1:
-            raise ValueError(f"This target only supports a single message piece. Received: {n_pieces} pieces.")
+            raise ValueError(
+                f"This target only supports a single message piece. Received: {n_pieces} pieces. {custom_capabilities_message}"
+            )
 
         for piece in message.message_pieces:
             piece_type = piece.converted_value_data_type
@@ -114,7 +122,7 @@ class PromptTarget(Identifiable):
             if piece_type not in supported_types_flat:
                 supported_types = ", ".join(sorted(supported_types_flat))
                 raise ValueError(
-                    f"This target supports only the following data types: {supported_types}. Received: {piece_type}."
+                    f"This target supports only the following data types: {supported_types}. Received: {piece_type}. {custom_capabilities_message}"
                 )
 
         if not self.capabilities.supports_multi_turn:
@@ -122,7 +130,7 @@ class PromptTarget(Identifiable):
             messages = self._memory.get_message_pieces(conversation_id=request.conversation_id)
 
             if len(messages) > 0:
-                raise ValueError("This target only supports a single turn conversation.")
+                raise ValueError(f"This target only supports a single turn conversation. {custom_capabilities_message}")
 
     def set_model_name(self, *, model_name: str) -> None:
         """

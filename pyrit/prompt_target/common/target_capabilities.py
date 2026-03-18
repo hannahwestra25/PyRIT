@@ -1,7 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
-from dataclasses import dataclass, fields
+from dataclasses import dataclass
 from typing import Optional, cast
 
 from pyrit.models import PromptDataType
@@ -34,7 +34,8 @@ class TargetCapabilities:
     # is valid JSON.
     supports_json_output: bool = False
 
-    # Whether the target allows the attack history to be modified
+    # Whether the target allows the attack history to be modified. Implies that the target supports multi-turn interactions
+    # and that the attack history is not immutable once set.
     supports_editable_history: bool = False
 
     # The input modalities supported by the target (e.g., "text", "image").
@@ -42,33 +43,6 @@ class TargetCapabilities:
 
     # The output modalities supported by the target (e.g., "text", "image").
     output_modalities: frozenset[frozenset[PromptDataType]] = frozenset({frozenset(["text"])})
-
-    def assert_satifies(self, required_capabilities: "TargetCapabilities") -> None:
-        """
-        Assert that the current capabilities satisfy the required capabilities.
-
-        Args:
-            required_capabilities (TargetCapabilities): The required capabilities to check against.
-
-        Raises:
-            ValueError: If any of the required capabilities are not satisfied.
-        """
-        unmet = []
-        for f in fields(required_capabilities):
-            required_value = getattr(required_capabilities, f.name)
-            self_value = getattr(self, f.name)
-            if (
-                isinstance(required_value, frozenset)
-                and required_value
-                and isinstance(next(iter(required_value)), frozenset)
-            ):
-                missing = required_value - self_value
-                if missing:
-                    unmet.append(f"{f.name}: missing {missing}")
-            elif required_value and not self_value:
-                unmet.append(f.name)
-        if unmet:
-            raise ValueError(f"Target does not satisfy the following capabilities: {', '.join(unmet)}")
 
     @staticmethod
     def get_known_capabilities(underlying_model: str) -> "Optional[TargetCapabilities]":

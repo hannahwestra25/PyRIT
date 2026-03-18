@@ -523,5 +523,9 @@ async def test_validate_previous_conversations(
 
     request = Message(message_pieces=[message_piece])
 
-    with pytest.raises(ValueError, match="This target only supports a single turn conversation."):
+    with pytest.raises(
+        ValueError,
+        match="This target only supports a single turn conversation.*If your target does support this, set the"
+        " custom_capabilities parameter accordingly",
+    ):
         await image_target.send_prompt_async(message=request)

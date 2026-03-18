@@ -42,6 +42,7 @@ img_prompt_target = OpenAIImageTarget(
     endpoint=image_endpoint,
     api_key=get_azure_openai_auth(image_endpoint),
     output_format="jpeg",
+    # Override default capabilities to enable multi-turn, JSON output, and multi-modal input for this attack-with-scoring example.
     custom_capabilities=TargetCapabilities(
         supports_multi_turn=True,
         supports_json_output=True,
@@ -55,6 +56,7 @@ image_scorer = SelfAskTrueFalseScorer(
     chat_target=OpenAIChatTarget(
         endpoint=chat_endpoint,
         api_key=get_azure_openai_auth(chat_endpoint),
+        # The scorer needs to evaluate image responses; override capabilities to support image input modalities.
         custom_capabilities=TargetCapabilities(
             supports_multi_turn=True,
             supports_json_output=True,

@@ -21,8 +21,6 @@ class HuggingFaceEndpointTarget(PromptTarget):
     Inherits from PromptTarget to comply with the current design standards.
     """
 
-    _DEFAULT_CAPABILITIES: TargetCapabilities = TargetCapabilities(supports_multi_message_pieces=True)
-
     def __init__(
         self,
         *,
@@ -34,6 +32,7 @@ class HuggingFaceEndpointTarget(PromptTarget):
         top_p: float = 1.0,
         max_requests_per_minute: Optional[int] = None,
         verbose: bool = False,
+        custom_capabilities: Optional[TargetCapabilities] = None,
     ) -> None:
         """
         Initialize the HuggingFaceEndpointTarget with API credentials and model parameters.
@@ -47,12 +46,14 @@ class HuggingFaceEndpointTarget(PromptTarget):
             top_p (float, Optional): The cumulative probability for nucleus sampling. Defaults to 1.0.
             max_requests_per_minute (Optional[int]): The maximum number of requests per minute. Defaults to None.
             verbose (bool, Optional): Flag to enable verbose logging. Defaults to False.
+            custom_capabilities (Optional[TargetCapabilities]): Custom capabilities for this target instance.
         """
         super().__init__(
             max_requests_per_minute=max_requests_per_minute,
             verbose=verbose,
             endpoint=endpoint,
             model_name=model_id,
+            custom_capabilities=custom_capabilities,
         )
 
         validate_temperature(temperature)

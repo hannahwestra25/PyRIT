@@ -150,7 +150,11 @@ class TestPlaywrightCopilotTarget:
         )
         request = Message(message_pieces=[unsupported_piece])
 
-        with pytest.raises(ValueError, match=r"This target supports only the following data types"):
+        with pytest.raises(
+            ValueError,
+            match=r"This target supports only the following data types.*If your target does support this, set the"
+            r" custom_capabilities parameter accordingly",
+        ):
             target._validate_request(message=request)
 
     def test_validate_request_valid_text(self, mock_page, text_request_piece):
