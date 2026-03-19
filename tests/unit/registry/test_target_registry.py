@@ -7,7 +7,6 @@ import pytest
 from pyrit.identifiers import ComponentIdentifier
 from pyrit.models import Message, MessagePiece
 from pyrit.prompt_target import PromptTarget
-from pyrit.prompt_target.common.prompt_chat_target import PromptChatTarget
 from pyrit.registry.instance_registries.target_registry import TargetRegistry
 
 
@@ -26,28 +25,6 @@ class MockPromptTarget(PromptTarget):
             MessagePiece(
                 role="assistant",
                 original_value="mock response",
-            ).to_message()
-        ]
-
-    def _validate_request(self, *, message: Message) -> None:
-        pass
-
-
-class MockPromptChatTarget(PromptChatTarget):
-    """Mock PromptChatTarget for testing conversation history support."""
-
-    def __init__(self, *, model_name: str = "mock_chat_model", endpoint: str = "http://chat-test") -> None:
-        super().__init__(model_name=model_name, endpoint=endpoint)
-
-    async def send_prompt_async(
-        self,
-        *,
-        message: Message,
-    ) -> list[Message]:
-        return [
-            MessagePiece(
-                role="assistant",
-                original_value="chat response",
             ).to_message()
         ]
 
@@ -121,7 +98,7 @@ class TestTargetRegistryRegisterInstance:
     def test_register_instance_multiple_targets_unique_names(self):
         """Test registering multiple targets generates unique names."""
         target1 = MockPromptTarget()
-        target2 = MockPromptChatTarget()
+        target2 = MockPromptTarget()
 
         self.registry.register_instance(target1)
         self.registry.register_instance(target2)

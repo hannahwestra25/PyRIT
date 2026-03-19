@@ -21,7 +21,7 @@ from pyrit.models import (
     SeedPrompt,
 )
 from pyrit.prompt_converter.prompt_converter import ConverterResult, PromptConverter
-from pyrit.prompt_target import PromptChatTarget
+from pyrit.prompt_target import PromptTarget
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +52,7 @@ class PersuasionConverter(PromptConverter):
     def __init__(
         self,
         *,
-        converter_target: PromptChatTarget = REQUIRED_VALUE,  # type: ignore[assignment]
+        converter_target: PromptTarget = REQUIRED_VALUE,  # type: ignore[assignment]
         persuasion_technique: str,
     ):
         """

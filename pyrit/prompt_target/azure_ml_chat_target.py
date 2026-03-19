@@ -19,14 +19,14 @@ from pyrit.models import (
     Message,
     construct_response_from_request,
 )
-from pyrit.prompt_target.common.prompt_chat_target import PromptChatTarget
+from pyrit.prompt_target.common.prompt_target import PromptTarget
 from pyrit.prompt_target.common.target_capabilities import TargetCapabilities
 from pyrit.prompt_target.common.utils import limit_requests_per_minute, validate_temperature, validate_top_p
 
 logger = logging.getLogger(__name__)
 
 
-class AzureMLChatTarget(PromptChatTarget):
+class AzureMLChatTarget(PromptTarget):
     """
     A prompt target for Azure Machine Learning chat endpoints.
 
@@ -96,8 +96,7 @@ class AzureMLChatTarget(PromptChatTarget):
         endpoint_value = default_values.get_required_value(
             env_var_name=self.endpoint_uri_environment_variable, passed_value=endpoint
         )
-        PromptChatTarget.__init__(
-            self,
+        super().__init__(
             max_requests_per_minute=max_requests_per_minute,
             endpoint=endpoint_value,
             model_name=model_name,

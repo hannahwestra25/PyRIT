@@ -15,7 +15,7 @@ from pyrit.executor.promptgen.anecdoctor import (
 from pyrit.identifiers import ComponentIdentifier
 from pyrit.models import Message
 from pyrit.prompt_normalizer import PromptNormalizer
-from pyrit.prompt_target import PromptChatTarget
+from pyrit.prompt_target import PromptTarget
 
 
 def _mock_target_id(name: str = "MockTarget") -> ComponentIdentifier:
@@ -27,18 +27,18 @@ def _mock_target_id(name: str = "MockTarget") -> ComponentIdentifier:
 
 
 @pytest.fixture
-def mock_objective_target() -> PromptChatTarget:
+def mock_objective_target() -> PromptTarget:
     """Create a mock objective target for testing."""
-    mock_target = MagicMock(spec=PromptChatTarget)
+    mock_target = MagicMock(spec=PromptTarget)
     mock_target.set_system_prompt = MagicMock()
     mock_target.get_identifier.return_value = _mock_target_id("mock_objective_target")
     return mock_target
 
 
 @pytest.fixture
-def mock_processing_model() -> PromptChatTarget:
+def mock_processing_model() -> PromptTarget:
     """Create a mock processing model for testing."""
-    mock_model = MagicMock(spec=PromptChatTarget)
+    mock_model = MagicMock(spec=PromptTarget)
     mock_model.set_system_prompt = MagicMock()
     mock_model.get_identifier.return_value = _mock_target_id("MockProcessingModel")
     return mock_model

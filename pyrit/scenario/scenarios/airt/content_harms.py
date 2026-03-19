@@ -20,7 +20,7 @@ from pyrit.executor.attack import (
     TreeOfAttacksWithPruningAttack,
 )
 from pyrit.models import SeedAttackGroup, SeedGroup
-from pyrit.prompt_target import OpenAIChatTarget, PromptChatTarget
+from pyrit.prompt_target import OpenAIChatTarget, PromptTarget
 from pyrit.scenario.core.atomic_attack import AtomicAttack
 from pyrit.scenario.core.dataset_configuration import DatasetConfiguration
 from pyrit.scenario.core.scenario import Scenario
@@ -156,7 +156,7 @@ class ContentHarms(Scenario):
     def __init__(
         self,
         *,
-        adversarial_chat: Optional[PromptChatTarget] = None,
+        adversarial_chat: Optional[PromptTarget] = None,
         objective_scorer: Optional[TrueFalseScorer] = None,
         scenario_result_id: Optional[str] = None,
         objectives_by_harm: Optional[dict[str, Sequence[SeedGroup]]] = None,
@@ -165,7 +165,7 @@ class ContentHarms(Scenario):
         Initialize the Content Harms Scenario.
 
         Args:
-            adversarial_chat (Optional[PromptChatTarget]): Additionally used for scoring defaults.
+            adversarial_chat (Optional[PromptTarget]): Additionally used for scoring defaults.
                 If not provided, a default OpenAI target will be created using environment variables.
             objective_scorer (Optional[TrueFalseScorer]): Scorer to evaluate attack success.
                 If not provided, creates a default composite scorer using Azure Content Filter

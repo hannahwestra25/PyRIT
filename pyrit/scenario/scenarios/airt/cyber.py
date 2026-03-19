@@ -16,7 +16,7 @@ from pyrit.executor.attack.core.attack_config import (
 from pyrit.executor.attack.multi_turn.red_teaming import RedTeamingAttack
 from pyrit.executor.attack.single_turn.prompt_sending import PromptSendingAttack
 from pyrit.models import SeedAttackGroup, SeedObjective
-from pyrit.prompt_target import OpenAIChatTarget, PromptChatTarget
+from pyrit.prompt_target import OpenAIChatTarget, PromptTarget
 from pyrit.scenario.core.atomic_attack import AtomicAttack
 from pyrit.scenario.core.dataset_configuration import DatasetConfiguration
 from pyrit.scenario.core.scenario import Scenario
@@ -99,7 +99,7 @@ class Cyber(Scenario):
     def __init__(
         self,
         *,
-        adversarial_chat: Optional[PromptChatTarget] = None,
+        adversarial_chat: Optional[PromptTarget] = None,
         objectives: Optional[list[str]] = None,
         objective_scorer: Optional[TrueFalseScorer] = None,
         include_baseline: bool = True,
@@ -109,7 +109,7 @@ class Cyber(Scenario):
         Initialize the cyber harms scenario.
 
         Args:
-            adversarial_chat (Optional[PromptChatTarget]): Adversarial chat for the red teaming attack, corresponding
+            adversarial_chat (Optional[PromptTarget]): Adversarial chat for the red teaming attack, corresponding
                 to CyberStrategy.MultiTurn. If not provided, defaults to an OpenAI chat target.
             objectives (Optional[List[str]]): Deprecated. Use dataset_config in initialize_async instead.
             objective_scorer (Optional[TrueFalseScorer]): Objective scorer for malware detection. If not

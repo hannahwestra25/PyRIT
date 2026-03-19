@@ -20,7 +20,6 @@ from pyrit.prompt_normalizer.prompt_converter_configuration import (
 )
 from pyrit.prompt_normalizer.prompt_normalizer import PromptNormalizer
 from pyrit.prompt_target import PromptTarget
-from pyrit.prompt_target.common.prompt_chat_target import PromptChatTarget
 
 if TYPE_CHECKING:
     from pyrit.executor.attack.core import AttackContext
@@ -242,7 +241,7 @@ class ConversationManager:
     def set_system_prompt(
         self,
         *,
-        target: PromptChatTarget,
+        target: PromptTarget,
         conversation_id: str,
         system_prompt: str,
         labels: Optional[dict[str, str]] = None,
@@ -283,11 +282,12 @@ class ConversationManager:
         3. Updates context.executed_turns for multi-turn attacks
         4. Sets context.next_message if there's an unanswered user message
 
-        For PromptChatTarget:
+        For multi-turn PromptTarget:
             - Adds prepended messages to memory with simulated_assistant role
             - All messages get new UUIDs
 
-        For non-chat PromptTarget:
+        TODO:
+        For single-turn PromptTarget:
             - If `config.non_chat_target_behavior="normalize_first_turn"`: normalizes
               conversation to string and prepends to context.next_message
             - If `config.non_chat_target_behavior="raise"`: raises ValueError
@@ -306,7 +306,7 @@ class ConversationManager:
 
         Raises:
             ValueError: If conversation_id is empty, or if prepended_conversation
-                requires a PromptChatTarget but target is not one.
+                requires a multi-turn target but target does not support multi-turn.
         """
         if not conversation_id:
             raise ValueError("conversation_id cannot be empty")
@@ -322,8 +322,9 @@ class ConversationManager:
             return state
 
         # Handle target type compatibility
-        is_chat_target = isinstance(target, PromptChatTarget)
-        if not is_chat_target:
+        is_multi_turn_target = target.capabilities.supports_multi_turn
+        if not is_multi_turn_target:
+            
             return await self._handle_non_chat_target_async(
                 context=context,
                 prepended_conversation=prepended_conversation,
@@ -340,7 +341,7 @@ class ConversationManager:
             max_turns=max_turns,
         )
 
-    async def _handle_non_chat_target_async(
+    async def _handle_single_turn_target_async(
         self,
         *,
         context: "AttackContext[Any]",
@@ -348,26 +349,26 @@ class ConversationManager:
         config: Optional["PrependedConversationConfig"],
     ) -> ConversationState:
         """
-        Handle prepended conversation for non-chat targets.
+        Handle prepended conversation for single-turn targets.
 
         Args:
             context: The attack context.
             prepended_conversation: Messages to prepend.
-            config: Configuration for non-chat target behavior.
+            config: Configuration for single-turn target behavior.
 
         Returns:
-            Empty ConversationState (non-chat targets don't track turns).
+            Empty ConversationState (single-turn targets don't track turns).
 
         Raises:
-            ValueError: If config requires raising for non-chat targets.
+            ValueError: If config requires raising for single-turn targets.
         """
         if config is None:
             config = PrependedConversationConfig()
 
         if config.non_chat_target_behavior == "raise":
             raise ValueError(
-                "prepended_conversation requires the objective target to be a PromptChatTarget. "
-                "Non-chat objective targets do not support conversation history. "
+                "prepended_conversation requires the objective target to support multi-turn conversations. "
+                "Non-multi-turn objective targets do not support conversation history. "
                 "Use PrependedConversationConfig with non_chat_target_behavior='normalize_first_turn' "
                 "to normalize the conversation into the first message instead."
             )

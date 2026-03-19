@@ -20,7 +20,7 @@ from pyrit.models import (
 )
 from pyrit.prompt_converter import LLMGenericTextConverter
 from pyrit.prompt_normalizer import PromptConverterConfiguration, PromptNormalizer
-from pyrit.prompt_target import PromptChatTarget, PromptTarget
+from pyrit.prompt_target import PromptTarget
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +66,7 @@ class RolePlayAttack(PromptSendingAttack):
         self,
         *,
         objective_target: PromptTarget = REQUIRED_VALUE,  # type: ignore[assignment]
-        adversarial_chat: PromptChatTarget,
+        adversarial_chat: PromptTarget,
         role_play_definition_path: pathlib.Path,
         attack_converter_config: Optional[AttackConverterConfig] = None,
         attack_scoring_config: Optional[AttackScoringConfig] = None,
@@ -78,7 +78,7 @@ class RolePlayAttack(PromptSendingAttack):
 
         Args:
             objective_target (PromptTarget): The target system to attack.
-            adversarial_chat (PromptChatTarget): The adversarial chat target used to rephrase
+            adversarial_chat (PromptTarget): The adversarial chat target used to rephrase
                 objectives into role-play scenarios.
             role_play_definition_path (pathlib.Path): Path to the YAML file containing role-play
                 definitions (rephrase instructions, user start turn, assistant start turn).

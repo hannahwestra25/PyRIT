@@ -34,7 +34,7 @@ from pyrit.executor.attack.single_turn.single_turn_attack_strategy import (
 from pyrit.models import Message, SeedAttackGroup
 
 if TYPE_CHECKING:
-    from pyrit.prompt_target import PromptChatTarget
+    from pyrit.prompt_target import PromptTarget
     from pyrit.score import TrueFalseScorer
 
 AttackResultT = TypeVar("AttackResultT")
@@ -145,7 +145,7 @@ class AttackExecutor:
         *,
         attack: AttackStrategy[AttackStrategyContextT, AttackStrategyResultT],
         seed_groups: Sequence[SeedAttackGroup],
-        adversarial_chat: Optional["PromptChatTarget"] = None,
+        adversarial_chat: Optional["PromptTarget"] = None,
         objective_scorer: Optional["TrueFalseScorer"] = None,
         field_overrides: Optional[Sequence[dict[str, Any]]] = None,
         return_partial_on_failure: bool = False,

@@ -7,7 +7,8 @@ from typing import Any, Optional, Union
 
 from pyrit.identifiers import ComponentIdentifier, Identifiable
 from pyrit.memory import CentralMemory, MemoryInterface
-from pyrit.models import Message
+from pyrit.models import Message, MessagePiece
+from pyrit.models.json_response_config import _JsonResponseConfig
 from pyrit.prompt_target.common.target_capabilities import TargetCapabilities
 
 logger = logging.getLogger(__name__)

@@ -24,7 +24,7 @@ from pyrit.models import (
     data_serializer_factory,
 )
 from pyrit.models.json_response_config import _JsonResponseConfig
-from pyrit.prompt_target.common.prompt_chat_target import PromptChatTarget
+from pyrit.prompt_target.common.prompt_target import PromptTarget
 from pyrit.prompt_target.common.target_capabilities import TargetCapabilities
 from pyrit.prompt_target.common.utils import limit_requests_per_minute, validate_temperature, validate_top_p
 from pyrit.prompt_target.openai.openai_chat_audio_config import OpenAIChatAudioConfig
@@ -33,7 +33,7 @@ from pyrit.prompt_target.openai.openai_target import OpenAITarget
 logger = logging.getLogger(__name__)
 
 
-class OpenAIChatTarget(OpenAITarget, PromptChatTarget):
+class OpenAIChatTarget(OpenAITarget, PromptTarget):
     """
     Facilitates multimodal (image and text) input and text output generation.
 

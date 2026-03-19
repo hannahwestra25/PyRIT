@@ -13,7 +13,7 @@ from pyrit.executor.attack import PromptSendingAttack, RedTeamingAttack
 from pyrit.executor.attack.core.attack_config import AttackScoringConfig
 from pyrit.identifiers import ComponentIdentifier
 from pyrit.models import SeedAttackGroup, SeedDataset, SeedObjective
-from pyrit.prompt_target import OpenAIChatTarget, PromptChatTarget, PromptTarget
+from pyrit.prompt_target import OpenAIChatTarget, PromptTarget
 from pyrit.scenario import DatasetConfiguration
 from pyrit.scenario.airt import Cyber, CyberStrategy
 from pyrit.score import TrueFalseCompositeScorer
@@ -105,7 +105,7 @@ def mock_objective_scorer():
 @pytest.fixture
 def mock_adversarial_target():
     """Create a mock adversarial target for testing."""
-    mock = MagicMock(spec=PromptChatTarget)
+    mock = MagicMock(spec=PromptTarget)
     mock.get_identifier.return_value = _mock_target_id("MockAdversarialTarget")
     return mock
 

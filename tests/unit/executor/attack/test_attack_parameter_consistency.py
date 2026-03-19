@@ -34,7 +34,7 @@ from pyrit.models import (
     Score,
 )
 from pyrit.prompt_normalizer import PromptNormalizer
-from pyrit.prompt_target import PromptChatTarget, PromptTarget
+from pyrit.prompt_target import PromptTarget
 from pyrit.score import FloatScaleThresholdScorer, TrueFalseScorer
 
 
@@ -138,29 +138,11 @@ def prepended_conversation_multimodal() -> list[Message]:
 # =============================================================================
 
 
-@pytest.fixture
-def mock_chat_target() -> MagicMock:
-    """Create a mock PromptChatTarget with common setup."""
-    target = MagicMock(spec=PromptChatTarget)
-    target.send_prompt_async = AsyncMock()
-    target.set_system_prompt = MagicMock()
-    target.get_identifier.return_value = _mock_target_id("MockChatTarget")
-    return target
-
-
-@pytest.fixture
-def mock_non_chat_target() -> MagicMock:
-    """Create a mock PromptTarget (non-chat) with common setup."""
-    target = MagicMock(spec=PromptTarget)
-    target.send_prompt_async = AsyncMock()
-    target.get_identifier.return_value = _mock_target_id("MockTarget")
-    return target
-
 
 @pytest.fixture
 def mock_adversarial_chat() -> MagicMock:
     """Create a mock adversarial chat target."""
-    target = MagicMock(spec=PromptChatTarget)
+    target = MagicMock(spec=PromptTarget)
     target.send_prompt_async = AsyncMock()
     target.set_system_prompt = MagicMock()
     target.get_identifier.return_value = _mock_target_id("MockAdversarialChat")

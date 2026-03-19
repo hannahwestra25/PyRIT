@@ -26,7 +26,7 @@ from pyrit.identifiers import ComponentIdentifier
 from pyrit.memory.memory_interface import MemoryInterface
 from pyrit.models import Message, MessagePiece
 from pyrit.models.json_response_config import _JsonResponseConfig
-from pyrit.prompt_target import OpenAIResponseTarget, PromptChatTarget
+from pyrit.prompt_target import OpenAIResponseTarget, PromptTarget
 
 
 def create_mock_response(response_dict: dict = None) -> MagicMock:
@@ -594,8 +594,8 @@ def test_validate_request_unsupported_data_types(target: OpenAIResponseTarget):
 
 
 def test_inheritance_from_prompt_chat_target(target: OpenAIResponseTarget):
-    """Test that OpenAIResponseTarget properly inherits from PromptChatTarget."""
-    assert isinstance(target, PromptChatTarget), "OpenAIResponseTarget must inherit from PromptChatTarget"
+    """Test that OpenAIResponseTarget properly inherits from PromptTarget."""
+    assert isinstance(target, PromptTarget), "OpenAIResponseTarget must inherit from PromptTarget"
 
 
 def test_is_response_format_json_supported(target: OpenAIResponseTarget):

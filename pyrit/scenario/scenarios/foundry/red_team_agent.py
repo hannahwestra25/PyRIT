@@ -60,7 +60,7 @@ from pyrit.prompt_converter.token_smuggling.ascii_smuggler_converter import (
 from pyrit.prompt_normalizer.prompt_converter_configuration import (
     PromptConverterConfiguration,
 )
-from pyrit.prompt_target.common.prompt_chat_target import PromptChatTarget
+from pyrit.prompt_target.common.prompt_target import PromptTarget
 from pyrit.prompt_target.openai.openai_chat_target import OpenAIChatTarget
 from pyrit.scenario.core.atomic_attack import AtomicAttack
 from pyrit.scenario.core.dataset_configuration import DatasetConfiguration
@@ -249,7 +249,7 @@ class RedTeamAgent(Scenario):
     def __init__(
         self,
         *,
-        adversarial_chat: Optional[PromptChatTarget] = None,
+        adversarial_chat: Optional[PromptTarget] = None,
         objectives: Optional[list[str]] = None,
         attack_scoring_config: Optional[AttackScoringConfig] = None,
         include_baseline: bool = True,
@@ -259,7 +259,7 @@ class RedTeamAgent(Scenario):
         Initialize a Foundry Scenario with the specified attack strategies.
 
         Args:
-            adversarial_chat (Optional[PromptChatTarget]): Target for multi-turn attacks
+            adversarial_chat (Optional[PromptTarget]): Target for multi-turn attacks
                 like Crescendo and RedTeaming. Additionally used for scoring defaults.
                 If not provided, a default OpenAI target will be created using environment variables.
             objectives (Optional[List[str]]): Deprecated. Use dataset_config in initialize_async instead.

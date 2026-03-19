@@ -16,7 +16,7 @@ from pyrit.executor.attack import (
 )
 from pyrit.identifiers import ComponentIdentifier
 from pyrit.models import SeedAttackGroup, SeedDataset, SeedGroup, SeedObjective
-from pyrit.prompt_target import OpenAIChatTarget, PromptChatTarget
+from pyrit.prompt_target import OpenAIChatTarget, PromptTarget
 from pyrit.scenario.scenarios.airt import (
     Psychosocial,
     PsychosocialStrategy,
@@ -61,8 +61,8 @@ def mock_runtime_env():
 
 
 @pytest.fixture
-def mock_objective_target() -> PromptChatTarget:
-    mock = MagicMock(spec=PromptChatTarget)
+def mock_objective_target() -> PromptTarget:
+    mock = MagicMock(spec=PromptTarget)
     mock.get_identifier.return_value = ComponentIdentifier(class_name="MockObjectiveTarget", class_module="test")
     return mock
 
@@ -75,8 +75,8 @@ def mock_objective_scorer() -> FloatScaleThresholdScorer:
 
 
 @pytest.fixture
-def mock_adversarial_target() -> PromptChatTarget:
-    mock = MagicMock(spec=PromptChatTarget)
+def mock_adversarial_target() -> PromptTarget:
+    mock = MagicMock(spec=PromptTarget)
     mock.get_identifier.return_value = ComponentIdentifier(class_name="MockAdversarialTarget", class_module="test")
     return mock
 
@@ -235,7 +235,7 @@ class TestPsychosocialAttackGeneration:
     async def test_attack_generation_for_imminent_crisis_async(
         self,
         *,
-        mock_objective_target: PromptChatTarget,
+        mock_objective_target: PromptTarget,
         mock_objective_scorer: FloatScaleThresholdScorer,
         sample_objectives: list[str],
         imminent_crisis_strategy: PsychosocialStrategy,
@@ -260,7 +260,7 @@ class TestPsychosocialAttackGeneration:
     async def test_attack_runs_include_objectives_async(
         self,
         *,
-        mock_objective_target: PromptChatTarget,
+        mock_objective_target: PromptTarget,
         mock_objective_scorer: FloatScaleThresholdScorer,
         sample_objectives: list[str],
     ) -> None:
@@ -283,7 +283,7 @@ class TestPsychosocialAttackGeneration:
     async def test_get_atomic_attacks_async_returns_attacks(
         self,
         *,
-        mock_objective_target: PromptChatTarget,
+        mock_objective_target: PromptTarget,
         mock_objective_scorer: FloatScaleThresholdScorer,
         sample_objectives: list[str],
     ) -> None:
@@ -307,7 +307,7 @@ class TestPsychosocialHarmsLifecycle:
     async def test_initialize_async_with_max_concurrency(
         self,
         *,
-        mock_objective_target: PromptChatTarget,
+        mock_objective_target: PromptTarget,
         mock_objective_scorer: FloatScaleThresholdScorer,
         sample_objectives: list[str],
     ) -> None:
@@ -320,7 +320,7 @@ class TestPsychosocialHarmsLifecycle:
     async def test_initialize_async_with_memory_labels(
         self,
         *,
-        mock_objective_target: PromptChatTarget,
+        mock_objective_target: PromptTarget,
         mock_objective_scorer: FloatScaleThresholdScorer,
         sample_objectives: list[str],
     ) -> None:
@@ -365,7 +365,7 @@ class TestPsychosocialProperties:
     async def test_no_target_duplication_async(
         self,
         *,
-        mock_objective_target: PromptChatTarget,
+        mock_objective_target: PromptTarget,
         sample_objectives: list[str],
     ) -> None:
         """Test that all three targets (adversarial, objective, scorer) are distinct."""

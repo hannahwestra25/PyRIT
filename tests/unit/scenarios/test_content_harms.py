@@ -12,7 +12,7 @@ from pyrit.common.path import DATASETS_PATH
 from pyrit.identifiers import ComponentIdentifier
 from pyrit.models import SeedAttackGroup, SeedObjective, SeedPrompt
 from pyrit.prompt_target import PromptTarget
-from pyrit.prompt_target.common.prompt_chat_target import PromptChatTarget
+from pyrit.prompt_target.common.prompt_target import PromptTarget
 from pyrit.scenario import ScenarioCompositeStrategy
 from pyrit.scenario.airt import (
     ContentHarms,
@@ -51,7 +51,7 @@ def mock_objective_target():
 @pytest.fixture
 def mock_adversarial_target():
     """Create a mock adversarial target for testing."""
-    mock = MagicMock(spec=PromptChatTarget)
+    mock = MagicMock(spec=PromptTarget)
     mock.get_identifier.return_value = _mock_target_id("MockAdversarialTarget")
     return mock
 

@@ -32,7 +32,7 @@ from pyrit.prompt_target import (
     OpenAIChatAudioConfig,
     OpenAIChatTarget,
     OpenAIResponseTarget,
-    PromptChatTarget,
+    PromptTarget,
 )
 from pyrit.prompt_target.common.target_capabilities import TargetCapabilities
 
@@ -584,17 +584,17 @@ def test_validate_request_unsupported_data_types(target: OpenAIChatTarget):
 
 
 def test_inheritance_from_prompt_chat_target(target: OpenAIChatTarget):
-    """Test that OpenAIChatTarget properly inherits from PromptChatTarget."""
-    assert isinstance(target, PromptChatTarget), "OpenAIChatTarget must inherit from PromptChatTarget"
+    """Test that OpenAIChatTarget properly inherits from PromptTarget."""
+    assert isinstance(target, PromptTarget), "OpenAIChatTarget must inherit from PromptTarget"
 
 
 def test_inheritance_from_prompt_chat_target_base():
-    """Test that OpenAIChatTargetBase properly inherits from PromptChatTarget."""
+    """Test that OpenAIChatTargetBase properly inherits from PromptTarget."""
 
     # Create a minimal instance to test inheritance
     target = OpenAIChatTarget(model_name="test-model", endpoint="https://test.com", api_key="test-key")
-    assert isinstance(target, PromptChatTarget), (
-        "OpenAIChatTarget must inherit from PromptChatTarget through OpenAIChatTargetBase"
+    assert isinstance(target, PromptTarget), (
+        "OpenAIChatTarget must inherit from PromptTarget through OpenAIChatTargetBase"
     )
 
 

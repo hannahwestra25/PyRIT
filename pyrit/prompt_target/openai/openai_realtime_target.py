@@ -21,7 +21,7 @@ from pyrit.models import (
     construct_response_from_request,
     data_serializer_factory,
 )
-from pyrit.prompt_target.common.prompt_chat_target import PromptChatTarget
+from pyrit.prompt_target.common.prompt_target import PromptTarget
 from pyrit.prompt_target.common.target_capabilities import TargetCapabilities
 from pyrit.prompt_target.common.utils import limit_requests_per_minute
 from pyrit.prompt_target.openai.openai_target import OpenAITarget
@@ -57,7 +57,7 @@ class RealtimeTargetResult:
         return "".join(self.transcripts)
 
 
-class RealtimeTarget(OpenAITarget, PromptChatTarget):
+class RealtimeTarget(OpenAITarget, PromptTarget):
     """
     A prompt target for Azure OpenAI Realtime API.
 

@@ -23,7 +23,7 @@ from pyrit.executor.attack import (
 from pyrit.models import SeedAttackGroup, SeedObjective
 from pyrit.prompt_converter import AddImageTextConverter, FirstLetterConverter, PromptConverter
 from pyrit.prompt_normalizer import PromptConverterConfiguration
-from pyrit.prompt_target import OpenAIChatTarget, PromptChatTarget
+from pyrit.prompt_target import OpenAIChatTarget, PromptTarget
 from pyrit.scenario.core.atomic_attack import AtomicAttack
 from pyrit.scenario.core.dataset_configuration import DatasetConfiguration
 from pyrit.scenario.core.scenario import Scenario
@@ -141,7 +141,7 @@ class Leakage(Scenario):
     def __init__(
         self,
         *,
-        adversarial_chat: Optional[PromptChatTarget] = None,
+        adversarial_chat: Optional[PromptTarget] = None,
         objectives: Optional[list[str]] = None,
         objective_scorer: Optional[TrueFalseScorer] = None,
         include_baseline: bool = True,
@@ -151,7 +151,7 @@ class Leakage(Scenario):
         Initialize the leakage scenario.
 
         Args:
-            adversarial_chat (Optional[PromptChatTarget]): Adversarial chat target for multi-turn attacks
+            adversarial_chat (Optional[PromptTarget]): Adversarial chat target for multi-turn attacks
                 (Crescendo, RolePlay). If not provided, defaults to an OpenAI chat target.
             objectives (Optional[List[str]]): List of objectives to test for data leakage.
                 If not provided, defaults to objectives from the airt_leakage dataset.

@@ -28,7 +28,7 @@ from pyrit.prompt_converter import ToneConverter
 from pyrit.prompt_normalizer.prompt_converter_configuration import (
     PromptConverterConfiguration,
 )
-from pyrit.prompt_target import OpenAIChatTarget, PromptChatTarget
+from pyrit.prompt_target import OpenAIChatTarget, PromptTarget
 from pyrit.scenario.core.atomic_attack import AtomicAttack
 from pyrit.scenario.core.dataset_configuration import DatasetConfiguration
 from pyrit.scenario.core.scenario import Scenario
@@ -211,7 +211,7 @@ class Psychosocial(Scenario):
         self,
         *,
         objectives: Optional[list[str]] = None,
-        adversarial_chat: Optional[PromptChatTarget] = None,
+        adversarial_chat: Optional[PromptTarget] = None,
         objective_scorer: Optional[FloatScaleThresholdScorer] = None,
         scenario_result_id: Optional[str] = None,
         subharm_configs: Optional[dict[str, SubharmConfig]] = None,
@@ -223,7 +223,7 @@ class Psychosocial(Scenario):
         Args:
             objectives (Optional[List[str]]): DEPRECATED - Use dataset_config in initialize_async instead.
                 List of objectives to test for psychosocial harms.
-            adversarial_chat (Optional[PromptChatTarget]): Additionally used for adversarial attacks
+            adversarial_chat (Optional[PromptTarget]): Additionally used for adversarial attacks
                 and scoring defaults. If not provided, a default OpenAI target will be created using
                 environment variables.
             objective_scorer (Optional[FloatScaleThresholdScorer]): Scorer to evaluate attack success.
@@ -431,9 +431,9 @@ class Psychosocial(Scenario):
     async def _get_atomic_attacks_async(self) -> list[AtomicAttack]:
         if self._objective_target is None:
             raise ValueError("objective_target must be set before creating attacks")
-        if not isinstance(self._objective_target, PromptChatTarget):
+        if not self._objective_target.capabilities.supports_multi_turn:
             raise TypeError(
-                f"PsychosocialHarmsScenario requires a PromptChatTarget, got {type(self._objective_target).__name__}"
+                f"PsychosocialHarmsScenario requires a multi-turn target, got {type(self._objective_target).__name__}"
             )
         resolved = self._resolve_seed_groups()
         self._seed_groups = resolved.seed_groups
