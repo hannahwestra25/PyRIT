@@ -371,7 +371,7 @@ def _try_instantiate_converter(converter_name: str):
     """
     Try to instantiate a converter with minimal representative arguments.
 
-    Uses mock objects for complex dependencies (PromptChatTarget, PromptConverter)
+    Uses mock objects for complex dependencies (PromptTarget, PromptConverter)
     and provides minimal valid values for simple required parameters so that the
     identifier extraction test covers ALL converters without skipping.
 
@@ -505,7 +505,7 @@ class TestBuildInstanceFromObjectWithRealConverters:
         Test that _build_instance_from_object works with each converter.
 
         Instantiates every converter with minimal representative arguments
-        (using mocks for complex dependencies like PromptChatTarget) and verifies:
+        (using mocks for complex dependencies like PromptTarget) and verifies:
         - converter_id is set correctly
         - converter_type matches the class name
         - supported_input_types and supported_output_types are lists

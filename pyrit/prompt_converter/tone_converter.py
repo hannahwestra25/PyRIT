@@ -19,7 +19,7 @@ class ToneConverter(LLMGenericTextConverter):
     """
     Converts a conversation to a different tone using an LLM.
 
-    An existing ``PromptChatTarget`` is used to perform the conversion (like Azure OpenAI).
+    An existing ``PromptTarget`` is used to perform the conversion (like Azure OpenAI).
     """
 
     @apply_defaults
@@ -34,7 +34,7 @@ class ToneConverter(LLMGenericTextConverter):
         Initialize the converter with the target chat support, tone, and optional prompt template.
 
         Args:
-            converter_target (PromptChatTarget): The target chat support for the conversion which will translate.
+            converter_target (PromptTarget): The target chat support for the conversion which will translate.
                 Can be omitted if a default has been configured via PyRIT initialization.
             tone (str): The tone for the conversation. E.g. upset, sarcastic, indifferent, etc.
             prompt_template (SeedPrompt, Optional): The prompt template for the conversion.

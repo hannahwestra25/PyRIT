@@ -19,7 +19,7 @@ class DenylistConverter(LLMGenericTextConverter):
     """
     Replaces forbidden words or phrases in a prompt with synonyms using an LLM.
 
-    An existing ``PromptChatTarget`` is used to perform the conversion (like Azure OpenAI).
+    An existing ``PromptTarget`` is used to perform the conversion (like Azure OpenAI).
     """
 
     @apply_defaults
@@ -34,7 +34,7 @@ class DenylistConverter(LLMGenericTextConverter):
         Initialize the converter with a target, an optional system prompt template, and a denylist.
 
         Args:
-            converter_target (PromptChatTarget): The target for the prompt conversion.
+            converter_target (PromptTarget): The target for the prompt conversion.
                 Can be omitted if a default has been configured via PyRIT initialization.
             system_prompt_template (Optional[SeedPrompt]): The system prompt template to use for the conversion.
                 If not provided, a default template will be used.

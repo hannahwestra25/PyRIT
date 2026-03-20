@@ -92,7 +92,7 @@ class MultiPromptSendingAttackParameters(AttackParameters):
             raise ValueError(
                 f"MultiPromptSendingAttackParameters does not accept: {invalid_fields}. Only accepts: {valid_fields}"
             )
-        
+
         # Validate that the adversarial chat target supports required capabilities
         if adversarial_chat:
             adversarial_chat.capabilities.validate(

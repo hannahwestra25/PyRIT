@@ -11,7 +11,7 @@ from openai import BadRequestError
 from pyrit.exceptions import PyritException, pyrit_target_retry
 from pyrit.identifiers import ComponentIdentifier
 from pyrit.models import Message, MessagePiece, Score
-from pyrit.prompt_target import GandalfLevel, PromptChatTarget
+from pyrit.prompt_target import GandalfLevel, PromptTarget
 from pyrit.score.scorer_prompt_validator import ScorerPromptValidator
 from pyrit.score.true_false.true_false_score_aggregator import (
     TrueFalseAggregatorFunc,
@@ -35,7 +35,7 @@ class GandalfScorer(TrueFalseScorer):
         self,
         *,
         level: GandalfLevel,
-        chat_target: PromptChatTarget,
+        chat_target: PromptTarget,
         validator: Optional[ScorerPromptValidator] = None,
         score_aggregator: TrueFalseAggregatorFunc = TrueFalseScoreAggregator.OR,
     ) -> None:
@@ -44,7 +44,7 @@ class GandalfScorer(TrueFalseScorer):
 
         Args:
             level (GandalfLevel): The Gandalf challenge level to score against.
-            chat_target (PromptChatTarget): The chat target used for password extraction.
+            chat_target (PromptTarget): The chat target used for password extraction.
             validator (Optional[ScorerPromptValidator]): Custom validator. Defaults to text data type validator.
             score_aggregator (TrueFalseAggregatorFunc): Aggregator for combining scores. Defaults to
                 TrueFalseScoreAggregator.OR.

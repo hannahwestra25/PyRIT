@@ -53,7 +53,7 @@ class ScientificTranslationConverter(LLMGenericTextConverter):
         Initialize the scientific translation converter.
 
         Args:
-            converter_target (PromptChatTarget): The LLM target to perform the conversion.
+            converter_target (PromptTarget): The LLM target to perform the conversion.
             mode (str): The translation mode to use. Built-in options are:
 
                 - ``academic``: Use academic/homework style framing

@@ -138,7 +138,6 @@ def prepended_conversation_multimodal() -> list[Message]:
 # =============================================================================
 
 
-
 @pytest.fixture
 def mock_adversarial_chat() -> MagicMock:
     """Create a mock adversarial chat target."""
@@ -546,7 +545,7 @@ class TestPrependedConversationInMemory:
     """
     Tests verifying that prepended_conversation is properly added to memory.
 
-    For PromptChatTargets, prepended_conversation should:
+    For PromptTargets, prepended_conversation should:
     1. Be added to memory with the correct conversation_id
     2. Have assistant messages translated to simulated_assistant role
     3. Preserve multi-modal content

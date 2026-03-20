@@ -22,7 +22,7 @@ class RandomTranslationConverter(LLMGenericTextConverter, WordLevelConverter):
     """
     Translates each individual word in a prompt to a random language using an LLM.
 
-    An existing ``PromptChatTarget`` is used to perform the translation (like Azure OpenAI).
+    An existing ``PromptTarget`` is used to perform the translation (like Azure OpenAI).
     """
 
     SUPPORTED_INPUT_TYPES = ("text",)
@@ -44,7 +44,7 @@ class RandomTranslationConverter(LLMGenericTextConverter, WordLevelConverter):
         Initialize the converter with a target, an optional system prompt template, and language options.
 
         Args:
-            converter_target (PromptChatTarget): The target for the prompt conversion.
+            converter_target (PromptTarget): The target for the prompt conversion.
                 Can be omitted if a default has been configured via PyRIT initialization.
             system_prompt_template (Optional[SeedPrompt]): The system prompt template to use for the conversion.
                 If not provided, a default template will be used.

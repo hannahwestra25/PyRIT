@@ -51,7 +51,7 @@ class TranslationConverter(PromptConverter):
         Initialize the converter with the target chat support, language, and optional prompt template.
 
         Args:
-            converter_target (PromptChatTarget): The target chat support for the conversion which will translate.
+            converter_target (PromptTarget): The target chat support for the conversion which will translate.
                 Can be omitted if a default has been configured via PyRIT initialization.
             language (str): The language for the conversion. E.g. Spanish, French, leetspeak, etc.
             prompt_template (SeedPrompt, Optional): The prompt template for the conversion.
@@ -62,11 +62,6 @@ class TranslationConverter(PromptConverter):
             ValueError: If converter_target is not provided and no default has been configured.
             ValueError: If the language is not provided.
         """
-        converter_target.capabilities.validate(
-            required={"supports_multi_turn", "supports_editable_history"},
-            context="converter_target",
-        )
-
         self.converter_target = converter_target
 
         # Retry strategy for the conversion

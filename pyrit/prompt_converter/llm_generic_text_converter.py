@@ -41,7 +41,7 @@ class LLMGenericTextConverter(PromptConverter):
         Initialize the converter with a target and optional prompt templates.
 
         Args:
-            converter_target (PromptChatTarget): The endpoint that converts the prompt.
+            converter_target (PromptTarget): The endpoint that converts the prompt.
                 Can be omitted if a default has been configured via PyRIT initialization.
             system_prompt_template (SeedPrompt, Optional): The prompt template to set as the system prompt.
             user_prompt_template_with_objective (SeedPrompt, Optional): The prompt template to set as the user prompt.
@@ -51,11 +51,6 @@ class LLMGenericTextConverter(PromptConverter):
         Raises:
             ValueError: If converter_target is not provided and no default has been configured.
         """
-        converter_target.capabilities.validate(
-            required={"supports_multi_turn", "supports_editable_history"},
-            context="converter_target",
-        )
-
         self._converter_target = converter_target
         self._system_prompt_template = system_prompt_template
         self._prompt_kwargs = kwargs

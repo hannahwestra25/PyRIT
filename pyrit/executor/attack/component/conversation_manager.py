@@ -238,7 +238,7 @@ class ConversationManager:
 
         return conversation[-1].get_piece()
 
-    # TODO: deprecate ? 
+    # TODO: deprecate ?
     def set_system_prompt(
         self,
         *,
@@ -322,8 +322,7 @@ class ConversationManager:
             return state
 
         # Handle target type compatibility
-        is_chat_target = target.capabilities.supports_multi_turn and \
-                         target.capabilities.supports_editable_history
+        is_chat_target = target.capabilities.supports_multi_turn and target.capabilities.supports_editable_history
         if not is_chat_target:
             return await self._handle_non_chat_target_async(
                 context=context,

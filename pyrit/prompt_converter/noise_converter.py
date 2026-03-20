@@ -20,7 +20,7 @@ class NoiseConverter(LLMGenericTextConverter):
     """
     Injects noise errors into a conversation using an LLM.
 
-    An existing ``PromptChatTarget`` is used to perform the conversion (like Azure OpenAI).
+    An existing ``PromptTarget`` is used to perform the conversion (like Azure OpenAI).
     """
 
     @apply_defaults
@@ -36,7 +36,7 @@ class NoiseConverter(LLMGenericTextConverter):
         Initialize the converter with the specified parameters.
 
         Args:
-            converter_target (PromptChatTarget): The endpoint that converts the prompt.
+            converter_target (PromptTarget): The endpoint that converts the prompt.
                 Can be omitted if a default has been configured via PyRIT initialization.
             noise (str): The noise to inject. Grammar error, delete random letter, insert random space, etc.
             number_errors (int): The number of errors to inject.

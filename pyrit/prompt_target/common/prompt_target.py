@@ -8,7 +8,6 @@ from typing import Any, Optional, Union
 from pyrit.identifiers import ComponentIdentifier, Identifiable
 from pyrit.memory import CentralMemory, MemoryInterface
 from pyrit.models import Message, MessagePiece
-from pyrit.models.json_response_config import _JsonResponseConfig
 from pyrit.prompt_target.common.target_capabilities import TargetCapabilities
 
 logger = logging.getLogger(__name__)
@@ -134,6 +133,37 @@ class PromptTarget(Identifiable):
 
             if len(messages) > 0:
                 raise ValueError(f"This target only supports a single turn conversation. {custom_capabilities_message}")
+
+    def set_system_prompt(
+        self,
+        *,
+        system_prompt: str,
+        conversation_id: str,
+        attack_identifier: Optional[ComponentIdentifier] = None,
+        labels: Optional[dict[str, str]] = None,
+    ) -> None:
+        """
+        Set the system prompt for the prompt target. May be overridden by subclasses.
+
+        Raises:
+            RuntimeError: If the conversation already exists.
+        """
+        messages = self._memory.get_conversation(conversation_id=conversation_id)
+
+        if messages:
+            raise RuntimeError("Conversation already exists, system prompt needs to be set at the beginning")
+
+        self._memory.add_message_to_memory(
+            request=MessagePiece(
+                role="system",
+                conversation_id=conversation_id,
+                original_value=system_prompt,
+                converted_value=system_prompt,
+                prompt_target_identifier=self.get_identifier(),
+                attack_identifier=attack_identifier,
+                labels=labels,
+            ).to_message()
+        )
 
     def set_model_name(self, *, model_name: str) -> None:
         """

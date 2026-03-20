@@ -209,7 +209,6 @@ class AnecdoctorGenerator(
         system_prompt = self._system_prompt_template.format(language=context.language, type=context.content_type)
 
         # Configure the target with the system prompt
-        # TODO:
         self._objective_target.set_system_prompt(
             system_prompt=system_prompt,
             conversation_id=context.conversation_id,

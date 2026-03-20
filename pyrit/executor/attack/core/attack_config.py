@@ -31,6 +31,7 @@ class AttackAdversarialConfig:
     # Seed prompt for the adversarial chat target (supports {{ objective }} template variable)
     seed_prompt: Union[str, SeedPrompt] = "Generate your first message to achieve: {{ objective }}"
 
+
 @dataclass
 class AttackScoringConfig:
     """

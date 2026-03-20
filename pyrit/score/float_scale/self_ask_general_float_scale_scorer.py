@@ -11,7 +11,7 @@ from pyrit.score.scorer_prompt_validator import ScorerPromptValidator
 if TYPE_CHECKING:
     from pyrit.identifiers import ComponentIdentifier
     from pyrit.models import MessagePiece, Score, UnvalidatedScore
-    from pyrit.prompt_target import PromptChatTarget
+    from pyrit.prompt_target import PromptTarget
 
 
 class SelfAskGeneralFloatScaleScorer(FloatScaleScorer):
@@ -28,7 +28,7 @@ class SelfAskGeneralFloatScaleScorer(FloatScaleScorer):
     def __init__(
         self,
         *,
-        chat_target: PromptChatTarget,
+        chat_target: PromptTarget,
         system_prompt_format_string: str,
         prompt_format_string: Optional[str] = None,
         category: Optional[str] = None,
@@ -52,7 +52,7 @@ class SelfAskGeneralFloatScaleScorer(FloatScaleScorer):
         in the response, the provided `category` argument will be applied.
 
         Args:
-            chat_target (PromptChatTarget): The chat target used to score.
+            chat_target (PromptTarget): The chat target used to score.
             system_prompt_format_string (str): System prompt template with placeholders for
                 objective, prompt, and message_piece.
             prompt_format_string (Optional[str]): User prompt template with the same placeholders.

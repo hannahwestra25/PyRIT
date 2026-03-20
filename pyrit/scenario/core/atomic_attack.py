@@ -85,7 +85,7 @@ class AtomicAttack:
             seed_groups (List[SeedAttackGroup]): List of seed attack groups. Each seed group must
                 have an objective set. The seed groups serve as the single source of truth for
                 objectives, prepended conversations, and next messages.
-            adversarial_chat (Optional[PromptChatTarget]): Optional chat target for generating
+            adversarial_chat (Optional[PromptTarget]): Optional chat target for generating
                 adversarial prompts or simulated conversations. Required when seed groups contain
                 SeedSimulatedConversation configurations.
             objective_scorer (Optional[TrueFalseScorer]): Optional scorer for evaluating simulated

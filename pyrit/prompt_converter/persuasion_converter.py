@@ -59,7 +59,7 @@ class PersuasionConverter(PromptConverter):
         Initialize the converter with the specified target and prompt template.
 
         Args:
-            converter_target (PromptChatTarget): The chat target used to perform rewriting on user prompts.
+            converter_target (PromptTarget): The chat target used to perform rewriting on user prompts.
                 Can be omitted if a default has been configured via PyRIT initialization.
             persuasion_technique (str): Persuasion technique to be used by the converter, determines the system prompt
                 to be used to generate new prompts. Must be one of "authority_endorsement", "evidence_based",

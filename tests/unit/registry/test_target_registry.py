@@ -186,7 +186,7 @@ class TestTargetRegistryListMetadata:
 
         self.target1 = MockPromptTarget(model_name="model_a")
         self.target2 = MockPromptTarget(model_name="model_b")
-        self.chat_target = MockPromptChatTarget()
+        self.chat_target = MockPromptTarget()
 
         self.registry.register_instance(self.target1, name="target_1")
         self.registry.register_instance(self.target2, name="target_2")

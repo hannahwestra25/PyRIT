@@ -37,7 +37,7 @@ from pyrit.executor.attack.core.attack_parameters import AttackParameters
 from pyrit.identifiers import ComponentIdentifier
 from pyrit.models import Message, MessagePiece, Score
 from pyrit.prompt_normalizer import PromptConverterConfiguration, PromptNormalizer
-from pyrit.prompt_target import PromptChatTarget, PromptTarget
+from pyrit.prompt_target import PromptTarget
 
 
 def _mock_target_id(name: str = "MockTarget") -> ComponentIdentifier:
@@ -85,7 +85,7 @@ def mock_prompt_normalizer() -> MagicMock:
 @pytest.fixture
 def mock_chat_target() -> MagicMock:
     """Create a mock chat target for testing."""
-    target = MagicMock(spec=PromptChatTarget)
+    target = MagicMock(spec=PromptTarget)
     target.set_system_prompt = MagicMock()
     target.get_identifier.return_value = _mock_target_id("MockChatTarget")
     return target
@@ -1059,7 +1059,7 @@ class TestPrependedConversationConfigSettings:
         config = PrependedConversationConfig(non_chat_target_behavior="raise")
 
         with pytest.raises(
-            ValueError, match="prepended_conversation requires the objective target to be a PromptChatTarget"
+            ValueError, match="prepended_conversation requires the objective target to be a PromptTarget"
         ):
             await manager.initialize_context_async(
                 context=context,

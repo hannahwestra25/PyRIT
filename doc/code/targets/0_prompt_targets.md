@@ -19,20 +19,31 @@ async def send_prompt_async(self, *, message: Message) -> Message:
 
 A `Message` object is a normalized object with all the information a target will need to send a prompt, including a way to get a history for that prompt (in the cases that also needs to be sent). This is discussed in more depth [here](../memory/3_memory_data_types.md).
 
-## PromptChatTargets vs PromptTargets
+## Target Capabilities
 
-A `PromptTarget` is a generic place to send a prompt. With PyRIT, the idea is that it will eventually be consumed by an AI application, but that doesn't have to be immediate. For example, you could have a SharePoint target. Everything you send a prompt to is a `PromptTarget`. Many attacks work generically with any `PromptTarget` including `RedTeamingAttack` and `PromptSendingAttack`.
+Every `PromptTarget` declares a `TargetCapabilities` object that describes what the target supports. Attacks, scorers, and converters use these flags to validate that a target is compatible before execution, raising a clear error at construction time rather than failing mid-run.
 
-With some algorithms, you want to send a prompt, set a system prompt, and modify conversation history (including PAIR [@chao2023pair], TAP [@mehrotra2023tap], and flip attack [@li2024flipattack]). These often require a `PromptChatTarget`, which implies you can modify a conversation history. `PromptChatTarget` is a subclass of `PromptTarget`.
+| Capability | Type | Description |
+|---|---|---|
+| `supports_multi_turn` | `bool` | Target accepts conversation history across multiple turns. Required by multi-turn attacks (e.g., PAIR, TAP, Crescendo). |
+| `supports_editable_history` | `bool` | Target allows prepended conversation history to be injected into memory. Required by attacks that seed a conversation before starting (e.g., TAP, FlipAttack, ContextCompliance). |
+| `supports_multi_message_pieces` | `bool` | Target accepts a single request with multiple pieces (e.g., text + image in one turn). |
+| `supports_json_output` | `bool` | Target can be instructed to return valid JSON (e.g., via a `response_format` parameter). |
+| `supports_json_schema` | `bool` | Target can constrain output to a specific JSON schema. |
+| `input_modalities` | `frozenset` | The combinations of data types the target accepts as input (e.g., `{"text"}`, `{"text", "image_path"}`). |
+| `output_modalities` | `frozenset` | The data types the target can produce as output (e.g., `{"text"}`, `{"audio_path"}`). |
+
+Capabilities are defined at the class level via `_DEFAULT_CAPABILITIES` and can be overridden per instance using the `custom_capabilities` constructor parameter. This is useful for targets like `HTTPTarget` or `PlaywrightTarget` where capabilities depend on the specific deployment being wrapped.
 
 Here are some examples:
 
-| Example                             | Is `PromptChatTarget`?               | Notes                                                                                           |
-|-------------------------------------|---------------------------------------|-------------------------------------------------------------------------------------------------|
-| **OpenAIChatTarget** (e.g., GPT-4)  | **Yes** (`PromptChatTarget`)         | Designed for conversational prompts (system messages, conversation history, etc.).               |
-| **OpenAIImageTarget**               | **No** (not a `PromptChatTarget`)    | Used for image generation; does not manage conversation history.                                 |
-| **HTTPTarget**                      | **No** (not a `PromptChatTarget`)    | Generic HTTP target. Some apps might allow conversation history, but this target doesn't handle it. |
-| **AzureBlobStorageTarget**          | **No** (not a `PromptChatTarget`)    | Used primarily for storage; not for conversation-based AI.                                       |
+| Example | `supports_multi_turn` | `supports_editable_history` | Notes |
+|---|---|---|---|
+| **OpenAIChatTarget** | Yes | Yes | Full chat target; supports multi-turn and injected history. |
+| **OpenAIImageTarget** | No | No | Image generation; single-turn only. |
+| **OpenAITTSTarget** | No | No | Text-to-speech; single-turn only. |
+| **HTTPTarget** | No (default) | No (default) | Configurable via `custom_capabilities` if the wrapped app supports it. |
+| **AzureBlobStorageTarget** | No | No | Storage target; not conversational. |
 
 ## Multi-Modal Targets
 

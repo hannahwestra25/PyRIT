@@ -19,7 +19,7 @@ class TenseConverter(LLMGenericTextConverter):
     """
     Converts a conversation to a different tense using an LLM.
 
-    An existing ``PromptChatTarget`` is used to perform the conversion (like Azure OpenAI).
+    An existing ``PromptTarget`` is used to perform the conversion (like Azure OpenAI).
     """
 
     @apply_defaults
@@ -34,7 +34,7 @@ class TenseConverter(LLMGenericTextConverter):
         Initialize the converter with the target chat support, tense, and optional prompt template.
 
         Args:
-            converter_target (PromptChatTarget): The target chat support for the conversion which will translate.
+            converter_target (PromptTarget): The target chat support for the conversion which will translate.
                 Can be omitted if a default has been configured via PyRIT initialization.
             tense (str): The tense the converter should convert the prompt to. E.g. past, present, future.
             prompt_template (SeedPrompt, Optional): The prompt template for the conversion.

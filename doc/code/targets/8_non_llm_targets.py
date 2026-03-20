@@ -14,7 +14,7 @@
 # Prompt Targets are most often LLMs, but not always. They should be thought of as anything that you send prompts to.
 #
 #
-# The `AzureBlobStorageTarget` inherits from `PromptTarget`, meaning it has functionality to send prompts. In contrast to `PromptChatTarget`s, `PromptTarget`s do not interact with chat assistants.
+# The `AzureBlobStorageTarget` inherits from `PromptTarget`, meaning it has functionality to send prompts. It does not have multi-turn conversation capabilities.
 # This prompt target in particular will take in a prompt and upload it as a text file to the provided Azure Storage Account Container.
 # This could be useful for Cross-Prompt Injection Attack scenarios, for example, where there is a jailbreak within a file.
 #
