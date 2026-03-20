@@ -134,7 +134,8 @@ class CrescendoAttack(MultiTurnAttackStrategy[CrescendoAttackContext, CrescendoA
         Initialize the Crescendo attack strategy.
 
         Args:
-            objective_target (PromptTarget): The target system to attack.
+            objective_target (PromptTarget): The target system to attack. Must support multi-turn conversations
+                & editable history
             attack_adversarial_config (AttackAdversarialConfig): Configuration for the adversarial component,
                 including the adversarial chat target and optional system prompt path.
             attack_converter_config (Optional[AttackConverterConfig]): Configuration for attack converters,
@@ -143,7 +144,7 @@ class CrescendoAttack(MultiTurnAttackStrategy[CrescendoAttackContext, CrescendoA
             prompt_normalizer (Optional[PromptNormalizer]): Normalizer for prompts.
             max_backtracks (int): Maximum number of backtracks allowed.
             max_turns (int): Maximum number of turns allowed.
-            prepended_conversation_config (Optional[PrependedConversationConfiguration]):
+            prepended_conversation_config (Optional[PrependedConversationConfig]):
                 Configuration for how to process prepended conversations. Controls converter
                 application by role, message normalization, and non-chat target behavior.
 
@@ -261,12 +262,10 @@ class CrescendoAttack(MultiTurnAttackStrategy[CrescendoAttackContext, CrescendoA
         Raises:
             ValueError: If the objective target does not support multi-turn conversations.
         """
-        if not self._objective_target.capabilities.supports_multi_turn:
-            raise ValueError(
-                "CrescendoAttack requires a multi-turn target. Crescendo fundamentally relies on "
-                "multi-turn conversation history to gradually escalate prompts. "
-                "Use RedTeamingAttack or TreeOfAttacksWithPruning instead."
-            )
+        self._objective_target.capabilities.validate(
+            required={"supports_multi_turn", "supports_editable_history"},
+            context="objective_target",
+        )
 
         # Ensure the context has a session
         context.session = ConversationSession()

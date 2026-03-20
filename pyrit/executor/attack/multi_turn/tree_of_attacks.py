@@ -258,7 +258,6 @@ class _TreeOfAttacksNode:
         self,
         *,
         objective_target: PromptTarget,
-        # TODO: deprecate chat ? ?
         adversarial_chat: PromptTarget,
         adversarial_chat_seed_prompt: SeedPrompt,
         adversarial_chat_prompt_template: SeedPrompt,
@@ -1294,7 +1293,7 @@ class TreeOfAttacksWithPruningAttack(AttackStrategy[TAPAttackContext, TAPAttackR
 
         Raises:
             ValueError: If attack_scoring_config uses a non-FloatScaleThresholdScorer objective scorer,
-                if target does not support multi-turn, or if parameters are invalid.
+                if target does not support multi-turn or editable history, or if parameters are invalid.
         """
         # Validate tree parameters
         if tree_depth < 1:
@@ -1323,8 +1322,10 @@ class TreeOfAttacksWithPruningAttack(AttackStrategy[TAPAttackContext, TAPAttackR
 
         # Initialize adversarial configuration
         self._adversarial_chat = attack_adversarial_config.target
-        if not self._adversarial_chat.capabilities.supports_multi_turn:
-            raise ValueError("The adversarial target must support multi-turn for TAP attack.")
+        self._adversarial_chat.capabilities.validate(
+            required={"supports_multi_turn", "supports_editable_history"},
+            context="adversarial_chat",
+        )
 
         # Load system prompts
         self._adversarial_chat_system_prompt_path = (

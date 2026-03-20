@@ -22,7 +22,8 @@ class PrependedConversationConfig:
     This class provides control over:
     - Which message roles should have request converters applied
     - How to normalize conversation history for non-chat objective targets
-    - What to do when the objective target does not support multi-turn conversations
+    - What to do when the objective target does not support multi-turn conversations &
+        editable history (e.g., single-turn LLMs, image generation models, etc.)
     """
 
     # Roles for which request converters should be applied to prepended messages.
@@ -36,14 +37,14 @@ class PrependedConversationConfig:
     # ConversationContextNormalizer is used that produces "Turn N: User/Assistant" format.
     message_normalizer: Optional[MessageStringNormalizer] = None
 
-    # TODO: deprecate!!!
-    # Behavior when the target is a single-turn PromptTarget:
+    # Behavior when the target does not support conversation management (i.e., multi-turn conversations
+    # and conversations with editable history):
     # - "normalize_first_turn": Normalize the prepended conversation into a string and
     #   store it in ConversationState.normalized_prepended_context. This context will be
     #   prepended to the first message sent to the target. Uses objective_target_context_normalizer
     #   if provided, otherwise falls back to ConversationContextNormalizer.
     # - "raise": Raise a ValueError. Use this when prepended conversation history must be
-    #   maintained by the target (i.e., target must support multi-turn).
+    #   maintained by the target (i.e., target must support multi-turn & editable history).
     non_chat_target_behavior: Literal["normalize_first_turn", "raise"] = "normalize_first_turn"
 
     def get_message_normalizer(self) -> MessageStringNormalizer:
@@ -79,7 +80,7 @@ class PrependedConversationConfig:
         apply_converters_to_roles: Optional[list[ChatMessageRole]] = None,
     ) -> PrependedConversationConfig:
         """
-        Create a configuration for use with non-chat targets.
+        Create a configuration for use with targets that don't support conversation management.
 
         This configuration normalizes the prepended conversation into a text block
         that will be prepended to the first message sent to the target.
@@ -91,7 +92,7 @@ class PrependedConversationConfig:
                 Defaults to all roles.
 
         Returns:
-            A configuration that normalizes the prepended conversation for non-chat targets.
+            A configuration that normalizes the prepended conversation for targets that don't support conversation management.
         """
         return cls(
             apply_converters_to_roles=(

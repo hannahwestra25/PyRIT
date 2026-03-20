@@ -1,7 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from typing import Optional, cast
 
 from pyrit.models import PromptDataType
@@ -57,6 +57,26 @@ class TargetCapabilities:
             is not recognized.
         """
         return _KNOWN_CAPABILITIES.get(underlying_model)
+
+    def validate(self, *, required: set[str], context: str = "target") -> None:
+        """
+        Assert that all named boolean capabilities are True, raising ValueError for each that is not.
+
+        Args:
+            required (set[str]): Names of boolean fields on TargetCapabilities that must be True
+                (e.g. {"supports_multi_turn", "supports_editable_history"}).
+            context (str): Label used in the error message (e.g. "converter_target").
+
+        Raises:
+            ValueError: If any required capability is False.
+            AttributeError: If a name in ``required`` is not a field on TargetCapabilities.
+        """
+        valid_fields = {f.name for f in fields(self)}
+        for capability in required:
+            if capability not in valid_fields:
+                raise AttributeError(f"'{capability}' is not a field on TargetCapabilities.")
+            if not getattr(self, capability):
+                raise ValueError(f"{context} must have '{capability}' capability.")
 
 
 # ---------------------------------------------------------------------------

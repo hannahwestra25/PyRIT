@@ -92,6 +92,13 @@ class MultiPromptSendingAttackParameters(AttackParameters):
             raise ValueError(
                 f"MultiPromptSendingAttackParameters does not accept: {invalid_fields}. Only accepts: {valid_fields}"
             )
+        
+        # Validate that the adversarial chat target supports required capabilities
+        if adversarial_chat:
+            adversarial_chat.capabilities.validate(
+                required={"supports_multi_turn", "supports_editable_history"},
+                context="adversarial_chat",
+            )
 
         # Build parameters with only objective, user_messages, and memory_labels
         return cls(
@@ -208,11 +215,10 @@ class MultiPromptSendingAttack(MultiTurnAttackStrategy[MultiTurnAttackContext[An
         Raises:
             ValueError: If the objective target does not support multi-turn conversations.
         """
-        if not self._objective_target.capabilities.supports_multi_turn:
-            raise ValueError(
-                "MultiPromptSendingAttack requires a multi-turn target. "
-                "The objective target does not support multi-turn conversations."
-            )
+        self._objective_target.capabilities.validate(
+            required={"supports_multi_turn"},
+            context="objective_target",
+        )
 
         # Ensure the context has a session (like red_teaming.py does)
         context.session = ConversationSession()

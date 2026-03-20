@@ -69,6 +69,11 @@ class PersuasionConverter(PromptConverter):
             ValueError: If converter_target is not provided and no default has been configured.
             ValueError: If the persuasion technique is not supported or does not exist.
         """
+        converter_target.capabilities.validate(
+            required={"supports_multi_turn", "supports_editable_history"},
+            context="converter_target",
+        )
+
         self.converter_target = converter_target
 
         try:

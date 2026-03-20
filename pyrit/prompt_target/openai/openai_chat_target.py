@@ -33,7 +33,7 @@ from pyrit.prompt_target.openai.openai_target import OpenAITarget
 logger = logging.getLogger(__name__)
 
 
-class OpenAIChatTarget(OpenAITarget, PromptTarget):
+class OpenAIChatTarget(OpenAITarget):
     """
     Facilitates multimodal (image and text) input and text output generation.
 
@@ -69,6 +69,7 @@ class OpenAIChatTarget(OpenAITarget, PromptTarget):
         supports_multi_turn=True,
         supports_json_output=True,
         supports_multi_message_pieces=True,
+        supports_editable_history=True,
     )
 
     def __init__(

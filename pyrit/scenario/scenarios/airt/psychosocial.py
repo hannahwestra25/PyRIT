@@ -431,10 +431,10 @@ class Psychosocial(Scenario):
     async def _get_atomic_attacks_async(self) -> list[AtomicAttack]:
         if self._objective_target is None:
             raise ValueError("objective_target must be set before creating attacks")
-        if not self._objective_target.capabilities.supports_multi_turn:
-            raise TypeError(
-                f"PsychosocialHarmsScenario requires a multi-turn target, got {type(self._objective_target).__name__}"
-            )
+        self._objective_target.capabilities.validate(
+            required={"supports_multi_turn", "supports_editable_history"},
+            context="objective_target",
+        )
         resolved = self._resolve_seed_groups()
         self._seed_groups = resolved.seed_groups
 

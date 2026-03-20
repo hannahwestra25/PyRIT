@@ -55,6 +55,11 @@ class VariationConverter(PromptConverter):
         Raises:
             ValueError: If converter_target is not provided and no default has been configured.
         """
+        converter_target.capabilities.validate(
+            required={"supports_multi_turn", "supports_editable_history"},
+            context="converter_target",
+        )
+
         self.converter_target = converter_target
 
         # set to default strategy if not provided

@@ -72,6 +72,10 @@ class SkeletonKeyAttack(PromptSendingAttack):
                 If not provided, uses the default skeleton key prompt.
             max_attempts_on_failure (int): Maximum number of attempts to retry on failure.
         """
+        objective_target.capabilities.validate(
+            required={"supports_multi_turn", "supports_editable_history"},
+            context="objective_target",
+        )
         # Initialize base class
         super().__init__(
             objective_target=objective_target,

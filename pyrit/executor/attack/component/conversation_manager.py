@@ -238,6 +238,7 @@ class ConversationManager:
 
         return conversation[-1].get_piece()
 
+    # TODO: deprecate ? 
     def set_system_prompt(
         self,
         *,
@@ -282,12 +283,11 @@ class ConversationManager:
         3. Updates context.executed_turns for multi-turn attacks
         4. Sets context.next_message if there's an unanswered user message
 
-        For multi-turn PromptTarget:
+        For PromptTarget that support editable conversation history & multi-turn conversations:
             - Adds prepended messages to memory with simulated_assistant role
             - All messages get new UUIDs
 
-        TODO:
-        For single-turn PromptTarget:
+        For PromptTarget that do NOT support editable conversation history & multi-turn conversations:
             - If `config.non_chat_target_behavior="normalize_first_turn"`: normalizes
               conversation to string and prepends to context.next_message
             - If `config.non_chat_target_behavior="raise"`: raises ValueError
@@ -305,8 +305,8 @@ class ConversationManager:
             ConversationState with turn_count and last_assistant_message_scores.
 
         Raises:
-            ValueError: If conversation_id is empty, or if prepended_conversation
-                requires a multi-turn target but target does not support multi-turn.
+            ValueError: If conversation_id is empty, or if prepended_conversation requires a target that supports
+                multi-turn conversations & editable history but target does not support these capabilities.
         """
         if not conversation_id:
             raise ValueError("conversation_id cannot be empty")
@@ -322,9 +322,9 @@ class ConversationManager:
             return state
 
         # Handle target type compatibility
-        is_multi_turn_target = target.capabilities.supports_multi_turn
-        if not is_multi_turn_target:
-            
+        is_chat_target = target.capabilities.supports_multi_turn and \
+                         target.capabilities.supports_editable_history
+        if not is_chat_target:
             return await self._handle_non_chat_target_async(
                 context=context,
                 prepended_conversation=prepended_conversation,
@@ -341,7 +341,7 @@ class ConversationManager:
             max_turns=max_turns,
         )
 
-    async def _handle_single_turn_target_async(
+    async def _handle_non_chat_target_async(
         self,
         *,
         context: "AttackContext[Any]",
@@ -349,26 +349,26 @@ class ConversationManager:
         config: Optional["PrependedConversationConfig"],
     ) -> ConversationState:
         """
-        Handle prepended conversation for single-turn targets.
+        Handle prepended conversation for targets that don't support conversation management.
 
         Args:
             context: The attack context.
             prepended_conversation: Messages to prepend.
-            config: Configuration for single-turn target behavior.
+            config: Configuration for non-chat target behavior.
 
         Returns:
-            Empty ConversationState (single-turn targets don't track turns).
+            Empty ConversationState (non-chat targets don't track turns).
 
         Raises:
-            ValueError: If config requires raising for single-turn targets.
+            ValueError: If config requires raising for non-chat targets.
         """
         if config is None:
             config = PrependedConversationConfig()
 
         if config.non_chat_target_behavior == "raise":
             raise ValueError(
-                "prepended_conversation requires the objective target to support multi-turn conversations. "
-                "Non-multi-turn objective targets do not support conversation history. "
+                "prepended_conversation requires a target that supports multi-turn conversations & editable history. "
+                "Non-chat targets do not support conversation history. "
                 "Use PrependedConversationConfig with non_chat_target_behavior='normalize_first_turn' "
                 "to normalize the conversation into the first message instead."
             )

@@ -719,7 +719,7 @@ class TestValueErrorGuards:
             params=AttackParameters(objective="Test"),
         )
 
-        with pytest.raises(ValueError, match="CrescendoAttack requires a multi-turn target"):
+        with pytest.raises(ValueError, match="objective_target must have 'supports_multi_turn' capability"):
             await attack._setup_async(context=context)
 
     @pytest.mark.asyncio
@@ -733,7 +733,7 @@ class TestValueErrorGuards:
             params=AttackParameters(objective="Test"),
         )
 
-        with pytest.raises(ValueError, match="MultiPromptSendingAttack requires a multi-turn target"):
+        with pytest.raises(ValueError, match="objective_target must have 'supports_multi_turn' capability"):
             await attack._setup_async(context=context)
 
     @pytest.mark.asyncio
@@ -750,7 +750,7 @@ class TestValueErrorGuards:
             params=AttackParameters(objective="Test"),
         )
 
-        with pytest.raises(ValueError, match="ChunkedRequestAttack requires a multi-turn target"):
+        with pytest.raises(ValueError, match="objective_target must have 'supports_multi_turn' capability"):
             await attack._setup_async(context=context)
 
 
