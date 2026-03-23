@@ -239,30 +239,6 @@ class ConversationManager:
 
         return conversation[-1].get_piece()
 
-    def _set_target_system_prompt(
-        self,
-        *,
-        target: PromptTarget,
-        conversation_id: str,
-        system_prompt: str,
-        labels: Optional[dict[str, str]] = None,
-    ) -> None:
-        """
-        Set the system prompt for a conversation by delegating to the target.
-
-        Args:
-            target: The target to set the system prompt on.
-            conversation_id: Unique identifier for the conversation.
-            system_prompt: The system prompt text.
-            labels: Optional labels to associate with the system prompt.
-        """
-        target._set_target_system_prompt(
-            system_prompt=system_prompt,
-            conversation_id=conversation_id,
-            attack_identifier=self._attack_identifier,
-            labels=labels,
-        )
-
     def set_system_prompt(
         self,
         *,
@@ -290,10 +266,10 @@ class ConversationManager:
             new_item="AttackParameters.prepended_conversation",
             removed_in="0.14.0",
         )
-        self._set_target_system_prompt(
-            target=target,
+        target._set_target_system_prompt(
             system_prompt=system_prompt,
             conversation_id=conversation_id,
+            attack_identifier=self._attack_identifier,
             labels=labels,
         )
 
