@@ -127,6 +127,8 @@ class HTTPXAPITarget(HTTPTarget):
             if isinstance(possible_path, str) and os.path.exists(possible_path):
                 logger.info(f"HTTPXApiTarget: auto-using file_path from {possible_path}")
                 self.file_path = possible_path
+        elif not os.path.exists(self.file_path):
+            raise FileNotFoundError(f"File not found: {self.file_path}")
 
         if not self.http_url:
             raise ValueError("No `http_url` provided for HTTPXApiTarget.")
@@ -151,6 +153,7 @@ class HTTPXAPITarget(HTTPTarget):
                         method=self.method,
                         url=self.http_url,
                         headers=self.headers,
+                        params=self.params,
                         files=files,
                         follow_redirects=True,
                     )
@@ -161,7 +164,7 @@ class HTTPXAPITarget(HTTPTarget):
                         method=self.method,
                         url=self.http_url,
                         headers=self.headers,
-                        params=self.params if self.method in {"GET", "HEAD"} else None,
+                        params=self.params,
                         json=self.json_data if self.method in {"POST", "PUT", "PATCH"} else None,
                         data=self.form_data if self.method in {"POST", "PUT", "PATCH"} else None,
                         follow_redirects=True,
