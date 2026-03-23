@@ -215,7 +215,7 @@ async def _generate_next_message_async(
     )
 
     # Set the system prompt on the target
-    adversarial_chat.set_system_prompt(
+    adversarial_chat._set_target_system_prompt(
         system_prompt=system_prompt,
         conversation_id=request_message.conversation_id,
     )

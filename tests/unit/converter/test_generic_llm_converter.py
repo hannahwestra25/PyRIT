@@ -38,9 +38,9 @@ async def test_noise_converter_sets_system_prompt_default(mock_target) -> None:
     converter = NoiseConverter(converter_target=mock_target)
     await converter.convert_async(prompt="being awesome")
 
-    mock_target.set_system_prompt.assert_called_once()
+    mock_target._set_target_system_prompt.assert_called_once()
 
-    system_arg = mock_target.set_system_prompt.call_args[1]["system_prompt"]
+    system_arg = mock_target._set_target_system_prompt.call_args[1]["system_prompt"]
     assert isinstance(system_arg, str)
     assert "Grammar error, Delete random letter" in system_arg
 
@@ -50,9 +50,9 @@ async def test_noise_converter_sets_system_prompt(mock_target) -> None:
     converter = NoiseConverter(converter_target=mock_target, noise="extra random periods")
     await converter.convert_async(prompt="being awesome")
 
-    mock_target.set_system_prompt.assert_called_once()
+    mock_target._set_target_system_prompt.assert_called_once()
 
-    system_arg = mock_target.set_system_prompt.call_args[1]["system_prompt"]
+    system_arg = mock_target._set_target_system_prompt.call_args[1]["system_prompt"]
     assert isinstance(system_arg, str)
     assert "extra random periods" in system_arg
 
@@ -62,9 +62,9 @@ async def test_tone_converter_sets_system_prompt(mock_target) -> None:
     converter = ToneConverter(tone="formal", converter_target=mock_target)
     await converter.convert_async(prompt="being awesome")
 
-    mock_target.set_system_prompt.assert_called_once()
+    mock_target._set_target_system_prompt.assert_called_once()
 
-    system_arg = mock_target.set_system_prompt.call_args[1]["system_prompt"]
+    system_arg = mock_target._set_target_system_prompt.call_args[1]["system_prompt"]
     assert isinstance(system_arg, str)
     assert "formal" in system_arg
 
@@ -74,9 +74,9 @@ async def test_tense_converter_sets_system_prompt(mock_target) -> None:
     converter = TenseConverter(tense="past", converter_target=mock_target)
     await converter.convert_async(prompt="being awesome")
 
-    mock_target.set_system_prompt.assert_called_once()
+    mock_target._set_target_system_prompt.assert_called_once()
 
-    system_arg = mock_target.set_system_prompt.call_args[1]["system_prompt"]
+    system_arg = mock_target._set_target_system_prompt.call_args[1]["system_prompt"]
     assert isinstance(system_arg, str)
     assert "past" in system_arg
 
@@ -86,9 +86,9 @@ async def test_malicious_question_converter_sets_system_prompt(mock_target) -> N
     converter = MaliciousQuestionGeneratorConverter(converter_target=mock_target)
     await converter.convert_async(prompt="being awesome")
 
-    mock_target.set_system_prompt.assert_called_once()
+    mock_target._set_target_system_prompt.assert_called_once()
 
-    system_arg = mock_target.set_system_prompt.call_args[1]["system_prompt"]
+    system_arg = mock_target._set_target_system_prompt.call_args[1]["system_prompt"]
     assert isinstance(system_arg, str)
     assert "Please act as an expert in this domain: being awesome" in system_arg
 

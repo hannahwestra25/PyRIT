@@ -263,7 +263,7 @@ from pyrit.score import (
 )
 
 # Incorrect (if importing from a non-target module)
-from pyrit.prompt_target.common.prompt_chat_target import PromptTarget
+from pyrit.prompt_target.common.prompt_target import PromptTarget
 from pyrit.prompt_target.openai.openai_chat_target import OpenAIChatTarget
 
 ```

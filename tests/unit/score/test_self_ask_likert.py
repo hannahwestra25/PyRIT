@@ -35,7 +35,7 @@ def scorer_likert_response() -> Message:
 
 
 @pytest.mark.asyncio
-async def test_likert_scorer_set_system_prompt(scorer_likert_response: Message):
+async def test_likert_scorer__set_target_system_prompt(scorer_likert_response: Message):
     memory = MagicMock(MemoryInterface)
     with patch.object(CentralMemory, "get_memory_instance", return_value=memory):
         chat_target = MagicMock()
@@ -46,7 +46,7 @@ async def test_likert_scorer_set_system_prompt(scorer_likert_response: Message):
 
         await scorer.score_text_async(text="string")
 
-        chat_target.set_system_prompt.assert_called_once()
+        chat_target._set_target_system_prompt.assert_called_once()
 
         # assert that the likert score was loaded into system prompt
         # If _score_category is a list, check all values are in the prompt

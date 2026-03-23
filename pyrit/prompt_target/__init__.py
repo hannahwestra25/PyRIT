@@ -10,7 +10,7 @@ for example sending prompts or transferring content (uploads).
 
 from pyrit.prompt_target.azure_blob_storage_target import AzureBlobStorageTarget
 from pyrit.prompt_target.azure_ml_chat_target import AzureMLChatTarget
-from pyrit.prompt_target.common.prompt_chat_target import PromptTarget
+from pyrit.prompt_target.common.prompt_chat_target import PromptChatTarget
 from pyrit.prompt_target.common.prompt_target import PromptTarget
 from pyrit.prompt_target.common.target_capabilities import TargetCapabilities
 from pyrit.prompt_target.common.utils import limit_requests_per_minute

@@ -5,6 +5,7 @@ import abc
 import logging
 from typing import Any, Optional, Union
 
+from pyrit.common.deprecation import print_deprecation_message
 from pyrit.identifiers import ComponentIdentifier, Identifiable
 from pyrit.memory import CentralMemory, MemoryInterface
 from pyrit.models import Message, MessagePiece
@@ -145,8 +146,45 @@ class PromptTarget(Identifiable):
         """
         Set the system prompt for the prompt target. May be overridden by subclasses.
 
+        .. deprecated::
+            Use ``prepended_conversation`` on the attack context instead. Pass a
+            ``Message.from_system_prompt(system_prompt)`` as the first element of
+            ``AttackParameters.prepended_conversation``. This method will be removed in 0.14.0.
+
         Raises:
             RuntimeError: If the conversation already exists.
+        """
+        print_deprecation_message(
+            old_item="PromptTarget.set_system_prompt",
+            new_item="AttackParameters.prepended_conversation",
+            removed_in="0.14.0",
+        )
+        self._set_target_system_prompt(
+            system_prompt=system_prompt,
+            conversation_id=conversation_id,
+            attack_identifier=attack_identifier,
+            labels=labels,
+        )
+
+    def _set_target_system_prompt(
+        self,
+        *,
+        system_prompt: str,
+        conversation_id: str,
+        attack_identifier: Optional[ComponentIdentifier] = None,
+        labels: Optional[dict[str, str]] = None,
+    ) -> None:
+        """
+        Internal method to set the system prompt for the prompt target.
+
+        Args:
+                system_prompt (str): The system prompt text to set.
+                conversation_id (str): The conversation ID to associate with this system prompt.
+                attack_identifier (Optional[ComponentIdentifier]): An optional identifier for the attack context.
+                labels (Optional[dict[str, str]]): Optional labels to associate with the system prompt in memory.
+
+        Raises:
+                RuntimeError: If the conversation already exists.
         """
         messages = self._memory.get_conversation(conversation_id=conversation_id)
 

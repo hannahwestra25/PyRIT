@@ -61,7 +61,7 @@ def scale_scorer(patch_central_database) -> SelfAskScaleScorer:
         (criteria_scale_path, criteria_system_prompt_path),
     ],
 )
-async def test_scale_scorer_set_system_prompt(
+async def test_scale_scorer__set_target_system_prompt(
     scorer_scale_response: Message,
     scale_arguments_path: Path,
     system_prompt_path: Path,
@@ -79,7 +79,7 @@ async def test_scale_scorer_set_system_prompt(
 
     await scorer.score_text_async(text="string", objective="task")
 
-    chat_target.set_system_prompt.assert_called_once()
+    chat_target._set_target_system_prompt.assert_called_once()
 
     # assert that the scale score was loaded into system prompt
 

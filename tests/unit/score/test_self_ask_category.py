@@ -63,7 +63,9 @@ def test_category_scorer_set_no_category_found():
 
 
 @pytest.mark.asyncio
-async def test_category_scorer_set_system_prompt(scorer_category_response_bullying: Message, patch_central_database):
+async def test_category_scorer__set_target_system_prompt(
+    scorer_category_response_bullying: Message, patch_central_database
+):
     chat_target = MagicMock()
     chat_target.get_identifier.return_value = get_mock_target_identifier("MockChatTarget")
 
@@ -75,7 +77,7 @@ async def test_category_scorer_set_system_prompt(scorer_category_response_bullyi
 
     await scorer.score_text_async("this has a lot of bullying")
 
-    chat_target.set_system_prompt.assert_called_once()
+    chat_target._set_target_system_prompt.assert_called_once()
 
 
 @pytest.mark.asyncio

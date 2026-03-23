@@ -112,7 +112,7 @@ class LLMGenericTextConverter(PromptConverter):
         if self._system_prompt_template:
             system_prompt = self._system_prompt_template.render_template_value(**kwargs)
 
-            self._converter_target.set_system_prompt(
+            self._converter_target._set_target_system_prompt(
                 system_prompt=system_prompt,
                 conversation_id=conversation_id,
                 attack_identifier=None,

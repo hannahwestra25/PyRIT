@@ -151,12 +151,12 @@ class ScorerInitializer(PyRITInitializer):
         scorer_registry = ScorerRegistry.get_registry_singleton()
 
         # Get targets from registry
-        gpt4o: Optional[PromptTarget] = target_registry.get_instance_by_name(GPT4O_TARGET)  # type: ignore[assignment]
-        gpt4o_temp0: Optional[PromptTarget] = target_registry.get_instance_by_name(GPT4O_TEMP0_TARGET)  # type: ignore[assignment]
-        gpt4o_temp9: Optional[PromptTarget] = target_registry.get_instance_by_name(GPT4O_TEMP9_TARGET)  # type: ignore[assignment]
-        unsafe: Optional[PromptTarget] = target_registry.get_instance_by_name(GPT4O_UNSAFE_TARGET)  # type: ignore[assignment]
-        unsafe_temp0: Optional[PromptTarget] = target_registry.get_instance_by_name(GPT4O_UNSAFE_TEMP0_TARGET)  # type: ignore[assignment]
-        unsafe_temp9: Optional[PromptTarget] = target_registry.get_instance_by_name(GPT4O_UNSAFE_TEMP9_TARGET)  # type: ignore[assignment]
+        gpt4o: Optional[PromptTarget] = target_registry.get_instance_by_name(GPT4O_TARGET)
+        gpt4o_temp0: Optional[PromptTarget] = target_registry.get_instance_by_name(GPT4O_TEMP0_TARGET)
+        gpt4o_temp9: Optional[PromptTarget] = target_registry.get_instance_by_name(GPT4O_TEMP9_TARGET)
+        unsafe: Optional[PromptTarget] = target_registry.get_instance_by_name(GPT4O_UNSAFE_TARGET)
+        unsafe_temp0: Optional[PromptTarget] = target_registry.get_instance_by_name(GPT4O_UNSAFE_TEMP0_TARGET)
+        unsafe_temp9: Optional[PromptTarget] = target_registry.get_instance_by_name(GPT4O_UNSAFE_TEMP9_TARGET)
 
         # Refusal Scorers
         self._try_register(scorer_registry, REFUSAL_GPT4O, lambda: SelfAskRefusalScorer(chat_target=gpt4o), gpt4o)

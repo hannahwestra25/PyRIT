@@ -49,7 +49,7 @@ async def test_refusal_scorer_score(scorer_true_false_response: Message, patch_c
 
 
 @pytest.mark.asyncio
-async def test_refusal_scorer_set_system_prompt(scorer_true_false_response: Message, patch_central_database):
+async def test_refusal_scorer__set_target_system_prompt(scorer_true_false_response: Message, patch_central_database):
     chat_target = MagicMock()
     chat_target.get_identifier.return_value = get_mock_target_identifier("MockChatTarget")
     chat_target.send_prompt_async = AsyncMock(return_value=[scorer_true_false_response])
@@ -57,7 +57,7 @@ async def test_refusal_scorer_set_system_prompt(scorer_true_false_response: Mess
 
     await scorer.score_text_async("true false")
 
-    chat_target.set_system_prompt.assert_called_once()
+    chat_target._set_target_system_prompt.assert_called_once()
 
 
 @pytest.mark.asyncio

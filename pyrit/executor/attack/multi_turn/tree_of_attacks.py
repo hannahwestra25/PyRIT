@@ -978,7 +978,7 @@ class _TreeOfAttacksNode:
             conversation_context=self._conversation_context,
         )
 
-        self._adversarial_chat.set_system_prompt(
+        self._adversarial_chat._set_target_system_prompt(
             system_prompt=system_prompt,
             conversation_id=self.adversarial_chat_conversation_id,
             attack_identifier=self._attack_id,
@@ -1857,7 +1857,7 @@ class TreeOfAttacksWithPruningAttack(AttackStrategy[TAPAttackContext, TAPAttackR
                 generate adversarial prompts and evaluate responses.
         """
         node = _TreeOfAttacksNode(
-            objective_target=cast("PromptTarget", self._objective_target),
+            objective_target=self._objective_target,
             adversarial_chat=self._adversarial_chat,
             adversarial_chat_seed_prompt=self._adversarial_chat_seed_prompt,
             adversarial_chat_system_seed_prompt=self._adversarial_chat_system_seed_prompt,

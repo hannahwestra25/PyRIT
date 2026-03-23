@@ -7,6 +7,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Optional
 
+from pyrit.common.deprecation import print_deprecation_message
 from pyrit.common.utils import combine_dict
 from pyrit.executor.attack.component.prepended_conversation_config import (
     PrependedConversationConfig,
@@ -238,7 +239,30 @@ class ConversationManager:
 
         return conversation[-1].get_piece()
 
-    # TODO: deprecate ?
+    def _set_target_system_prompt(
+        self,
+        *,
+        target: PromptTarget,
+        conversation_id: str,
+        system_prompt: str,
+        labels: Optional[dict[str, str]] = None,
+    ) -> None:
+        """
+        Set the system prompt for a conversation by delegating to the target.
+
+        Args:
+            target: The target to set the system prompt on.
+            conversation_id: Unique identifier for the conversation.
+            system_prompt: The system prompt text.
+            labels: Optional labels to associate with the system prompt.
+        """
+        target._set_target_system_prompt(
+            system_prompt=system_prompt,
+            conversation_id=conversation_id,
+            attack_identifier=self._attack_identifier,
+            labels=labels,
+        )
+
     def set_system_prompt(
         self,
         *,
@@ -250,16 +274,26 @@ class ConversationManager:
         """
         Set or update the system prompt for a conversation.
 
+        .. deprecated:: 0.14.0
+            Use ``prepended_conversation`` on the attack context instead. Pass a
+            ``Message.from_system_prompt(system_prompt)`` as the first element of
+            ``AttackParameters.prepended_conversation``. This method will be removed in 0.14.0.
+
         Args:
             target: The chat target to set the system prompt on.
             conversation_id: Unique identifier for the conversation.
             system_prompt: The system prompt text.
             labels: Optional labels to associate with the system prompt.
         """
-        target.set_system_prompt(
+        print_deprecation_message(
+            old_item="ConversationManager.set_system_prompt",
+            new_item="AttackParameters.prepended_conversation",
+            removed_in="0.14.0",
+        )
+        self._set_target_system_prompt(
+            target=target,
             system_prompt=system_prompt,
             conversation_id=conversation_id,
-            attack_identifier=self._attack_identifier,
             labels=labels,
         )
 
@@ -366,7 +400,8 @@ class ConversationManager:
 
         if config.non_chat_target_behavior == "raise":
             raise ValueError(
-                "prepended_conversation requires a target that supports multi-turn conversations & editable history. "
+                "prepended_conversation requires the objective target to be a PromptTarget "
+                "that supports multi-turn conversations & editable history. "
                 "Non-chat targets do not support conversation history. "
                 "Use PrependedConversationConfig with non_chat_target_behavior='normalize_first_turn' "
                 "to normalize the conversation into the first message instead."

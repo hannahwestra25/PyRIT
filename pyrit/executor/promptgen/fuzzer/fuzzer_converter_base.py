@@ -85,7 +85,7 @@ class FuzzerConverter(PromptConverter):
 
         conversation_id = str(uuid.uuid4())
 
-        self.converter_target.set_system_prompt(
+        self.converter_target._set_target_system_prompt(
             system_prompt=self.system_prompt,
             conversation_id=conversation_id,
             attack_identifier=None,

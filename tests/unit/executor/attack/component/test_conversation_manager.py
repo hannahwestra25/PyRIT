@@ -86,7 +86,9 @@ def mock_prompt_normalizer() -> MagicMock:
 def mock_chat_target() -> MagicMock:
     """Create a mock chat target for testing."""
     target = MagicMock(spec=PromptTarget)
-    target.set_system_prompt = MagicMock()
+    target._set_target_system_prompt = MagicMock()
+    target.capabilities.supports_multi_turn = True
+    target.capabilities.supports_editable_history = True
     target.get_identifier.return_value = _mock_target_id("MockChatTarget")
     return target
 
@@ -95,6 +97,8 @@ def mock_chat_target() -> MagicMock:
 def mock_prompt_target() -> MagicMock:
     """Create a mock prompt target (non-chat) for testing."""
     target = MagicMock(spec=PromptTarget)
+    target.capabilities.supports_multi_turn = False
+    target.capabilities.supports_editable_history = False
     target.get_identifier.return_value = _mock_target_id("MockTarget")
     return target
 
@@ -601,45 +605,45 @@ class TestConversationRetrieval:
 class TestSystemPromptHandling:
     """Tests for system prompt functionality."""
 
-    def test_set_system_prompt_with_chat_target(
+    def test__set_target_system_prompt_with_chat_target(
         self, attack_identifier: ComponentIdentifier, mock_chat_target: MagicMock
     ) -> None:
-        """Test set_system_prompt calls target's set_system_prompt method."""
+        """Test _set_target_system_prompt calls target's _set_target_system_prompt method."""
         manager = ConversationManager(attack_identifier=attack_identifier)
         conversation_id = str(uuid.uuid4())
         system_prompt = "You are a helpful assistant"
         labels = {"type": "system"}
 
-        manager.set_system_prompt(
+        manager._set_target_system_prompt(
             target=mock_chat_target,
             conversation_id=conversation_id,
             system_prompt=system_prompt,
             labels=labels,
         )
 
-        mock_chat_target.set_system_prompt.assert_called_once_with(
+        mock_chat_target._set_target_system_prompt.assert_called_once_with(
             system_prompt=system_prompt,
             conversation_id=conversation_id,
             attack_identifier=attack_identifier,
             labels=labels,
         )
 
-    def test_set_system_prompt_without_labels(
+    def test__set_target_system_prompt_without_labels(
         self, attack_identifier: ComponentIdentifier, mock_chat_target: MagicMock
     ) -> None:
-        """Test set_system_prompt works without labels."""
+        """Test _set_target_system_prompt works without labels."""
         manager = ConversationManager(attack_identifier=attack_identifier)
         conversation_id = str(uuid.uuid4())
         system_prompt = "You are a helpful assistant"
 
-        manager.set_system_prompt(
+        manager._set_target_system_prompt(
             target=mock_chat_target,
             conversation_id=conversation_id,
             system_prompt=system_prompt,
         )
 
-        mock_chat_target.set_system_prompt.assert_called_once()
-        call_args = mock_chat_target.set_system_prompt.call_args
+        mock_chat_target._set_target_system_prompt.assert_called_once()
+        call_args = mock_chat_target._set_target_system_prompt.call_args
         assert call_args.kwargs["labels"] is None
 
 

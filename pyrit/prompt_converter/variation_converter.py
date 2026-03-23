@@ -47,7 +47,7 @@ class VariationConverter(PromptConverter):
         Initialize the converter with the specified target and prompt template.
 
         Args:
-            converter_target (PromptChatTarget): The target to which the prompt will be sent for conversion.
+            converter_target (PromptTarget): The target to which the prompt will be sent for conversion.
                 Can be omitted if a default has been configured via PyRIT initialization.
             prompt_template (SeedPrompt, optional): The template used for generating the system prompt.
                 If not provided, a default template will be used.
@@ -103,7 +103,7 @@ class VariationConverter(PromptConverter):
 
         conversation_id = str(uuid.uuid4())
 
-        self.converter_target.set_system_prompt(
+        self.converter_target._set_target_system_prompt(
             system_prompt=self.system_prompt,
             conversation_id=conversation_id,
             attack_identifier=None,

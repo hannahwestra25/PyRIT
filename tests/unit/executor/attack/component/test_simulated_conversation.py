@@ -47,7 +47,7 @@ def mock_adversarial_chat() -> MagicMock:
     """Create a mock adversarial chat target for testing."""
     chat = MagicMock(spec=PromptTarget)
     chat.send_prompt_async = AsyncMock()
-    chat.set_system_prompt = MagicMock()
+    chat._set_target_system_prompt = MagicMock()
     chat.get_identifier.return_value = _mock_target_id("MockAdversarialChat")
     return chat
 
@@ -700,8 +700,8 @@ class TestGenerateSimulatedConversationAsync:
                     next_message_system_prompt_path=NextMessageSystemPromptPaths.DIRECT.value,
                 )
 
-                # Verify set_system_prompt was called on adversarial_chat
-                mock_adversarial_chat.set_system_prompt.assert_called()
+                # Verify _set_target_system_prompt was called on adversarial_chat
+                mock_adversarial_chat._set_target_system_prompt.assert_called()
 
     @pytest.mark.asyncio
     async def test_starting_sequence_sets_first_sequence_number(

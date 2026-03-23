@@ -253,7 +253,7 @@ class RedTeamingAttack(MultiTurnAttackStrategy[MultiTurnAttackContext[Any], Atta
         if not adversarial_system_prompt:
             raise ValueError("Adversarial chat system prompt must be defined")
 
-        self._adversarial_chat.set_system_prompt(
+        self._adversarial_chat._set_target_system_prompt(
             system_prompt=adversarial_system_prompt,
             conversation_id=context.session.adversarial_chat_conversation_id,
             attack_identifier=self.get_identifier(),

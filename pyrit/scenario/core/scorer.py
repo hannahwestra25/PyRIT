@@ -555,7 +555,7 @@ class Scorer(Identifiable, abc.ABC):
         """
         conversation_id = str(uuid.uuid4())
 
-        prompt_target.set_system_prompt(
+        prompt_target._set_target_system_prompt(
             system_prompt=system_prompt,
             conversation_id=conversation_id,
             attack_identifier=attack_identifier,

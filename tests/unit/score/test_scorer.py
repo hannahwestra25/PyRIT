@@ -203,7 +203,7 @@ async def test_scorer_score_value_with_llm_use_provided_attack_identifier(good_j
     chat_target = MagicMock(PromptTarget)
     chat_target.get_identifier.return_value = get_mock_target_identifier("MockChatTarget")
     chat_target.send_prompt_async = AsyncMock(return_value=[message])
-    chat_target.set_system_prompt = MagicMock()
+    chat_target._set_target_system_prompt = MagicMock()
 
     expected_system_prompt = "system_prompt"
     expected_attack_identifier = ComponentIdentifier(class_name="TestAttack", class_module="test.module")
@@ -220,9 +220,9 @@ async def test_scorer_score_value_with_llm_use_provided_attack_identifier(good_j
         attack_identifier=expected_attack_identifier,
     )
 
-    chat_target.set_system_prompt.assert_called_once()
+    chat_target._set_target_system_prompt.assert_called_once()
 
-    _, set_sys_prompt_args = chat_target.set_system_prompt.call_args
+    _, set_sys_prompt_args = chat_target._set_target_system_prompt.call_args
     assert set_sys_prompt_args["system_prompt"] == expected_system_prompt
     assert isinstance(set_sys_prompt_args["conversation_id"], str)
     assert set_sys_prompt_args["attack_identifier"] is expected_attack_identifier
@@ -238,7 +238,7 @@ async def test_scorer_score_value_with_llm_does_not_add_score_prompt_id_for_empt
     chat_target = MagicMock(PromptTarget)
     chat_target.get_identifier.return_value = get_mock_target_identifier("MockChatTarget")
     chat_target.send_prompt_async = AsyncMock(return_value=[message])
-    chat_target.set_system_prompt = MagicMock()
+    chat_target._set_target_system_prompt = MagicMock()
 
     expected_system_prompt = "system_prompt"
 
@@ -252,9 +252,9 @@ async def test_scorer_score_value_with_llm_does_not_add_score_prompt_id_for_empt
         objective="task",
     )
 
-    chat_target.set_system_prompt.assert_called_once()
+    chat_target._set_target_system_prompt.assert_called_once()
 
-    _, set_sys_prompt_args = chat_target.set_system_prompt.call_args
+    _, set_sys_prompt_args = chat_target._set_target_system_prompt.call_args
     assert set_sys_prompt_args["system_prompt"] == expected_system_prompt
     assert isinstance(set_sys_prompt_args["conversation_id"], str)
     assert not set_sys_prompt_args["attack_identifier"]

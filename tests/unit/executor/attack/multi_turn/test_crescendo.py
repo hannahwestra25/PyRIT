@@ -64,7 +64,7 @@ def create_mock_chat_target(*, name: str = "MockChatTarget") -> MagicMock:
     """
     target = MagicMock(spec=PromptTarget)
     target.send_prompt_async = AsyncMock()
-    target.set_system_prompt = MagicMock()
+    target._set_target_system_prompt = MagicMock()
     target.get_identifier.return_value = _mock_target_id(name)
     return target
 
@@ -669,8 +669,8 @@ class TestSetupPhase:
             await attack._setup_async(context=basic_context)
 
         # Verify system prompt was set
-        mock_adversarial_chat.set_system_prompt.assert_called_once()
-        call_args = mock_adversarial_chat.set_system_prompt.call_args
+        mock_adversarial_chat._set_target_system_prompt.assert_called_once()
+        call_args = mock_adversarial_chat._set_target_system_prompt.call_args
         assert "Test objective" in call_args.kwargs["system_prompt"]
         assert "15" in call_args.kwargs["system_prompt"]  # Check for the max_turns value
         assert call_args.kwargs["conversation_id"] == basic_context.session.adversarial_chat_conversation_id

@@ -112,7 +112,9 @@ class TranslationConverter(PromptConverter):
         """
         conversation_id = str(uuid.uuid4())
 
-        self.converter_target.set_system_prompt(system_prompt=self.system_prompt, conversation_id=conversation_id)
+        self.converter_target._set_target_system_prompt(
+            system_prompt=self.system_prompt, conversation_id=conversation_id
+        )
 
         if not self.input_supported(input_type):
             raise ValueError("Input type not supported")

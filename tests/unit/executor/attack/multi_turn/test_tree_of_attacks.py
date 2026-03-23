@@ -231,7 +231,7 @@ class AttackBuilder:
     def _create_mock_chat() -> PromptTarget:
         chat = MagicMock(spec=PromptTarget)
         chat.send_prompt_async = AsyncMock(return_value=None)
-        chat.set_system_prompt = MagicMock()
+        chat._set_target_system_prompt = MagicMock()
         chat.get_identifier.return_value = ComponentIdentifier(
             class_name="MockChatTarget",
             class_module="test_module",

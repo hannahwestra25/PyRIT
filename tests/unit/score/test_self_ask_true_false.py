@@ -53,7 +53,7 @@ async def test_true_false_scorer_score(patch_central_database, scorer_true_false
 
 
 @pytest.mark.asyncio
-async def test_true_false_scorer_set_system_prompt(patch_central_database, scorer_true_false_response: Message):
+async def test_true_false_scorer__set_target_system_prompt(patch_central_database, scorer_true_false_response: Message):
     chat_target = MagicMock()
     chat_target.get_identifier.return_value = get_mock_target_identifier("MockChatTarget")
     chat_target.send_prompt_async = AsyncMock(return_value=[scorer_true_false_response])
@@ -64,7 +64,7 @@ async def test_true_false_scorer_set_system_prompt(patch_central_database, score
 
     await scorer.score_text_async("true false")
 
-    chat_target.set_system_prompt.assert_called_once()
+    chat_target._set_target_system_prompt.assert_called_once()
 
     # assert that the category content was loaded into system prompt
     assert "# Instructions" in scorer._system_prompt

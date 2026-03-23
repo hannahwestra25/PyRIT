@@ -30,7 +30,7 @@ def _mock_target_id(name: str = "MockTarget") -> ComponentIdentifier:
 def mock_objective_target() -> PromptTarget:
     """Create a mock objective target for testing."""
     mock_target = MagicMock(spec=PromptTarget)
-    mock_target.set_system_prompt = MagicMock()
+    mock_target._set_target_system_prompt = MagicMock()
     mock_target.get_identifier.return_value = _mock_target_id("mock_objective_target")
     return mock_target
 
@@ -39,7 +39,7 @@ def mock_objective_target() -> PromptTarget:
 def mock_processing_model() -> PromptTarget:
     """Create a mock processing model for testing."""
     mock_model = MagicMock(spec=PromptTarget)
-    mock_model.set_system_prompt = MagicMock()
+    mock_model._set_target_system_prompt = MagicMock()
     mock_model.get_identifier.return_value = _mock_target_id("MockProcessingModel")
     return mock_model
 
@@ -241,7 +241,7 @@ class TestAnecdoctorGeneratorSetup:
         """Test setup formats system prompt with language and content type."""
         generator = AnecdoctorGenerator(objective_target=mock_objective_target)
 
-        with patch.object(generator._objective_target, "set_system_prompt") as mock_set:
+        with patch.object(generator._objective_target, "_set_target_system_prompt") as mock_set:
             await generator._setup_async(context=sample_context)
 
             mock_set.assert_called_once()

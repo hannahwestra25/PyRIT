@@ -263,7 +263,7 @@ class CrescendoAttack(MultiTurnAttackStrategy[CrescendoAttackContext, CrescendoA
             ValueError: If the objective target does not support multi-turn conversations.
         """
         self._objective_target.capabilities.validate(
-            required={"supports_multi_turn", "supports_editable_history"},
+            required={"supports_multi_turn"},
             context="objective_target",
         )
 
@@ -306,7 +306,7 @@ class CrescendoAttack(MultiTurnAttackStrategy[CrescendoAttackContext, CrescendoA
             conversation_context=adversarial_chat_context,
         )
 
-        self._adversarial_chat.set_system_prompt(
+        self._adversarial_chat._set_target_system_prompt(
             system_prompt=system_prompt,
             conversation_id=context.session.adversarial_chat_conversation_id,
             attack_identifier=self.get_identifier(),

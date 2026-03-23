@@ -63,7 +63,7 @@ def mock_objective_target() -> MagicMock:
 def mock_adversarial_chat() -> MagicMock:
     chat = MagicMock(spec=PromptTarget)
     chat.send_prompt_async = AsyncMock()
-    chat.set_system_prompt = MagicMock()
+    chat._set_target_system_prompt = MagicMock()
     chat.get_identifier.return_value = _mock_target_id("MockChatTarget")
     return chat
 
@@ -537,7 +537,7 @@ class TestContextValidation:
         # Create a separate chat target for objective since prepended_conversation requires PromptTarget
         mock_chat_objective_target = MagicMock(spec=PromptTarget)
         mock_chat_objective_target.send_prompt_async = AsyncMock()
-        mock_chat_objective_target.set_system_prompt = MagicMock()
+        mock_chat_objective_target._set_target_system_prompt = MagicMock()
         mock_chat_objective_target.get_identifier.return_value = _mock_target_id("MockChatTarget")
 
         adversarial_config = AttackAdversarialConfig(target=mock_adversarial_chat)
@@ -687,8 +687,8 @@ class TestSetupPhase:
             await attack._setup_async(context=basic_context)
 
         # Verify system prompt was set
-        mock_adversarial_chat.set_system_prompt.assert_called_once()
-        call_args = mock_adversarial_chat.set_system_prompt.call_args
+        mock_adversarial_chat._set_target_system_prompt.assert_called_once()
+        call_args = mock_adversarial_chat._set_target_system_prompt.call_args
         assert "Test objective" in call_args.kwargs["system_prompt"]
         assert call_args.kwargs["conversation_id"] == basic_context.session.adversarial_chat_conversation_id
 

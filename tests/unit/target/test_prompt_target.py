@@ -46,8 +46,8 @@ def mock_attack_strategy():
     return strategy
 
 
-def test_set_system_prompt(azure_openai_target: OpenAIChatTarget, mock_attack_strategy: AttackStrategy):
-    azure_openai_target.set_system_prompt(
+def test__set_target_system_prompt(azure_openai_target: OpenAIChatTarget, mock_attack_strategy: AttackStrategy):
+    azure_openai_target._set_target_system_prompt(
         system_prompt="system prompt",
         conversation_id="1",
         attack_identifier=mock_attack_strategy.get_identifier(),
@@ -62,10 +62,10 @@ def test_set_system_prompt(azure_openai_target: OpenAIChatTarget, mock_attack_st
 
 @pytest.mark.asyncio
 @pytest.mark.asyncio
-async def test_set_system_prompt_adds_memory(
+async def test__set_target_system_prompt_adds_memory(
     azure_openai_target: OpenAIChatTarget, mock_attack_strategy: AttackStrategy
 ):
-    azure_openai_target.set_system_prompt(
+    azure_openai_target._set_target_system_prompt(
         system_prompt="system prompt",
         conversation_id="1",
         attack_identifier=mock_attack_strategy.get_identifier(),
@@ -100,7 +100,7 @@ async def test_send_prompt_with_system_calls_chat_complete(
     ) as mock_create:
         mock_create.return_value = mock_response
 
-        azure_openai_target.set_system_prompt(
+        azure_openai_target._set_target_system_prompt(
             system_prompt="system prompt",
             conversation_id="1",
             attack_identifier=mock_attack_strategy.get_identifier(),

@@ -7,7 +7,7 @@ from uuid import UUID
 from pyrit.exceptions.exception_classes import InvalidJsonException
 from pyrit.identifiers import ComponentIdentifier
 from pyrit.models import PromptDataType, Score, UnvalidatedScore
-from pyrit.prompt_target.common.prompt_chat_target import PromptTarget
+from pyrit.prompt_target.common.prompt_target import PromptTarget
 from pyrit.score.scorer import Scorer
 from pyrit.score.scorer_prompt_validator import ScorerPromptValidator
 

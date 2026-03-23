@@ -99,7 +99,7 @@ class GandalfScorer(TrueFalseScorer):
         )
 
         scoring_conversation_id = str(uuid.uuid4())
-        self._prompt_target.set_system_prompt(
+        self._prompt_target._set_target_system_prompt(
             system_prompt=system_prompt,
             conversation_id=scoring_conversation_id,
         )

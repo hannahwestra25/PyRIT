@@ -86,7 +86,7 @@ async def test_gandalf_scorer_score(
 @patch("requests.post")
 @pytest.mark.parametrize("level", [GandalfLevel.LEVEL_1, GandalfLevel.LEVEL_2, GandalfLevel.LEVEL_3])
 @pytest.mark.asyncio
-async def test_gandalf_scorer_set_system_prompt(
+async def test_gandalf_scorer__set_target_system_prompt(
     mocked_post,
     sqlite_instance: MemoryInterface,
     level: GandalfLevel,
@@ -106,7 +106,7 @@ async def test_gandalf_scorer_set_system_prompt(
 
     await scorer.score_async(response)
 
-    chat_target.set_system_prompt.assert_called_once()
+    chat_target._set_target_system_prompt.assert_called_once()
 
     mocked_post.assert_called_once()
 

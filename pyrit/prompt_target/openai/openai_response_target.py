@@ -532,7 +532,7 @@ class OpenAIResponseTarget(OpenAITarget, PromptTarget):
         json_config = _JsonResponseConfig(enabled=False)
         if message.message_pieces:
             last_piece = message.message_pieces[-1]
-            json_config = self._get_json_response_config(message_piece=last_piece)
+            json_config = _JsonResponseConfig.from_metadata(metadata=last_piece.prompt_metadata)
 
         # Get full conversation history from memory and append the current message
         conversation: MutableSequence[Message] = self._memory.get_conversation(

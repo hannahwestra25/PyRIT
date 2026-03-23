@@ -139,11 +139,23 @@ def prepended_conversation_multimodal() -> list[Message]:
 
 
 @pytest.fixture
+def mock_chat_target() -> MagicMock:
+    """Create a mock chat target (objective target)."""
+    target = MagicMock(spec=PromptTarget)
+    target.send_prompt_async = AsyncMock()
+    target._set_target_system_prompt = MagicMock()
+    target.capabilities.supports_multi_turn = True
+    target.capabilities.supports_editable_history = True
+    target.get_identifier.return_value = _mock_target_id("MockChatTarget")
+    return target
+
+
+@pytest.fixture
 def mock_adversarial_chat() -> MagicMock:
     """Create a mock adversarial chat target."""
     target = MagicMock(spec=PromptTarget)
     target.send_prompt_async = AsyncMock()
-    target.set_system_prompt = MagicMock()
+    target._set_target_system_prompt = MagicMock()
     target.get_identifier.return_value = _mock_target_id("MockAdversarialChat")
     return target
 
@@ -915,7 +927,7 @@ def _assert_prepended_text_in_adversarial_context(
 
     This helper verifies the content appears regardless of the injection method by checking:
     1. Adversarial chat memory (history messages)
-    2. The set_system_prompt call args (if mock provided and memory is empty)
+    2. The _set_target_system_prompt call args (if mock provided and memory is empty)
 
     Args:
         prepended_conversation: The original prepended conversation.
@@ -929,13 +941,13 @@ def _assert_prepended_text_in_adversarial_context(
         adversarial_chat_conversation_id=adversarial_chat_conversation_id
     )
 
-    # If memory is empty but we have a mock, check set_system_prompt calls
+    # If memory is empty but we have a mock, check _set_target_system_prompt calls
     if (
         not adversarial_text_values
         and adversarial_chat_mock is not None
-        and adversarial_chat_mock.set_system_prompt.called
+        and adversarial_chat_mock._set_target_system_prompt.called
     ):
-        for call in adversarial_chat_mock.set_system_prompt.call_args_list:
+        for call in adversarial_chat_mock._set_target_system_prompt.call_args_list:
             system_prompt = call.kwargs.get("system_prompt", "")
             if system_prompt:
                 adversarial_text_values.append(system_prompt)
@@ -1025,7 +1037,7 @@ class TestAdversarialChatContextInjection:
         sqlite_instance,
     ) -> None:
         """Test that TreeOfAttacksWithPruningAttack injects prepended conversation into adversarial context."""
-        # TAP may fail due to JSON parsing, but set_system_prompt should be called before the error
+        # TAP may fail due to JSON parsing, but _set_target_system_prompt should be called before the error
         with suppress(Exception):
             await tap_attack.execute_async(
                 objective="Test objective",
@@ -1033,7 +1045,7 @@ class TestAdversarialChatContextInjection:
                 next_message=multimodal_text_message,
             )
 
-        # Verify prepended text appears in adversarial context (checks mock's set_system_prompt calls)
+        # Verify prepended text appears in adversarial context (checks mock's _set_target_system_prompt calls)
         _assert_prepended_text_in_adversarial_context(
             prepended_conversation=prepended_conversation_text,
             adversarial_chat_conversation_id="",  # Empty - will fall back to mock check
