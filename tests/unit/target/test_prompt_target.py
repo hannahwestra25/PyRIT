@@ -60,9 +60,7 @@ def test__set_target_system_prompt(azure_openai_target: OpenAIChatTarget, mock_a
     assert chats[0].converted_value == "system prompt"
 
 
-@pytest.mark.asyncio
-@pytest.mark.asyncio
-async def test__set_target_system_prompt_adds_memory(
+def test__set_target_system_prompt_raises_if_conversation_exists(
     azure_openai_target: OpenAIChatTarget, mock_attack_strategy: AttackStrategy
 ):
     azure_openai_target._set_target_system_prompt(
@@ -72,9 +70,13 @@ async def test__set_target_system_prompt_adds_memory(
         labels={},
     )
 
-    chats = azure_openai_target._memory.get_message_pieces(conversation_id="1")
-    assert len(chats) == 1, f"Expected 1 chats, got {len(chats)}"
-    assert chats[0].api_role == "system"
+    with pytest.raises(RuntimeError, match="Conversation already exists"):
+        azure_openai_target._set_target_system_prompt(
+            system_prompt="another prompt",
+            conversation_id="1",
+            attack_identifier=mock_attack_strategy.get_identifier(),
+            labels={},
+        )
 
 
 @pytest.mark.asyncio

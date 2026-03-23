@@ -92,7 +92,8 @@ class PrependedConversationConfig:
                 Defaults to all roles.
 
         Returns:
-            A configuration that normalizes the prepended conversation for targets that don't support conversation management.
+            A configuration that normalizes the prepended conversation for targets that don't support conversation
+            management.
         """
         return cls(
             apply_converters_to_roles=(

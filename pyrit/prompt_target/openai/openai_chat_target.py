@@ -232,6 +232,9 @@ class OpenAIChatTarget(OpenAITarget):
 
         Returns:
             list[Message]: A list containing the response from the prompt target.
+
+        Raises:
+            ValueError: If the target does not support JSON response format.
         """
         self._validate_request(message=message)
 
@@ -239,8 +242,7 @@ class OpenAIChatTarget(OpenAITarget):
         json_config = _JsonResponseConfig.from_metadata(metadata=message_piece.prompt_metadata)
 
         if json_config.enabled and not self.capabilities.supports_json_output:
-            target_name = self.get_identifier().class_name
-            raise ValueError(f"This target {target_name} does not support JSON response format.")
+            raise ValueError(f"This target OpenAIChatTarget does not support JSON response format.")
 
         # Get conversation from memory and append the current message
         conversation = self._memory.get_conversation(conversation_id=message_piece.conversation_id)

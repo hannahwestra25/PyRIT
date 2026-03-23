@@ -175,7 +175,7 @@ class PromptTarget(Identifiable):
         labels: Optional[dict[str, str]] = None,
     ) -> None:
         """
-        Internal method to set the system prompt for the prompt target.
+        Set the system prompt for the prompt target.
 
         Args:
                 system_prompt (str): The system prompt text to set.

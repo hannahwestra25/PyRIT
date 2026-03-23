@@ -32,7 +32,6 @@ from pyrit.prompt_target import PromptTarget
 from pyrit.score import Scorer
 
 if TYPE_CHECKING:
-    from pyrit.prompt_target import PromptTarget
     from pyrit.score import TrueFalseScorer
 
 logger = logging.getLogger(__name__)
