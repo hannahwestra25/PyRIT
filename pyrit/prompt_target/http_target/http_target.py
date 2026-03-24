@@ -239,8 +239,9 @@ class HTTPTarget(PromptTarget):
 
         body = ""
 
-        # Split the request into headers and body by finding the double newlines (\n\n)
-        request_parts = http_request.strip().split("\n\n", 1)
+        # Support both LF and CRLF raw HTTP requests (e.g. copied from Burp).
+        normalized = http_request.strip().replace("\r\n", "\n")
+        request_parts = normalized.split("\n\n", 1)
 
         # Parse out the header components
         header_lines = request_parts[0].strip().split("\n")
