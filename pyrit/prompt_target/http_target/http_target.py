@@ -239,11 +239,11 @@ class HTTPTarget(PromptTarget):
 
         body = ""
 
-        # Support both LF and CRLF raw HTTP requests (e.g. copied from Burp).
-        request_parts = re.split(r"\r?\n\r?\n", http_request.strip(), 1)
+        # Split the request into headers and body by finding the double newlines (\n\n)
+        request_parts = http_request.strip().split("\n\n", 1)
 
         # Parse out the header components
-        header_lines = request_parts[0].strip().splitlines()
+        header_lines = request_parts[0].strip().split("\n")
         http_req_info_line = header_lines[0].split(" ")  # get 1st line like POST /url_ending HTTP_VSN
         header_lines = header_lines[1:]  # rest of the raw request is the headers info
 
