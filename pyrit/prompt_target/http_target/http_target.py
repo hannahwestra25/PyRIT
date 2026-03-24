@@ -240,7 +240,7 @@ class HTTPTarget(PromptTarget):
         body = ""
 
         # Support both LF and CRLF raw HTTP requests (e.g. copied from Burp).
-        request_parts = re.split(r"\r?\n\r?\n", http_request.strip(), maxsplit=1)
+        request_parts = re.split(r"\r?\n\r?\n", http_request.strip(), 1)
 
         # Parse out the header components
         header_lines = request_parts[0].strip().splitlines()
