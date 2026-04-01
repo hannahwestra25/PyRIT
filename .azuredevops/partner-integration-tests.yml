@@ -1,4 +1,4 @@
-# Builds the pyrit environment and runs partner integration tests. Partner integration tests are to ensure that we 
+# Builds the pyrit environment and runs partner integration tests. Partner integration tests are to ensure that we
 # are not breaking any contract between PyRIT and its partners.
 trigger: none  # Disable automatic CI triggers
 
