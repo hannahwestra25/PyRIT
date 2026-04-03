@@ -12,7 +12,12 @@ from pyrit.prompt_target.azure_blob_storage_target import AzureBlobStorageTarget
 from pyrit.prompt_target.azure_ml_chat_target import AzureMLChatTarget
 from pyrit.prompt_target.common.prompt_chat_target import PromptChatTarget
 from pyrit.prompt_target.common.prompt_target import PromptTarget
-from pyrit.prompt_target.common.target_capabilities import TargetCapabilities
+from pyrit.prompt_target.common.target_capabilities import (
+    CapabilityName,
+    CapabilityHandlingPolicy,
+    TargetCapabilities,
+    UnsupportedCapabilityBehavior,
+)
 from pyrit.prompt_target.common.utils import limit_requests_per_minute
 from pyrit.prompt_target.crucible_target import CrucibleTarget
 from pyrit.prompt_target.gandalf_target import GandalfLevel, GandalfTarget
@@ -67,7 +72,10 @@ __all__ = [
     "PromptShieldTarget",
     "PromptTarget",
     "RealtimeTarget",
+    "CapabilityName",
+    "CapabilityHandlingPolicy",
     "TargetCapabilities",
+    "UnsupportedCapabilityBehavior",
     "TextTarget",
     "WebSocketCopilotTarget",
 ]

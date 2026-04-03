@@ -1,10 +1,107 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from enum import Enum
 from typing import Optional, cast
 
 from pyrit.models import PromptDataType
+
+
+class CapabilityName(str, Enum):
+    """
+    Canonical identifiers for target capabilities.
+
+    This keeps capability identity in one place so policy, requirements, and
+    normalization code do not duplicate string field names.
+    """
+
+    MULTI_TURN = "supports_multi_turn"
+    MULTI_MESSAGE_PIECES = "supports_multi_message_pieces"
+    JSON_SCHEMA = "supports_json_schema"
+    JSON_OUTPUT = "supports_json_output"
+    EDITABLE_HISTORY = "supports_editable_history"
+    SYSTEM_PROMPT = "supports_system_prompt"
+
+
+NORMALIZABLE_CAPABILITIES: frozenset[CapabilityName] = frozenset(
+    {
+        CapabilityName.SYSTEM_PROMPT,
+        CapabilityName.MULTI_TURN,
+    }
+)
+
+
+class UnsupportedCapabilityBehavior(str, Enum):
+    """
+    Defines what happens when a caller requires a capability the target does not support.
+
+    ADAPT: apply a normalization step to work around the missing capability.
+    RAISE: fail immediately with an error.
+    """
+
+    ADAPT = "adapt"
+    RAISE = "raise"
+
+
+
+@dataclass(frozen=True)
+class CapabilityHandlingPolicy:
+    """
+    Per-capability policy consulted only when a capability is **missing**.
+
+    Design invariants
+    -----------------
+    * The policy is never consulted if the capability is already supported.
+    * Non-adaptable capabilities (e.g. ``supports_editable_history``) are not
+      represented here; requesting them on a target that lacks them always
+      raises immediately.
+    """
+
+    behaviors: dict[CapabilityName, UnsupportedCapabilityBehavior] = field(
+        default_factory=lambda: {
+            CapabilityName.MULTI_TURN: UnsupportedCapabilityBehavior.RAISE,
+            CapabilityName.SYSTEM_PROMPT: UnsupportedCapabilityBehavior.RAISE,
+            CapabilityName.JSON_SCHEMA: UnsupportedCapabilityBehavior.RAISE,
+            CapabilityName.JSON_OUTPUT: UnsupportedCapabilityBehavior.RAISE,
+        }
+    )
+
+    def get_behavior(self, *, capability: CapabilityName) -> UnsupportedCapabilityBehavior:
+        """
+        Return the configured handling behavior for a capability.
+
+        Args:
+            capability: The capability to look up.
+
+        Returns:
+            UnsupportedCapabilityBehavior: The configured behavior.
+
+        Raises:
+            AttributeError: If no policy exists for the capability.
+        """
+        try:
+            return self.behaviors[capability]
+        except KeyError as exc:
+            raise AttributeError(capability.value) from exc
+
+    def __getattr__(self, name: str) -> UnsupportedCapabilityBehavior:
+        """
+        Guard against accessing policies for non-adaptable or unknown capabilities.
+
+        Raises:
+            AttributeError: If the capability is not part of this policy.
+        """
+        for capability in CapabilityName:
+            if capability.value == name:
+                supported_names = ", ".join(sorted(cap.value for cap in self.behaviors))
+                raise AttributeError(
+                    f"'{type(self).__name__}' has no policy for '{name}'. "
+                    f"Only the following capabilities have handling policies: "
+                    f"{supported_names}."
+                )
+
+        raise AttributeError(name)
 
 
 @dataclass(frozen=True)
@@ -46,6 +143,18 @@ class TargetCapabilities:
 
     # The output modalities supported by the target (e.g., "text", "image").
     output_modalities: frozenset[frozenset[PromptDataType]] = frozenset({frozenset(["text"])})
+
+    def supports(self, *, capability: CapabilityName) -> bool:
+        """
+        Return whether this target supports the given capability.
+
+        Args:
+            capability: The capability to check.
+
+        Returns:
+            bool: True if supported, otherwise False.
+        """
+        return bool(getattr(self, capability.value))
 
     @staticmethod
     def get_known_capabilities(underlying_model: str) -> "Optional[TargetCapabilities]":
