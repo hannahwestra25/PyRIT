@@ -130,7 +130,6 @@ class TestDefaultCapabilitiesDefined:
         from pyrit.prompt_target import (
             AzureBlobStorageTarget,
             AzureMLChatTarget,
-            CrucibleTarget,
             GandalfTarget,
             HTTPTarget,
             HTTPXAPITarget,
@@ -153,7 +152,6 @@ class TestDefaultCapabilitiesDefined:
         return [
             AzureBlobStorageTarget,
             AzureMLChatTarget,
-            CrucibleTarget,
             GandalfTarget,
             HTTPTarget,
             HTTPXAPITarget,
