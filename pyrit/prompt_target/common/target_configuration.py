@@ -112,9 +112,7 @@ class TargetConfiguration:
 
         behavior = self._policy.get_behavior(capability=capability)
         if behavior == UnsupportedCapabilityBehavior.RAISE:
-            raise ValueError(
-                f"Target does not support '{capability.value}' and the handling policy is RAISE."
-            )
+            raise ValueError(f"Target does not support '{capability.value}' and the handling policy is RAISE.")
 
     async def normalize_async(self, *, messages: list[Message]) -> list[Message]:
         """

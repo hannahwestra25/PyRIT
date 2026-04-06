@@ -16,7 +16,6 @@ from pyrit.prompt_target.common.target_capabilities import (
     UnsupportedCapabilityBehavior,
 )
 
-
 _ADAPT_ALL = CapabilityHandlingPolicy(
     behaviors={
         CapabilityName.SYSTEM_PROMPT: UnsupportedCapabilityBehavior.ADAPT,
@@ -51,17 +50,13 @@ def _make_message(role: ChatMessageRole, content: str) -> Message:
 
 def test_from_capabilities_all_supported_empty_tuple():
     caps = TargetCapabilities(supports_multi_turn=True, supports_system_prompt=True)
-    pipeline = ConversationNormalizationPipeline.from_capabilities(
-        capabilities=caps, policy=_ADAPT_ALL
-    )
+    pipeline = ConversationNormalizationPipeline.from_capabilities(capabilities=caps, policy=_ADAPT_ALL)
     assert pipeline.normalizers == ()
 
 
 def test_from_capabilities_none_supported_has_two_normalizers():
     caps = TargetCapabilities(supports_multi_turn=False, supports_system_prompt=False)
-    pipeline = ConversationNormalizationPipeline.from_capabilities(
-        capabilities=caps, policy=_ADAPT_ALL
-    )
+    pipeline = ConversationNormalizationPipeline.from_capabilities(capabilities=caps, policy=_ADAPT_ALL)
     assert len(pipeline.normalizers) == 2
     assert isinstance(pipeline.normalizers[0], GenericSystemSquashNormalizer)
     assert isinstance(pipeline.normalizers[1], HistorySquashNormalizer)
@@ -77,9 +72,7 @@ def test_from_capabilities_missing_system_prompt_only():
             CapabilityName.JSON_OUTPUT: UnsupportedCapabilityBehavior.RAISE,
         }
     )
-    pipeline = ConversationNormalizationPipeline.from_capabilities(
-        capabilities=caps, policy=policy
-    )
+    pipeline = ConversationNormalizationPipeline.from_capabilities(capabilities=caps, policy=policy)
     assert len(pipeline.normalizers) == 1
     assert isinstance(pipeline.normalizers[0], GenericSystemSquashNormalizer)
 
@@ -94,18 +87,14 @@ def test_from_capabilities_missing_multi_turn_only():
             CapabilityName.JSON_OUTPUT: UnsupportedCapabilityBehavior.RAISE,
         }
     )
-    pipeline = ConversationNormalizationPipeline.from_capabilities(
-        capabilities=caps, policy=policy
-    )
+    pipeline = ConversationNormalizationPipeline.from_capabilities(capabilities=caps, policy=policy)
     assert len(pipeline.normalizers) == 1
     assert isinstance(pipeline.normalizers[0], HistorySquashNormalizer)
 
 
 def test_from_capabilities_normalizers_is_tuple():
     caps = TargetCapabilities(supports_multi_turn=False, supports_system_prompt=False)
-    pipeline = ConversationNormalizationPipeline.from_capabilities(
-        capabilities=caps, policy=_ADAPT_ALL
-    )
+    pipeline = ConversationNormalizationPipeline.from_capabilities(capabilities=caps, policy=_ADAPT_ALL)
     assert isinstance(pipeline.normalizers, tuple)
 
 
@@ -117,17 +106,13 @@ def test_from_capabilities_normalizers_is_tuple():
 def test_from_capabilities_raises_when_system_prompt_missing_and_policy_raise():
     caps = TargetCapabilities(supports_system_prompt=False, supports_multi_turn=True)
     with pytest.raises(ValueError, match="RAISE"):
-        ConversationNormalizationPipeline.from_capabilities(
-            capabilities=caps, policy=_RAISE_ALL
-        )
+        ConversationNormalizationPipeline.from_capabilities(capabilities=caps, policy=_RAISE_ALL)
 
 
 def test_from_capabilities_raises_when_multi_turn_missing_and_policy_raise():
     caps = TargetCapabilities(supports_system_prompt=True, supports_multi_turn=False)
     with pytest.raises(ValueError, match="RAISE"):
-        ConversationNormalizationPipeline.from_capabilities(
-            capabilities=caps, policy=_RAISE_ALL
-        )
+        ConversationNormalizationPipeline.from_capabilities(capabilities=caps, policy=_RAISE_ALL)
 
 
 # ---------------------------------------------------------------------------

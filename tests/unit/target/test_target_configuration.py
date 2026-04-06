@@ -14,7 +14,6 @@ from pyrit.prompt_target.common.target_capabilities import (
 )
 from pyrit.prompt_target.common.target_configuration import TargetConfiguration
 
-
 _ADAPT_ALL = CapabilityHandlingPolicy(
     behaviors={
         CapabilityName.SYSTEM_PROMPT: UnsupportedCapabilityBehavior.ADAPT,

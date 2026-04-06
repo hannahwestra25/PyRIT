@@ -131,9 +131,7 @@ class ConversationNormalizationPipeline:
             behavior = policy.get_behavior(capability=capability)
 
             if behavior == UnsupportedCapabilityBehavior.RAISE:
-                raise ValueError(
-                    f"Target does not support '{capability.value}' and the handling policy is RAISE."
-                )
+                raise ValueError(f"Target does not support '{capability.value}' and the handling policy is RAISE.")
 
             normalizer = overrides.get(capability)
             if normalizer is None:

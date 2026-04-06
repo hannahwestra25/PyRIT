@@ -87,12 +87,15 @@ class TestCapabilityHandlingPolicy:
             _ = policy.totally_unknown_attribute
 
     def test_normalizable_capabilities(self):
-        assert frozenset(
-            {
-                CapabilityName.MULTI_TURN,
-                CapabilityName.SYSTEM_PROMPT,
-            }
-        ) == NORMALIZABLE_CAPABILITIES
+        assert (
+            frozenset(
+                {
+                    CapabilityName.MULTI_TURN,
+                    CapabilityName.SYSTEM_PROMPT,
+                }
+            )
+            == NORMALIZABLE_CAPABILITIES
+        )
 
     def test_target_capabilities_supports_helper(self):
         capabilities = TargetCapabilities(
