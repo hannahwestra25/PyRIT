@@ -34,10 +34,6 @@ class TestCapabilityHandlingPolicy:
         assert policy.behaviors == {
             CapabilityName.MULTI_TURN: UnsupportedCapabilityBehavior.RAISE,
             CapabilityName.SYSTEM_PROMPT: UnsupportedCapabilityBehavior.RAISE,
-            CapabilityName.JSON_SCHEMA: UnsupportedCapabilityBehavior.RAISE,
-            CapabilityName.JSON_OUTPUT: UnsupportedCapabilityBehavior.RAISE,
-            CapabilityName.MULTI_MESSAGE_PIECES: UnsupportedCapabilityBehavior.RAISE,
-            CapabilityName.EDITABLE_HISTORY: UnsupportedCapabilityBehavior.RAISE,
         }
 
     def test_capability_handling_policy_custom_values(self):
@@ -59,26 +55,19 @@ class TestCapabilityHandlingPolicy:
         assert policy.get_behavior(capability=CapabilityName.MULTI_TURN) is UnsupportedCapabilityBehavior.RAISE
         assert policy.get_behavior(capability=CapabilityName.SYSTEM_PROMPT) is UnsupportedCapabilityBehavior.RAISE
 
-    def test_capability_handling_policy_get_behavior_for_all_supported_policy_keys(self):
+    def test_capability_handling_policy_get_behavior_for_all_default_keys(self):
         policy = CapabilityHandlingPolicy()
-
-        assert policy.get_behavior(capability=CapabilityName.JSON_SCHEMA) is UnsupportedCapabilityBehavior.RAISE
-        assert policy.get_behavior(capability=CapabilityName.JSON_OUTPUT) is UnsupportedCapabilityBehavior.RAISE
+        for cap in policy.behaviors:
+            assert policy.get_behavior(capability=cap) is UnsupportedCapabilityBehavior.RAISE
 
     def test_capability_handling_policy_rejects_capability_without_policy(self):
-        # Use a custom partial policy that deliberately omits EDITABLE_HISTORY
-        partial_policy = CapabilityHandlingPolicy(
-            behaviors={
-                CapabilityName.MULTI_TURN: UnsupportedCapabilityBehavior.RAISE,
-                CapabilityName.SYSTEM_PROMPT: UnsupportedCapabilityBehavior.RAISE,
-            }
-        )
+        policy = CapabilityHandlingPolicy()
 
         with pytest.raises(AttributeError, match="supports_editable_history"):
-            partial_policy.get_behavior(capability=CapabilityName.EDITABLE_HISTORY)
+            policy.get_behavior(capability=CapabilityName.EDITABLE_HISTORY)
 
         with pytest.raises(AttributeError, match="supports_editable_history"):
-            _ = partial_policy.supports_editable_history
+            _ = policy.supports_editable_history
 
     def test_capability_handling_policy_rejects_unknown_attribute(self):
         policy = CapabilityHandlingPolicy()

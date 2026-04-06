@@ -30,7 +30,7 @@ class UnsupportedCapabilityBehavior(str, Enum):
     """
     Defines what happens when a caller requires a capability the target does not support.
 
-    ADAPT: apply a normalization step to work around the missing capability.
+    ADAPT: apply a normalization step to work around the unsupported capability.
     RAISE: fail immediately with an error.
     """
 
@@ -41,7 +41,7 @@ class UnsupportedCapabilityBehavior(str, Enum):
 @dataclass(frozen=True)
 class CapabilityHandlingPolicy:
     """
-    Per-capability policy consulted only when a capability is **missing**.
+    Per-capability policy consulted only when a capability is unsupported.
 
     Design invariants
     -----------------
@@ -55,10 +55,6 @@ class CapabilityHandlingPolicy:
         default_factory=lambda: {
             CapabilityName.MULTI_TURN: UnsupportedCapabilityBehavior.RAISE,
             CapabilityName.SYSTEM_PROMPT: UnsupportedCapabilityBehavior.RAISE,
-            CapabilityName.JSON_SCHEMA: UnsupportedCapabilityBehavior.RAISE,
-            CapabilityName.JSON_OUTPUT: UnsupportedCapabilityBehavior.RAISE,
-            CapabilityName.MULTI_MESSAGE_PIECES: UnsupportedCapabilityBehavior.RAISE,
-            CapabilityName.EDITABLE_HISTORY: UnsupportedCapabilityBehavior.RAISE,
         }
     )
 
