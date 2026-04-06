@@ -5,10 +5,10 @@ from unittest.mock import patch
 
 import pytest
 
+from pyrit.prompt_target.common.conversation_normalization_pipeline import NORMALIZABLE_CAPABILITIES
 from pyrit.prompt_target.common.target_capabilities import (
     CapabilityName,
     CapabilityHandlingPolicy,
-    NORMALIZABLE_CAPABILITIES,
     TargetCapabilities,
     UnsupportedCapabilityBehavior,
 )

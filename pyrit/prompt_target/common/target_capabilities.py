@@ -6,6 +6,9 @@ from enum import Enum
 from typing import Optional, cast
 
 from pyrit.models import PromptDataType
+from types import MappingProxyType
+from collections.abc import Mapping
+
 
 
 class CapabilityName(str, Enum):
@@ -22,14 +25,6 @@ class CapabilityName(str, Enum):
     JSON_OUTPUT = "supports_json_output"
     EDITABLE_HISTORY = "supports_editable_history"
     SYSTEM_PROMPT = "supports_system_prompt"
-
-
-NORMALIZABLE_CAPABILITIES: frozenset[CapabilityName] = frozenset(
-    {
-        CapabilityName.SYSTEM_PROMPT,
-        CapabilityName.MULTI_TURN,
-    }
-)
 
 
 class UnsupportedCapabilityBehavior(str, Enum):
@@ -58,7 +53,7 @@ class CapabilityHandlingPolicy:
       raises immediately.
     """
 
-    behaviors: dict[CapabilityName, UnsupportedCapabilityBehavior] = field(
+    behaviors: Mapping[CapabilityName, UnsupportedCapabilityBehavior] = field(
         default_factory=lambda: {
             CapabilityName.MULTI_TURN: UnsupportedCapabilityBehavior.RAISE,
             CapabilityName.SYSTEM_PROMPT: UnsupportedCapabilityBehavior.RAISE,
@@ -102,6 +97,12 @@ class CapabilityHandlingPolicy:
                 )
 
         raise AttributeError(name)
+
+    def __post_init__(self) -> None:
+        # Defensive copy + read-only wrapper. object.__setattr__ is required
+        # because the dataclass is frozen.
+        object.__setattr__(self, "behaviors", MappingProxyType(dict(self.behaviors)))
+
 
 
 @dataclass(frozen=True)

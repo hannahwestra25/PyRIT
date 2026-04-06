@@ -18,6 +18,8 @@ from pyrit.prompt_target.common.target_capabilities import (
     TargetCapabilities,
     UnsupportedCapabilityBehavior,
 )
+from pyrit.prompt_target.common.conversation_normalization_pipeline import ConversationNormalizationPipeline
+from pyrit.prompt_target.common.target_configuration import TargetConfiguration
 from pyrit.prompt_target.common.utils import limit_requests_per_minute
 from pyrit.prompt_target.crucible_target import CrucibleTarget
 from pyrit.prompt_target.gandalf_target import GandalfLevel, GandalfTarget
@@ -48,6 +50,7 @@ __all__ = [
     "AzureBlobStorageTarget",
     "AzureMLChatTarget",
     "CopilotType",
+    "ConversationNormalizationPipeline",
     "CrucibleTarget",
     "GandalfLevel",
     "GandalfTarget",
@@ -74,6 +77,7 @@ __all__ = [
     "RealtimeTarget",
     "CapabilityName",
     "CapabilityHandlingPolicy",
+    "TargetConfiguration",
     "TargetCapabilities",
     "UnsupportedCapabilityBehavior",
     "TextTarget",
