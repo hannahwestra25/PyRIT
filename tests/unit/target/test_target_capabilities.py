@@ -7,8 +7,8 @@ import pytest
 
 from pyrit.prompt_target.common.conversation_normalization_pipeline import NORMALIZABLE_CAPABILITIES
 from pyrit.prompt_target.common.target_capabilities import (
-    CapabilityName,
     CapabilityHandlingPolicy,
+    CapabilityName,
     TargetCapabilities,
     UnsupportedCapabilityBehavior,
 )
@@ -36,6 +36,8 @@ class TestCapabilityHandlingPolicy:
             CapabilityName.SYSTEM_PROMPT: UnsupportedCapabilityBehavior.RAISE,
             CapabilityName.JSON_SCHEMA: UnsupportedCapabilityBehavior.RAISE,
             CapabilityName.JSON_OUTPUT: UnsupportedCapabilityBehavior.RAISE,
+            CapabilityName.MULTI_MESSAGE_PIECES: UnsupportedCapabilityBehavior.RAISE,
+            CapabilityName.EDITABLE_HISTORY: UnsupportedCapabilityBehavior.RAISE,
         }
 
     def test_capability_handling_policy_custom_values(self):
@@ -55,9 +57,7 @@ class TestCapabilityHandlingPolicy:
         policy = CapabilityHandlingPolicy()
 
         assert policy.get_behavior(capability=CapabilityName.MULTI_TURN) is UnsupportedCapabilityBehavior.RAISE
-        assert (
-            policy.get_behavior(capability=CapabilityName.SYSTEM_PROMPT) is UnsupportedCapabilityBehavior.RAISE
-        )
+        assert policy.get_behavior(capability=CapabilityName.SYSTEM_PROMPT) is UnsupportedCapabilityBehavior.RAISE
 
     def test_capability_handling_policy_get_behavior_for_all_supported_policy_keys(self):
         policy = CapabilityHandlingPolicy()
@@ -66,13 +66,19 @@ class TestCapabilityHandlingPolicy:
         assert policy.get_behavior(capability=CapabilityName.JSON_OUTPUT) is UnsupportedCapabilityBehavior.RAISE
 
     def test_capability_handling_policy_rejects_capability_without_policy(self):
-        policy = CapabilityHandlingPolicy()
+        # Use a custom partial policy that deliberately omits EDITABLE_HISTORY
+        partial_policy = CapabilityHandlingPolicy(
+            behaviors={
+                CapabilityName.MULTI_TURN: UnsupportedCapabilityBehavior.RAISE,
+                CapabilityName.SYSTEM_PROMPT: UnsupportedCapabilityBehavior.RAISE,
+            }
+        )
 
         with pytest.raises(AttributeError, match="supports_editable_history"):
-            policy.get_behavior(capability=CapabilityName.EDITABLE_HISTORY)
+            partial_policy.get_behavior(capability=CapabilityName.EDITABLE_HISTORY)
 
         with pytest.raises(AttributeError, match="supports_editable_history"):
-            _ = policy.supports_editable_history
+            _ = partial_policy.supports_editable_history
 
     def test_capability_handling_policy_rejects_unknown_attribute(self):
         policy = CapabilityHandlingPolicy()
@@ -81,12 +87,12 @@ class TestCapabilityHandlingPolicy:
             _ = policy.totally_unknown_attribute
 
     def test_normalizable_capabilities(self):
-        assert NORMALIZABLE_CAPABILITIES == frozenset(
+        assert frozenset(
             {
                 CapabilityName.MULTI_TURN,
                 CapabilityName.SYSTEM_PROMPT,
             }
-        )
+        ) == NORMALIZABLE_CAPABILITIES
 
     def test_target_capabilities_supports_helper(self):
         capabilities = TargetCapabilities(
@@ -99,6 +105,7 @@ class TestCapabilityHandlingPolicy:
         assert capabilities.supports(capability=CapabilityName.SYSTEM_PROMPT) is False
         assert capabilities.supports(capability=CapabilityName.JSON_OUTPUT) is True
         assert capabilities.supports(capability=CapabilityName.EDITABLE_HISTORY) is False
+
 
 # Env vars that may leak from .env files loaded by other tests in parallel workers.
 # Clear them so that targets use _DEFAULT_CAPABILITIES instead of _KNOWN_CAPABILITIES.

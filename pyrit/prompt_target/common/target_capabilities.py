@@ -1,14 +1,13 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import Enum
+from types import MappingProxyType
 from typing import Optional, cast
 
 from pyrit.models import PromptDataType
-from types import MappingProxyType
-from collections.abc import Mapping
-
 
 
 class CapabilityName(str, Enum):
@@ -39,7 +38,6 @@ class UnsupportedCapabilityBehavior(str, Enum):
     RAISE = "raise"
 
 
-
 @dataclass(frozen=True)
 class CapabilityHandlingPolicy:
     """
@@ -59,6 +57,8 @@ class CapabilityHandlingPolicy:
             CapabilityName.SYSTEM_PROMPT: UnsupportedCapabilityBehavior.RAISE,
             CapabilityName.JSON_SCHEMA: UnsupportedCapabilityBehavior.RAISE,
             CapabilityName.JSON_OUTPUT: UnsupportedCapabilityBehavior.RAISE,
+            CapabilityName.MULTI_MESSAGE_PIECES: UnsupportedCapabilityBehavior.RAISE,
+            CapabilityName.EDITABLE_HISTORY: UnsupportedCapabilityBehavior.RAISE,
         }
     )
 
@@ -102,7 +102,6 @@ class CapabilityHandlingPolicy:
         # Defensive copy + read-only wrapper. object.__setattr__ is required
         # because the dataclass is frozen.
         object.__setattr__(self, "behaviors", MappingProxyType(dict(self.behaviors)))
-
 
 
 @dataclass(frozen=True)

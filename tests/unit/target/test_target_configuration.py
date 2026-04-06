@@ -21,6 +21,8 @@ _ADAPT_ALL = CapabilityHandlingPolicy(
         CapabilityName.MULTI_TURN: UnsupportedCapabilityBehavior.ADAPT,
         CapabilityName.JSON_SCHEMA: UnsupportedCapabilityBehavior.RAISE,
         CapabilityName.JSON_OUTPUT: UnsupportedCapabilityBehavior.RAISE,
+        CapabilityName.MULTI_MESSAGE_PIECES: UnsupportedCapabilityBehavior.RAISE,
+        CapabilityName.EDITABLE_HISTORY: UnsupportedCapabilityBehavior.RAISE,
     }
 )
 

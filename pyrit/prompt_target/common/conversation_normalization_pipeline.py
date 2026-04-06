@@ -100,6 +100,10 @@ class ConversationNormalizationPipeline:
         * If the capability is missing and the policy is ``RAISE``, a
           ``ValueError`` is raised immediately.
 
+        NOTE: Normalizers are only valid when the capability can be overridden with a normalizer (which is indicated
+        by its presence in the registry), so we only iterate over valid capabilities in this function and add normalizers
+        only when the capability can support normalization.
+
         Args:
             capabilities (TargetCapabilities): The target's declared capabilities.
             policy (CapabilityHandlingPolicy): How to handle each missing capability.

@@ -42,10 +42,7 @@ class HistorySquashNormalizer(MessageListNormalizer[Message]):
         current_parts = [piece.converted_value for piece in messages[-1].message_pieces]
 
         combined = (
-            "[Conversation History]\n"
-            + "\n".join(history_lines)
-            + "\n\n[Current Message]\n"
-            + "\n".join(current_parts)
+            "[Conversation History]\n" + "\n".join(history_lines) + "\n\n[Current Message]\n" + "\n".join(current_parts)
         )
 
         return [Message.from_prompt(prompt=combined, role="user")]
