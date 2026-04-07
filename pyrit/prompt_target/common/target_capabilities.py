@@ -95,8 +95,8 @@ class CapabilityHandlingPolicy:
         raise AttributeError(name)
 
     def __post_init__(self) -> None:
-        # Defensive copy + read-only wrapper. object.__setattr__ is required
-        # because the dataclass is frozen.
+        """Create a defensive read-only copy of the behaviors mapping."""
+        # object.__setattr__ is required because the dataclass is frozen.
         object.__setattr__(self, "behaviors", MappingProxyType(dict(self.behaviors)))
 
 
@@ -140,7 +140,7 @@ class TargetCapabilities:
     # The output modalities supported by the target (e.g., "text", "image").
     output_modalities: frozenset[frozenset[PromptDataType]] = frozenset({frozenset(["text"])})
 
-    def supports(self, *, capability: CapabilityName) -> bool:
+    def includes(self, *, capability: CapabilityName) -> bool:
         """
         Return whether this target supports the given capability.
 

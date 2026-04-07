@@ -86,17 +86,17 @@ class TestCapabilityHandlingPolicy:
             == NORMALIZABLE_CAPABILITIES
         )
 
-    def test_target_capabilities_supports_helper(self):
+    def test_target_capabilities_includes_helper(self):
         capabilities = TargetCapabilities(
             supports_multi_turn=True,
             supports_system_prompt=False,
             supports_json_output=True,
         )
 
-        assert capabilities.supports(capability=CapabilityName.MULTI_TURN) is True
-        assert capabilities.supports(capability=CapabilityName.SYSTEM_PROMPT) is False
-        assert capabilities.supports(capability=CapabilityName.JSON_OUTPUT) is True
-        assert capabilities.supports(capability=CapabilityName.EDITABLE_HISTORY) is False
+        assert capabilities.includes(capability=CapabilityName.MULTI_TURN) is True
+        assert capabilities.includes(capability=CapabilityName.SYSTEM_PROMPT) is False
+        assert capabilities.includes(capability=CapabilityName.JSON_OUTPUT) is True
+        assert capabilities.includes(capability=CapabilityName.EDITABLE_HISTORY) is False
 
 
 # Env vars that may leak from .env files loaded by other tests in parallel workers.

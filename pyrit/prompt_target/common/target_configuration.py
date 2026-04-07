@@ -80,9 +80,9 @@ class TargetConfiguration:
         """The resolved normalization pipeline."""
         return self._pipeline
 
-    def supports(self, *, capability: CapabilityName) -> bool:
+    def includes(self, *, capability: CapabilityName) -> bool:
         """
-        Check whether the target supports the given capability.
+        Check whether the target includes support for the given capability.
 
         Args:
             capability (CapabilityName): The capability to check.
@@ -90,9 +90,9 @@ class TargetConfiguration:
         Returns:
             bool: True if the target supports it natively.
         """
-        return self._capabilities.supports(capability=capability)
+        return self._capabilities.includes(capability=capability)
 
-    def requires(self, *, capability: CapabilityName) -> None:
+    def ensure_can_handle(self, *, capability: CapabilityName) -> None:
         """
         Validate that the target either supports the capability natively or
         has an ADAPT policy for it.
@@ -107,7 +107,7 @@ class TargetConfiguration:
             ValueError: If the capability is missing and the policy is RAISE
                 or no normalizer is available.
         """
-        if self._capabilities.supports(capability=capability):
+        if self._capabilities.includes(capability=capability):
             return
 
         behavior = self._policy.get_behavior(capability=capability)

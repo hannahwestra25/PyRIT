@@ -101,8 +101,8 @@ class ConversationNormalizationPipeline:
           ``ValueError`` is raised immediately.
 
         NOTE: Normalizers are only valid when the capability can be overridden with a normalizer (which is indicated
-        by its presence in the registry), so we only iterate over valid capabilities in this function and add normalizers
-        only when the capability can support normalization.
+        by its presence in the registry), so we only iterate over valid capabilities in this function and add
+        normalizers only when the capability can support normalization.
 
         Args:
             capabilities (TargetCapabilities): The target's declared capabilities.
@@ -125,7 +125,7 @@ class ConversationNormalizationPipeline:
         normalizers: list[MessageListNormalizer[Message]] = []
 
         for capability in _PIPELINE_ORDER:
-            if capabilities.supports(capability=capability):
+            if capabilities.includes(capability=capability):
                 continue
 
             behavior = policy.get_behavior(capability=capability)

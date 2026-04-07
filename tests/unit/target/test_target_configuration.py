@@ -84,42 +84,42 @@ def test_capabilities_property():
 # ---------------------------------------------------------------------------
 
 
-def test_supports_returns_true_when_supported():
+def test_includes_returns_true_when_supported():
     caps = TargetCapabilities(supports_multi_turn=True)
     config = TargetConfiguration(capabilities=caps, policy=_ADAPT_ALL)
-    assert config.supports(capability=CapabilityName.MULTI_TURN) is True
+    assert config.includes(capability=CapabilityName.MULTI_TURN) is True
 
 
-def test_supports_returns_false_when_unsupported():
+def test_includes_returns_false_when_unsupported():
     caps = TargetCapabilities(supports_multi_turn=False, supports_system_prompt=False)
     config = TargetConfiguration(capabilities=caps, policy=_ADAPT_ALL)
-    assert config.supports(capability=CapabilityName.MULTI_TURN) is False
+    assert config.includes(capability=CapabilityName.MULTI_TURN) is False
 
 
 # ---------------------------------------------------------------------------
-# requires
+# ensure_can_handle
 # ---------------------------------------------------------------------------
 
 
-def test_requires_passes_when_supported():
+def test_ensure_can_handle_passes_when_supported():
     caps = TargetCapabilities(supports_multi_turn=True, supports_system_prompt=True)
     config = TargetConfiguration(capabilities=caps)
     # Should not raise
-    config.requires(capability=CapabilityName.MULTI_TURN)
+    config.ensure_can_handle(capability=CapabilityName.MULTI_TURN)
 
 
-def test_requires_passes_when_adapt():
+def test_ensure_can_handle_passes_when_adapt():
     caps = TargetCapabilities(supports_multi_turn=False, supports_system_prompt=False)
     config = TargetConfiguration(capabilities=caps, policy=_ADAPT_ALL)
     # ADAPT policy → should not raise
-    config.requires(capability=CapabilityName.MULTI_TURN)
+    config.ensure_can_handle(capability=CapabilityName.MULTI_TURN)
 
 
-def test_requires_raises_when_raise_policy():
-    # Build with ADAPT so construction succeeds, then test requires() on a RAISE capability.
+def test_ensure_can_handle_raises_when_raise_policy():
+    # Build with ADAPT so construction succeeds, then test ensure_can_handle() on a RAISE capability.
     # JSON_SCHEMA is RAISE and unsupported — but it's not normalizable, so construction
     # doesn't try to build a normalizer for it. Use a custom policy where system_prompt
-    # is ADAPT (so pipeline builds), but then call requires() on JSON_OUTPUT which is RAISE.
+    # is ADAPT (so pipeline builds), but then call ensure_can_handle() on JSON_OUTPUT which is RAISE.
     caps = TargetCapabilities(supports_multi_turn=True, supports_system_prompt=False)
     policy = CapabilityHandlingPolicy(
         behaviors={
@@ -130,11 +130,11 @@ def test_requires_raises_when_raise_policy():
         }
     )
     config = TargetConfiguration(capabilities=caps, policy=policy)
-    # system_prompt is missing + ADAPT → requires passes
-    config.requires(capability=CapabilityName.SYSTEM_PROMPT)
-    # json_output is missing + RAISE → requires raises
+    # system_prompt is missing + ADAPT → ensure_can_handle passes
+    config.ensure_can_handle(capability=CapabilityName.SYSTEM_PROMPT)
+    # json_output is missing + RAISE → ensure_can_handle raises
     with pytest.raises(ValueError, match="RAISE"):
-        config.requires(capability=CapabilityName.JSON_OUTPUT)
+        config.ensure_can_handle(capability=CapabilityName.JSON_OUTPUT)
 
 
 # ---------------------------------------------------------------------------

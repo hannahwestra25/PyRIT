@@ -59,6 +59,5 @@ class HistorySquashNormalizer(MessageListNormalizer[Message]):
         """
         lines: list[str] = []
         for msg in messages:
-            for piece in msg.message_pieces:
-                lines.append(f"{piece.api_role.capitalize()}: {piece.converted_value}")
+            lines.extend(f"{piece.api_role.capitalize()}: {piece.converted_value}" for piece in msg.message_pieces)
         return lines
