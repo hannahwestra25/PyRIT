@@ -146,6 +146,26 @@ import { useChatWindowStyles } from './ChatWindow.styles' // same directory
 import { Message } from '../../../types'
 ```
 
+### Import Organization
+Group imports in this order, separated by blank lines:
+
+```tsx
+// 1. React
+import React, { useState, useCallback } from 'react'
+
+// 2. Third-party libraries
+import { Button, Text } from '@fluentui/react-components'
+import { AddRegular } from '@fluentui/react-icons'
+import axios from 'axios'
+
+// 3. Internal — absolute (@/) imports
+import { Message } from '@/types'
+
+// 4. Local / relative imports
+import { useChatWindowStyles } from './ChatWindow.styles'
+import MessageList from './MessageList'
+```
+
 ## React Components
 
 ### Function Components Only
@@ -276,7 +296,7 @@ const visibleTodos = useMemo(
 
 ```tsx
 // CORRECT — event-specific logic in handler
-function handleSubmit() {
+async function handleSubmit() {
   await submitForm(data)
   showNotification('Saved!')
 }
@@ -545,24 +565,6 @@ async function sendPrompt(prompt: string): Promise<Response> { ... }
  * @param prompt - The prompt string.
  * @returns A Promise of Response.
  */
-```
-
-### Import Organization
-```tsx
-// 1. React
-import React, { useState, useCallback } from 'react'
-
-// 2. Third-party libraries
-import { Button, Text } from '@fluentui/react-components'
-import { AddRegular } from '@fluentui/react-icons'
-import axios from 'axios'
-
-// 3. Internal — absolute (@/) imports
-import { Message } from '@/types'
-import { useChatWindowStyles } from './ChatWindow.styles'
-
-// 4. Local / relative imports
-import MessageList from './MessageList'
 ```
 
 ## Final Checklist

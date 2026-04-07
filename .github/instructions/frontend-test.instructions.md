@@ -72,7 +72,7 @@ describe('ChatInputArea', () => {
 ## Rendering Components
 
 ### Fluent UI Provider Wrapper
-Fluent UI v9 components require `FluentProvider` to be in the tree. Use a shared `TestWrapper` at the top of the test file (or import from a shared test utilities module) for any test that renders Fluent UI components.
+Fluent UI v9 components require `FluentProvider` to be in the tree. Define a `TestWrapper` at the top of each test file for any test that renders Fluent UI components.
 
 ```tsx
 import { FluentProvider, webLightTheme } from '@fluentui/react-components'
