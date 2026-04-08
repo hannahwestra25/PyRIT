@@ -63,7 +63,7 @@ class TestCapabilityHandlingPolicy:
     def test_capability_handling_policy_rejects_capability_without_policy(self):
         policy = CapabilityHandlingPolicy()
 
-        with pytest.raises(AttributeError, match="supports_editable_history"):
+        with pytest.raises(KeyError, match="No policy for capability 'supports_editable_history'"):
             policy.get_behavior(capability=CapabilityName.EDITABLE_HISTORY)
 
         with pytest.raises(AttributeError, match="supports_editable_history"):

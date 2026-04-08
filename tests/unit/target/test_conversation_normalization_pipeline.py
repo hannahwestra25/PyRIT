@@ -16,31 +16,41 @@ from pyrit.prompt_target.common.target_capabilities import (
     UnsupportedCapabilityBehavior,
 )
 
-_ADAPT_ALL = CapabilityHandlingPolicy(
-    behaviors={
-        CapabilityName.SYSTEM_PROMPT: UnsupportedCapabilityBehavior.ADAPT,
-        CapabilityName.MULTI_TURN: UnsupportedCapabilityBehavior.ADAPT,
-        CapabilityName.JSON_SCHEMA: UnsupportedCapabilityBehavior.RAISE,
-        CapabilityName.JSON_OUTPUT: UnsupportedCapabilityBehavior.RAISE,
-        CapabilityName.MULTI_MESSAGE_PIECES: UnsupportedCapabilityBehavior.RAISE,
-        CapabilityName.EDITABLE_HISTORY: UnsupportedCapabilityBehavior.RAISE,
-    }
-)
 
-_RAISE_ALL = CapabilityHandlingPolicy(
-    behaviors={
-        CapabilityName.SYSTEM_PROMPT: UnsupportedCapabilityBehavior.RAISE,
-        CapabilityName.MULTI_TURN: UnsupportedCapabilityBehavior.RAISE,
-        CapabilityName.JSON_SCHEMA: UnsupportedCapabilityBehavior.RAISE,
-        CapabilityName.JSON_OUTPUT: UnsupportedCapabilityBehavior.RAISE,
-        CapabilityName.MULTI_MESSAGE_PIECES: UnsupportedCapabilityBehavior.RAISE,
-        CapabilityName.EDITABLE_HISTORY: UnsupportedCapabilityBehavior.RAISE,
-    }
-)
+@pytest.fixture
+def adapt_all_policy():
+    return CapabilityHandlingPolicy(
+        behaviors={
+            CapabilityName.SYSTEM_PROMPT: UnsupportedCapabilityBehavior.ADAPT,
+            CapabilityName.MULTI_TURN: UnsupportedCapabilityBehavior.ADAPT,
+            CapabilityName.JSON_SCHEMA: UnsupportedCapabilityBehavior.RAISE,
+            CapabilityName.JSON_OUTPUT: UnsupportedCapabilityBehavior.RAISE,
+            CapabilityName.MULTI_MESSAGE_PIECES: UnsupportedCapabilityBehavior.RAISE,
+            CapabilityName.EDITABLE_HISTORY: UnsupportedCapabilityBehavior.RAISE,
+        }
+    )
 
 
-def _make_message(role: ChatMessageRole, content: str) -> Message:
-    return Message(message_pieces=[MessagePiece(role=role, original_value=content)])
+@pytest.fixture
+def raise_all_policy():
+    return CapabilityHandlingPolicy(
+        behaviors={
+            CapabilityName.SYSTEM_PROMPT: UnsupportedCapabilityBehavior.RAISE,
+            CapabilityName.MULTI_TURN: UnsupportedCapabilityBehavior.RAISE,
+            CapabilityName.JSON_SCHEMA: UnsupportedCapabilityBehavior.RAISE,
+            CapabilityName.JSON_OUTPUT: UnsupportedCapabilityBehavior.RAISE,
+            CapabilityName.MULTI_MESSAGE_PIECES: UnsupportedCapabilityBehavior.RAISE,
+            CapabilityName.EDITABLE_HISTORY: UnsupportedCapabilityBehavior.RAISE,
+        }
+    )
+
+
+@pytest.fixture
+def make_message():
+    def _make(role: ChatMessageRole, content: str) -> Message:
+        return Message(message_pieces=[MessagePiece(role=role, original_value=content)])
+
+    return _make
 
 
 # ---------------------------------------------------------------------------
@@ -48,15 +58,15 @@ def _make_message(role: ChatMessageRole, content: str) -> Message:
 # ---------------------------------------------------------------------------
 
 
-def test_from_capabilities_all_supported_empty_tuple():
+def test_from_capabilities_all_supported_empty_tuple(adapt_all_policy):
     caps = TargetCapabilities(supports_multi_turn=True, supports_system_prompt=True)
-    pipeline = ConversationNormalizationPipeline.from_capabilities(capabilities=caps, policy=_ADAPT_ALL)
+    pipeline = ConversationNormalizationPipeline.from_capabilities(capabilities=caps, policy=adapt_all_policy)
     assert pipeline.normalizers == ()
 
 
-def test_from_capabilities_none_supported_has_two_normalizers():
+def test_from_capabilities_none_supported_has_two_normalizers(adapt_all_policy):
     caps = TargetCapabilities(supports_multi_turn=False, supports_system_prompt=False)
-    pipeline = ConversationNormalizationPipeline.from_capabilities(capabilities=caps, policy=_ADAPT_ALL)
+    pipeline = ConversationNormalizationPipeline.from_capabilities(capabilities=caps, policy=adapt_all_policy)
     assert len(pipeline.normalizers) == 2
     assert isinstance(pipeline.normalizers[0], GenericSystemSquashNormalizer)
     assert isinstance(pipeline.normalizers[1], HistorySquashNormalizer)
@@ -92,9 +102,9 @@ def test_from_capabilities_missing_multi_turn_only():
     assert isinstance(pipeline.normalizers[0], HistorySquashNormalizer)
 
 
-def test_from_capabilities_normalizers_is_tuple():
+def test_from_capabilities_normalizers_is_tuple(adapt_all_policy):
     caps = TargetCapabilities(supports_multi_turn=False, supports_system_prompt=False)
-    pipeline = ConversationNormalizationPipeline.from_capabilities(capabilities=caps, policy=_ADAPT_ALL)
+    pipeline = ConversationNormalizationPipeline.from_capabilities(capabilities=caps, policy=adapt_all_policy)
     assert isinstance(pipeline.normalizers, tuple)
 
 
@@ -103,16 +113,16 @@ def test_from_capabilities_normalizers_is_tuple():
 # ---------------------------------------------------------------------------
 
 
-def test_from_capabilities_raises_when_system_prompt_missing_and_policy_raise():
+def test_from_capabilities_raises_when_system_prompt_missing_and_policy_raise(raise_all_policy):
     caps = TargetCapabilities(supports_system_prompt=False, supports_multi_turn=True)
     with pytest.raises(ValueError, match="RAISE"):
-        ConversationNormalizationPipeline.from_capabilities(capabilities=caps, policy=_RAISE_ALL)
+        ConversationNormalizationPipeline.from_capabilities(capabilities=caps, policy=raise_all_policy)
 
 
-def test_from_capabilities_raises_when_multi_turn_missing_and_policy_raise():
+def test_from_capabilities_raises_when_multi_turn_missing_and_policy_raise(raise_all_policy):
     caps = TargetCapabilities(supports_system_prompt=True, supports_multi_turn=False)
     with pytest.raises(ValueError, match="RAISE"):
-        ConversationNormalizationPipeline.from_capabilities(capabilities=caps, policy=_RAISE_ALL)
+        ConversationNormalizationPipeline.from_capabilities(capabilities=caps, policy=raise_all_policy)
 
 
 # ---------------------------------------------------------------------------
@@ -146,9 +156,9 @@ def test_from_capabilities_uses_override_normalizer():
 
 
 @pytest.mark.asyncio
-async def test_normalize_passthrough_when_empty_pipeline():
+async def test_normalize_passthrough_when_empty_pipeline(make_message):
     pipeline = ConversationNormalizationPipeline()
-    messages = [_make_message("system", "sys"), _make_message("user", "hi")]
+    messages = [make_message("system", "sys"), make_message("user", "hi")]
     result = await pipeline.normalize_async(messages=messages)
 
     assert len(result) == 2
@@ -162,7 +172,7 @@ async def test_normalize_passthrough_when_empty_pipeline():
 
 
 @pytest.mark.asyncio
-async def test_normalize_adapts_system_prompt():
+async def test_normalize_adapts_system_prompt(make_message):
     caps = TargetCapabilities(supports_system_prompt=False, supports_multi_turn=True)
     policy = CapabilityHandlingPolicy(
         behaviors={
@@ -174,7 +184,7 @@ async def test_normalize_adapts_system_prompt():
     )
     pipeline = ConversationNormalizationPipeline.from_capabilities(capabilities=caps, policy=policy)
 
-    messages = [_make_message("system", "be nice"), _make_message("user", "hello")]
+    messages = [make_message("system", "be nice"), make_message("user", "hello")]
     result = await pipeline.normalize_async(messages=messages)
 
     assert len(result) == 1
@@ -189,7 +199,7 @@ async def test_normalize_adapts_system_prompt():
 
 
 @pytest.mark.asyncio
-async def test_normalize_adapts_multi_turn():
+async def test_normalize_adapts_multi_turn(make_message):
     caps = TargetCapabilities(supports_system_prompt=True, supports_multi_turn=False)
     policy = CapabilityHandlingPolicy(
         behaviors={
@@ -202,9 +212,9 @@ async def test_normalize_adapts_multi_turn():
     pipeline = ConversationNormalizationPipeline.from_capabilities(capabilities=caps, policy=policy)
 
     messages = [
-        _make_message("user", "hello"),
-        _make_message("assistant", "hi"),
-        _make_message("user", "how are you?"),
+        make_message("user", "hello"),
+        make_message("assistant", "hi"),
+        make_message("user", "how are you?"),
     ]
     result = await pipeline.normalize_async(messages=messages)
 
@@ -222,16 +232,16 @@ async def test_normalize_adapts_multi_turn():
 
 
 @pytest.mark.asyncio
-async def test_normalize_adapts_system_then_multi_turn():
+async def test_normalize_adapts_system_then_multi_turn(adapt_all_policy, make_message):
     """System squash runs first, then history squash."""
     caps = TargetCapabilities(supports_system_prompt=False, supports_multi_turn=False)
-    pipeline = ConversationNormalizationPipeline.from_capabilities(capabilities=caps, policy=_ADAPT_ALL)
+    pipeline = ConversationNormalizationPipeline.from_capabilities(capabilities=caps, policy=adapt_all_policy)
 
     messages = [
-        _make_message("system", "be nice"),
-        _make_message("user", "hello"),
-        _make_message("assistant", "hi"),
-        _make_message("user", "bye"),
+        make_message("system", "be nice"),
+        make_message("user", "hello"),
+        make_message("assistant", "hi"),
+        make_message("user", "bye"),
     ]
     result = await pipeline.normalize_async(messages=messages)
 
@@ -248,14 +258,14 @@ async def test_normalize_adapts_system_then_multi_turn():
 
 
 @pytest.mark.asyncio
-async def test_normalize_uses_custom_normalizer():
+async def test_normalize_uses_custom_normalizer(make_message):
     mock_normalizer = MagicMock(spec=MessageListNormalizer)
-    expected = [_make_message("user", "custom")]
+    expected = [make_message("user", "custom")]
     mock_normalizer.normalize_async = AsyncMock(return_value=expected)
 
     pipeline = ConversationNormalizationPipeline(normalizers=(mock_normalizer,))
 
-    messages = [_make_message("system", "sys"), _make_message("user", "hi")]
+    messages = [make_message("system", "sys"), make_message("user", "hi")]
     result = await pipeline.normalize_async(messages=messages)
 
     assert result == expected

@@ -5,7 +5,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 from types import MappingProxyType
-from typing import Optional, cast
+from typing import NoReturn, Optional, cast
 
 from pyrit.models import PromptDataType
 
@@ -69,14 +69,16 @@ class CapabilityHandlingPolicy:
             UnsupportedCapabilityBehavior: The configured behavior.
 
         Raises:
-            AttributeError: If no policy exists for the capability.
+            KeyError: If no behavior exists for the capability. This occurs for
+            non-adaptable capabilities (e.g., supports_editable_history).
         """
         try:
             return self.behaviors[capability]
-        except KeyError as exc:
-            raise AttributeError(capability.value) from exc
+        except KeyError:
+            supported = ", ".join(sorted(cap.value for cap in self.behaviors))
+            raise KeyError(f"No policy for capability '{capability.value}'. Supported capabilities: {supported}.")
 
-    def __getattr__(self, name: str) -> UnsupportedCapabilityBehavior:
+    def __getattr__(self, name: str) -> NoReturn:
         """
         Guard against accessing policies for non-adaptable or unknown capabilities.
 

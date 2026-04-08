@@ -2,7 +2,6 @@
 # Licensed under the MIT license.
 
 import logging
-from dataclasses import dataclass
 
 from pyrit.message_normalizer import (
     GenericSystemSquashNormalizer,
@@ -20,40 +19,17 @@ from pyrit.prompt_target.common.target_capabilities import (
 logger = logging.getLogger(__name__)
 
 
-@dataclass(frozen=True)
-class _NormalizerRegistryEntry:
-    """Single entry in the normalizer registry."""
-
-    order: int
-    normalizer_factory: type[MessageListNormalizer[Message]]
-
-
 # ---------------------------------------------------------------------------
 # Single registry: add new normalizable capabilities here and nowhere else.
+# Order in the list determines pipeline execution order.
 # ---------------------------------------------------------------------------
-_NORMALIZER_REGISTRY: dict[CapabilityName, _NormalizerRegistryEntry] = {
-    CapabilityName.SYSTEM_PROMPT: _NormalizerRegistryEntry(order=0, normalizer_factory=GenericSystemSquashNormalizer),
-    CapabilityName.MULTI_TURN: _NormalizerRegistryEntry(order=1, normalizer_factory=HistorySquashNormalizer),
-}
+_NORMALIZER_REGISTRY: list[tuple[CapabilityName, MessageListNormalizer[Message]]] = [
+    (CapabilityName.SYSTEM_PROMPT, GenericSystemSquashNormalizer()),
+    (CapabilityName.MULTI_TURN, HistorySquashNormalizer()),
+]
 
-# Derived constants — no manual maintenance required.
-NORMALIZABLE_CAPABILITIES: frozenset[CapabilityName] = frozenset(_NORMALIZER_REGISTRY)
-
-_PIPELINE_ORDER: list[CapabilityName] = sorted(
-    _NORMALIZER_REGISTRY,
-    key=lambda cap: _NORMALIZER_REGISTRY[cap].order,
-)
-
-
-def _default_normalizers() -> dict[CapabilityName, MessageListNormalizer[Message]]:
-    """
-    Build a fresh default normalizer instance for every registered capability.
-
-    Returns:
-        dict[CapabilityName, MessageListNormalizer[Message]]: Mapping from
-        capability to a new default normalizer instance.
-    """
-    return {cap: entry.normalizer_factory() for cap, entry in _NORMALIZER_REGISTRY.items()}
+# Derived constant — no manual maintenance required.
+NORMALIZABLE_CAPABILITIES: frozenset[CapabilityName] = frozenset(cap for cap, _ in _NORMALIZER_REGISTRY)
 
 
 class ConversationNormalizationPipeline:
@@ -92,7 +68,7 @@ class ConversationNormalizationPipeline:
         """
         Resolve capabilities and policy into a concrete pipeline of normalizers.
 
-        For each capability in ``PIPELINE_ORDER``:
+        For each capability in ``_NORMALIZER_REGISTRY`` (in order):
 
         * If the target already supports the capability, no normalizer is added.
         * If the capability is missing and the policy is ``ADAPT``, the
@@ -100,31 +76,24 @@ class ConversationNormalizationPipeline:
         * If the capability is missing and the policy is ``RAISE``, a
           ``ValueError`` is raised immediately.
 
-        NOTE: Normalizers are only valid when the capability can be overridden with a normalizer (which is indicated
-        by its presence in the registry), so we only iterate over valid capabilities in this function and add
-        normalizers only when the capability can support normalization.
-
         Args:
             capabilities (TargetCapabilities): The target's declared capabilities.
             policy (CapabilityHandlingPolicy): How to handle each missing capability.
             normalizer_overrides (dict[CapabilityName, MessageListNormalizer[Message]] | None):
                 Optional overrides for specific capability normalizers.
-                Falls back to the defaults from ``_default_normalizer_factory``.
+                Falls back to the defaults from ``_NORMALIZER_REGISTRY``.
 
         Returns:
             ConversationNormalizationPipeline: A pipeline with the resolved
             ordered tuple of normalizers.
 
         Raises:
-            ValueError: If a required capability is missing and the policy is RAISE,
-                or if a capability is not normalizable, or if no normalizer is
-                available for an ADAPT policy.
+            ValueError: If a required capability is missing and the policy is RAISE.
         """
-        defaults = _default_normalizers()
         overrides = normalizer_overrides or {}
         normalizers: list[MessageListNormalizer[Message]] = []
 
-        for capability in _PIPELINE_ORDER:
+        for capability, default_normalizer in _NORMALIZER_REGISTRY:
             if capabilities.includes(capability=capability):
                 continue
 
@@ -133,14 +102,7 @@ class ConversationNormalizationPipeline:
             if behavior == UnsupportedCapabilityBehavior.RAISE:
                 raise ValueError(f"Target does not support '{capability.value}' and the handling policy is RAISE.")
 
-            normalizer = overrides.get(capability)
-            if normalizer is None:
-                normalizer = defaults.get(capability)
-            if normalizer is None:
-                raise ValueError(
-                    f"Target does not support '{capability.value}' and the policy is ADAPT, "
-                    f"but no normalizer is available for this capability."
-                )
+            normalizer = overrides.get(capability, default_normalizer)
 
             normalizers.append(normalizer)
 
