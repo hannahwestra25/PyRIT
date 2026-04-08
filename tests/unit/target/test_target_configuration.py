@@ -144,6 +144,13 @@ def test_ensure_can_handle_raises_when_raise_policy():
         config.ensure_can_handle(capability=CapabilityName.JSON_OUTPUT)
 
 
+def test_ensure_can_handle_raises_valueerror_for_non_normalizable_capability():
+    caps = TargetCapabilities(supports_multi_turn=True, supports_system_prompt=True, supports_editable_history=False)
+    config = TargetConfiguration(capabilities=caps)
+    with pytest.raises(ValueError, match="no handling policy"):
+        config.ensure_can_handle(capability=CapabilityName.EDITABLE_HISTORY)
+
+
 # ---------------------------------------------------------------------------
 # normalize_async
 # ---------------------------------------------------------------------------

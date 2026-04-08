@@ -110,7 +110,12 @@ class TargetConfiguration:
         if self._capabilities.includes(capability=capability):
             return
 
-        behavior = self._policy.get_behavior(capability=capability)
+        try:
+            behavior = self._policy.get_behavior(capability=capability)
+        except KeyError:
+            raise ValueError(
+                f"Target does not support '{capability.value}' and no handling policy exists for it."
+            ) from None
         if behavior == UnsupportedCapabilityBehavior.RAISE:
             raise ValueError(f"Target does not support '{capability.value}' and the handling policy is RAISE.")
 

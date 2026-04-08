@@ -76,7 +76,9 @@ class CapabilityHandlingPolicy:
             return self.behaviors[capability]
         except KeyError:
             supported = ", ".join(sorted(cap.value for cap in self.behaviors))
-            raise KeyError(f"No policy for capability '{capability.value}'. Supported capabilities: {supported}.")
+            raise KeyError(
+                f"No policy for capability '{capability.value}'. Supported capabilities: {supported}."
+            ) from None
 
     def __getattr__(self, name: str) -> NoReturn:
         """
