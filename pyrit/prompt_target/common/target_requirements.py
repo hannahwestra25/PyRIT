@@ -6,9 +6,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from pyrit.prompt_target.common.target_capabilities import CapabilityName
-
 if TYPE_CHECKING:
+    from pyrit.prompt_target.common.target_capabilities import CapabilityName
     from pyrit.prompt_target.common.target_configuration import TargetConfiguration
 
 
