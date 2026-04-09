@@ -32,14 +32,24 @@ class TargetRequirements:
 
         Iterates over every required capability and delegates to
         ``TargetConfiguration.ensure_can_handle``, which checks native support
-        first and then consults the handling policy.
+        first and then consults the handling policy. All violations are
+        collected and reported in a single ``ValueError``.
 
         Args:
-            configuration: The target configuration to validate against.
+            configuration (TargetConfiguration): The target configuration to validate against.
 
         Raises:
             ValueError: If any required capability is missing and the policy
                 does not allow adaptation.
         """
+        errors: list[str] = []
         for capability in sorted(self.required_capabilities, key=lambda c: c.value):
-            configuration.ensure_can_handle(capability=capability)
+            try:
+                configuration.ensure_can_handle(capability=capability)
+            except ValueError as exc:
+                errors.append(str(exc))
+        if errors:
+            raise ValueError(
+                f"Target does not satisfy {len(errors)} required capability(ies):\n"
+                + "\n".join(f"  - {e}" for e in errors)
+            )
