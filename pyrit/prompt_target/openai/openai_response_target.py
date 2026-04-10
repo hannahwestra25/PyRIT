@@ -30,7 +30,7 @@ from pyrit.models import (
 from pyrit.models.json_response_config import _JsonResponseConfig
 from pyrit.prompt_target.common.prompt_chat_target import PromptChatTarget
 from pyrit.prompt_target.common.target_capabilities import TargetCapabilities
-from pyrit.prompt_target.common.target_configuration import TargetConfiguration, _resolve_configuration_compat
+from pyrit.prompt_target.common.target_configuration import TargetConfiguration
 from pyrit.prompt_target.common.utils import limit_requests_per_minute, validate_temperature, validate_top_p
 from pyrit.prompt_target.openai.openai_error_handling import _is_content_filter_error
 from pyrit.prompt_target.openai.openai_target import OpenAITarget
@@ -159,11 +159,7 @@ class OpenAIResponseTarget(OpenAITarget, PromptChatTarget):
             json.JSONDecodeError: If the response from the target is not valid JSON.
             Exception: If the request fails for any other reason.
         """
-        custom_configuration = _resolve_configuration_compat(
-            custom_configuration=custom_configuration,
-            custom_capabilities=custom_capabilities,
-        )
-        super().__init__(custom_configuration=custom_configuration, **kwargs)
+        super().__init__(custom_configuration=custom_configuration, custom_capabilities=custom_capabilities, **kwargs)
 
         # Validate temperature and top_p
         validate_temperature(temperature)

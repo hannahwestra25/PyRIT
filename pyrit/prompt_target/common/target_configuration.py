@@ -17,7 +17,7 @@ from pyrit.prompt_target.common.target_capabilities import (
 logger = logging.getLogger(__name__)
 
 
-def _resolve_configuration_compat(
+def resolve_configuration_compat(
     *,
     custom_configuration: "TargetConfiguration | None",
     custom_capabilities: TargetCapabilities | None,
@@ -29,14 +29,22 @@ def _resolve_configuration_compat(
     :class:`DeprecationWarning` and wrap the value in a
     :class:`TargetConfiguration`.  Passing both parameters is an error.
 
+    Args:
+    custom_configuration (TargetConfiguration | None): The new-style configuration object.
+    custom_capabilities (TargetCapabilities | None): The deprecated capabilities object.
+
     Returns:
         The resolved :class:`TargetConfiguration`, or *None* when neither
         parameter was supplied.
+
+    Raises:
+        ValueError: If both parameters were supplied.
     """
     if custom_capabilities is not None and custom_configuration is not None:
         raise ValueError(
             "Cannot specify both 'custom_capabilities' and 'custom_configuration'. "
-            "Use 'custom_configuration' only; 'custom_capabilities' is deprecated."
+            "Use 'custom_configuration' only; 'custom_capabilities' is deprecated and"
+            " will be removed in v0.14.0."
         )
     if custom_capabilities is not None:
         warnings.warn(

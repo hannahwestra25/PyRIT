@@ -20,7 +20,7 @@ from pyrit.models import (
     data_serializer_factory,
 )
 from pyrit.prompt_target.common.target_capabilities import TargetCapabilities
-from pyrit.prompt_target.common.target_configuration import TargetConfiguration, _resolve_configuration_compat
+from pyrit.prompt_target.common.target_configuration import TargetConfiguration
 from pyrit.prompt_target.common.utils import limit_requests_per_minute
 from pyrit.prompt_target.openai.openai_error_handling import _is_content_filter_error
 from pyrit.prompt_target.openai.openai_target import OpenAITarget
@@ -107,11 +107,7 @@ class OpenAIVideoTarget(OpenAITarget):
             MessagePiece. The video_id is returned in the response metadata after any successful
             generation (``response.message_pieces[0].prompt_metadata["video_id"]"").
         """
-        custom_configuration = _resolve_configuration_compat(
-            custom_configuration=custom_configuration,
-            custom_capabilities=custom_capabilities,
-        )
-        super().__init__(custom_configuration=custom_configuration, **kwargs)
+        super().__init__(custom_configuration=custom_configuration, custom_capabilities=custom_capabilities, **kwargs)
 
         self._n_seconds: VideoSeconds = (
             cast("VideoSeconds", str(n_seconds)) if isinstance(n_seconds, int) else n_seconds

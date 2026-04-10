@@ -19,7 +19,7 @@ from pyrit.models import (
 from pyrit.models.literals import PromptDataType
 from pyrit.prompt_target.common.prompt_target import PromptTarget
 from pyrit.prompt_target.common.target_capabilities import TargetCapabilities
-from pyrit.prompt_target.common.target_configuration import TargetConfiguration, _resolve_configuration_compat
+from pyrit.prompt_target.common.target_configuration import TargetConfiguration
 
 logger = logging.getLogger(__name__)
 
@@ -147,11 +147,7 @@ class PlaywrightCopilotTarget(PromptTarget):
             RuntimeError: If the Playwright page is not initialized.
             ValueError: If the page URL doesn't match the specified copilot_type.
         """
-        custom_configuration = _resolve_configuration_compat(
-            custom_configuration=custom_configuration,
-            custom_capabilities=custom_capabilities,
-        )
-        super().__init__(custom_configuration=custom_configuration)
+        super().__init__(custom_configuration=custom_configuration, custom_capabilities=custom_capabilities)
         self._page = page
         self._type = copilot_type
 

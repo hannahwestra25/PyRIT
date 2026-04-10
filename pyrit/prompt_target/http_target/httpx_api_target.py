@@ -15,7 +15,7 @@ from pyrit.models import (
     construct_response_from_request,
 )
 from pyrit.prompt_target.common.target_capabilities import TargetCapabilities
-from pyrit.prompt_target.common.target_configuration import TargetConfiguration, _resolve_configuration_compat
+from pyrit.prompt_target.common.target_configuration import TargetConfiguration
 from pyrit.prompt_target.common.utils import limit_requests_per_minute
 from pyrit.prompt_target.http_target.http_target import HTTPTarget
 
@@ -79,10 +79,6 @@ class HTTPXAPITarget(HTTPTarget):
             ValueError: If the HTTP method is invalid.
             ValueError: If file uploads are attempted with an HTTP method that does not support them.
         """
-        custom_configuration = _resolve_configuration_compat(
-            custom_configuration=custom_configuration,
-            custom_capabilities=custom_capabilities,
-        )
         super().__init__(
             http_request="",
             prompt_regex_string="",
@@ -90,6 +86,7 @@ class HTTPXAPITarget(HTTPTarget):
             callback_function=callback_function,
             max_requests_per_minute=max_requests_per_minute,
             custom_configuration=custom_configuration,
+            custom_capabilities=custom_capabilities,
             **httpx_client_kwargs,
         )
 

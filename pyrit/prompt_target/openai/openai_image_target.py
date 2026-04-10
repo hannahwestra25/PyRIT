@@ -17,7 +17,7 @@ from pyrit.models import (
     data_serializer_factory,
 )
 from pyrit.prompt_target.common.target_capabilities import TargetCapabilities
-from pyrit.prompt_target.common.target_configuration import TargetConfiguration, _resolve_configuration_compat
+from pyrit.prompt_target.common.target_configuration import TargetConfiguration
 from pyrit.prompt_target.common.utils import limit_requests_per_minute
 from pyrit.prompt_target.openai.openai_target import OpenAITarget
 
@@ -110,11 +110,9 @@ class OpenAIImageTarget(OpenAITarget):
         self.style = style
         self.image_size = image_size
 
-        custom_configuration = _resolve_configuration_compat(
-            custom_configuration=custom_configuration,
-            custom_capabilities=custom_capabilities,
+        super().__init__(
+            *args, custom_configuration=custom_configuration, custom_capabilities=custom_capabilities, **kwargs
         )
-        super().__init__(*args, custom_configuration=custom_configuration, **kwargs)
 
     def _set_openai_env_configuration_vars(self) -> None:
         self.model_name_environment_variable = "OPENAI_IMAGE_MODEL"

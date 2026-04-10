@@ -11,7 +11,7 @@ from pyrit.identifiers import ComponentIdentifier
 from pyrit.models import Message, construct_response_from_request
 from pyrit.prompt_target.common.prompt_target import PromptTarget
 from pyrit.prompt_target.common.target_capabilities import TargetCapabilities
-from pyrit.prompt_target.common.target_configuration import TargetConfiguration, _resolve_configuration_compat
+from pyrit.prompt_target.common.target_configuration import TargetConfiguration
 from pyrit.prompt_target.common.utils import limit_requests_per_minute
 
 logger = logging.getLogger(__name__)
@@ -61,15 +61,12 @@ class GandalfTarget(PromptTarget):
             custom_capabilities (TargetCapabilities, Optional): **Deprecated.** Use
                 ``custom_configuration`` instead. Will be removed in v0.14.0.
         """
-        custom_configuration = _resolve_configuration_compat(
-            custom_configuration=custom_configuration,
-            custom_capabilities=custom_capabilities,
-        )
         endpoint = "https://gandalf-api.lakera.ai/api/send-message"
         super().__init__(
             max_requests_per_minute=max_requests_per_minute,
             endpoint=endpoint,
             custom_configuration=custom_configuration,
+            custom_capabilities=custom_capabilities,
         )
 
         self._defender = level.value

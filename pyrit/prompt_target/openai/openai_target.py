@@ -31,7 +31,7 @@ from pyrit.exceptions.exception_classes import (
 from pyrit.models import Message, MessagePiece
 from pyrit.prompt_target.common.prompt_target import PromptTarget
 from pyrit.prompt_target.common.target_capabilities import TargetCapabilities
-from pyrit.prompt_target.common.target_configuration import TargetConfiguration, _resolve_configuration_compat
+from pyrit.prompt_target.common.target_configuration import TargetConfiguration
 from pyrit.prompt_target.openai.openai_error_handling import (
     _extract_error_payload,
     _extract_request_id_from_exception,
@@ -111,10 +111,6 @@ class OpenAITarget(PromptTarget):
         Raises:
             ValueError: If no API key is provided and the endpoint is not an Azure endpoint.
         """
-        custom_configuration = _resolve_configuration_compat(
-            custom_configuration=custom_configuration,
-            custom_capabilities=custom_capabilities,
-        )
         self._headers: dict[str, str] = {}
         self._httpx_client_kwargs = httpx_client_kwargs or {}
 
@@ -147,6 +143,7 @@ class OpenAITarget(PromptTarget):
             model_name=self._model_name,
             underlying_model=underlying_model_value,
             custom_configuration=custom_configuration,
+            custom_capabilities=custom_capabilities,
         )
 
         # API key: use passed value, env var, or fall back to Entra ID for Azure endpoints

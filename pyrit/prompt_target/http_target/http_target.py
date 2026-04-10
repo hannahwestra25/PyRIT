@@ -18,7 +18,7 @@ from pyrit.models import (
 )
 from pyrit.prompt_target.common.prompt_target import PromptTarget
 from pyrit.prompt_target.common.target_capabilities import TargetCapabilities
-from pyrit.prompt_target.common.target_configuration import TargetConfiguration, _resolve_configuration_compat
+from pyrit.prompt_target.common.target_configuration import TargetConfiguration
 from pyrit.prompt_target.common.utils import limit_requests_per_minute
 
 logger = logging.getLogger(__name__)
@@ -76,15 +76,12 @@ class HTTPTarget(PromptTarget):
         # This will fail early if the http_request is malformed
         _, _, endpoint, _, _ = self.parse_raw_http_request(http_request)
 
-        custom_configuration = _resolve_configuration_compat(
-            custom_configuration=custom_configuration,
-            custom_capabilities=custom_capabilities,
-        )
         super().__init__(
             max_requests_per_minute=max_requests_per_minute,
             endpoint=endpoint,
             model_name=model_name,
             custom_configuration=custom_configuration,
+            custom_capabilities=custom_capabilities,
         )
         self.http_request = http_request
         self.callback_function = callback_function

@@ -10,7 +10,7 @@ from pyrit.identifiers import ComponentIdentifier, Identifiable
 from pyrit.memory import CentralMemory, MemoryInterface
 from pyrit.models import Message
 from pyrit.prompt_target.common.target_capabilities import TargetCapabilities
-from pyrit.prompt_target.common.target_configuration import TargetConfiguration, _resolve_configuration_compat
+from pyrit.prompt_target.common.target_configuration import TargetConfiguration, resolve_configuration_compat
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +83,7 @@ class PromptTarget(Identifiable):
             custom_capabilities (TargetCapabilities, Optional): **Deprecated.** Use
                 ``custom_configuration`` instead. Will be removed in v0.14.0.
         """
-        custom_configuration = _resolve_configuration_compat(
+        custom_configuration = resolve_configuration_compat(
             custom_configuration=custom_configuration,
             custom_capabilities=custom_capabilities,
         )

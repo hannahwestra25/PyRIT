@@ -109,22 +109,20 @@ def test_from_capabilities_normalizers_is_tuple(adapt_all_policy):
 
 
 # ---------------------------------------------------------------------------
-# from_capabilities — RAISE policy (deferred to ensure_can_handle)
+# from_capabilities — RAISE policy
 # ---------------------------------------------------------------------------
 
 
-def test_from_capabilities_skips_normalizer_when_system_prompt_missing_and_policy_raise(raise_all_policy):
+def test_from_capabilities_raises_when_system_prompt_missing_and_policy_raise(raise_all_policy):
     caps = TargetCapabilities(supports_system_prompt=False, supports_multi_turn=True)
-    pipeline = ConversationNormalizationPipeline.from_capabilities(capabilities=caps, policy=raise_all_policy)
-    # RAISE policy should not add normalizers — validation is deferred.
-    assert len(pipeline.normalizers) == 0
+    with pytest.raises(ValueError, match="system_prompt"):
+        ConversationNormalizationPipeline.from_capabilities(capabilities=caps, policy=raise_all_policy)
 
 
-def test_from_capabilities_skips_normalizer_when_multi_turn_missing_and_policy_raise(raise_all_policy):
+def test_from_capabilities_raises_when_multi_turn_missing_and_policy_raise(raise_all_policy):
     caps = TargetCapabilities(supports_system_prompt=True, supports_multi_turn=False)
-    pipeline = ConversationNormalizationPipeline.from_capabilities(capabilities=caps, policy=raise_all_policy)
-    # RAISE policy should not add normalizers — validation is deferred.
-    assert len(pipeline.normalizers) == 0
+    with pytest.raises(ValueError, match="multi_turn"):
+        ConversationNormalizationPipeline.from_capabilities(capabilities=caps, policy=raise_all_policy)
 
 
 # ---------------------------------------------------------------------------

@@ -8,7 +8,7 @@ from pyrit.models import MessagePiece
 from pyrit.models.json_response_config import _JsonResponseConfig
 from pyrit.prompt_target.common.prompt_target import PromptTarget
 from pyrit.prompt_target.common.target_capabilities import TargetCapabilities
-from pyrit.prompt_target.common.target_configuration import TargetConfiguration, _resolve_configuration_compat
+from pyrit.prompt_target.common.target_configuration import TargetConfiguration
 
 
 class PromptChatTarget(PromptTarget):
@@ -55,16 +55,13 @@ class PromptChatTarget(PromptTarget):
             custom_capabilities (TargetCapabilities, Optional): **Deprecated.** Use
                 ``custom_configuration`` instead. Will be removed in v0.14.0.
         """
-        custom_configuration = _resolve_configuration_compat(
-            custom_configuration=custom_configuration,
-            custom_capabilities=custom_capabilities,
-        )
         super().__init__(
             max_requests_per_minute=max_requests_per_minute,
             endpoint=endpoint,
             model_name=model_name,
             underlying_model=underlying_model,
             custom_configuration=custom_configuration,
+            custom_capabilities=custom_capabilities,
         )
 
     def set_system_prompt(

@@ -14,7 +14,7 @@ from pyrit.models import (
 )
 from pyrit.prompt_target.common.prompt_target import PromptTarget
 from pyrit.prompt_target.common.target_capabilities import TargetCapabilities
-from pyrit.prompt_target.common.target_configuration import TargetConfiguration, _resolve_configuration_compat
+from pyrit.prompt_target.common.target_configuration import TargetConfiguration
 from pyrit.prompt_target.common.utils import limit_requests_per_minute
 
 logger = logging.getLogger(__name__)
@@ -89,10 +89,6 @@ class PromptShieldTarget(PromptTarget):
             custom_capabilities (TargetCapabilities, Optional): **Deprecated.** Use
                 ``custom_configuration`` instead. Will be removed in v0.14.0.
         """
-        custom_configuration = _resolve_configuration_compat(
-            custom_configuration=custom_configuration,
-            custom_capabilities=custom_capabilities,
-        )
         endpoint_value = default_values.get_required_value(
             env_var_name=self.ENDPOINT_URI_ENVIRONMENT_VARIABLE, passed_value=endpoint
         )
@@ -100,6 +96,7 @@ class PromptShieldTarget(PromptTarget):
             max_requests_per_minute=max_requests_per_minute,
             endpoint=endpoint_value,
             custom_configuration=custom_configuration,
+            custom_capabilities=custom_capabilities,
         )
 
         self._api_version = api_version

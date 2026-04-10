@@ -26,7 +26,7 @@ from pyrit.models import (
 from pyrit.models.json_response_config import _JsonResponseConfig
 from pyrit.prompt_target.common.prompt_chat_target import PromptChatTarget
 from pyrit.prompt_target.common.target_capabilities import TargetCapabilities
-from pyrit.prompt_target.common.target_configuration import TargetConfiguration, _resolve_configuration_compat
+from pyrit.prompt_target.common.target_configuration import TargetConfiguration, resolve_configuration_compat
 from pyrit.prompt_target.common.utils import limit_requests_per_minute, validate_temperature, validate_top_p
 from pyrit.prompt_target.openai.openai_chat_audio_config import OpenAIChatAudioConfig
 from pyrit.prompt_target.openai.openai_target import OpenAITarget
@@ -158,7 +158,7 @@ class OpenAIChatTarget(OpenAITarget, PromptChatTarget):
         # 3. If is_json_supported was explicitly set to False (deprecated), apply that override.
         # 4. Otherwise, pass None so the parent can resolve via get_default_configuration(underlying_model),
         #    which checks _KNOWN_CAPABILITIES (e.g., gpt-4o gets image input support).
-        custom_configuration = _resolve_configuration_compat(
+        custom_configuration = resolve_configuration_compat(
             custom_configuration=custom_configuration,
             custom_capabilities=custom_capabilities,
         )

@@ -23,7 +23,7 @@ from pyrit.identifiers import ComponentIdentifier
 from pyrit.models import DataTypeSerializer, Message, MessagePiece, construct_response_from_request
 from pyrit.prompt_target import PromptTarget, limit_requests_per_minute
 from pyrit.prompt_target.common.target_capabilities import TargetCapabilities
-from pyrit.prompt_target.common.target_configuration import TargetConfiguration, _resolve_configuration_compat
+from pyrit.prompt_target.common.target_configuration import TargetConfiguration
 
 logger = logging.getLogger(__name__)
 
@@ -119,11 +119,6 @@ class WebSocketCopilotTarget(PromptTarget):
             ValueError: If ``response_timeout_seconds`` is not a positive integer.
             ValueError: If ``websocket_base_url`` does not start with "wss://".
         """
-        custom_configuration = _resolve_configuration_compat(
-            custom_configuration=custom_configuration,
-            custom_capabilities=custom_capabilities,
-        )
-
         if response_timeout_seconds <= 0:
             raise ValueError("response_timeout_seconds must be a positive integer.")
 
@@ -142,6 +137,7 @@ class WebSocketCopilotTarget(PromptTarget):
             endpoint=self._websocket_base_url,
             model_name=model_name,
             custom_configuration=custom_configuration,
+            custom_capabilities=custom_capabilities,
         )
 
     def _build_identifier(self) -> ComponentIdentifier:

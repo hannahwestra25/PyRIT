@@ -21,7 +21,7 @@ from pyrit.identifiers import ComponentIdentifier
 from pyrit.models import Message, construct_response_from_request
 from pyrit.prompt_target.common.prompt_chat_target import PromptChatTarget
 from pyrit.prompt_target.common.target_capabilities import TargetCapabilities
-from pyrit.prompt_target.common.target_configuration import TargetConfiguration, _resolve_configuration_compat
+from pyrit.prompt_target.common.target_configuration import TargetConfiguration
 from pyrit.prompt_target.common.utils import limit_requests_per_minute
 
 logger = logging.getLogger(__name__)
@@ -101,16 +101,13 @@ class HuggingFaceChatTarget(PromptChatTarget):
             ValueError: If neither or both of `model_id` and `model_path` are provided.
             RuntimeError: If torch cannot be imported or if CUDA is requested but not available.
         """
-        custom_configuration = _resolve_configuration_compat(
-            custom_configuration=custom_configuration,
-            custom_capabilities=custom_capabilities,
-        )
         model_name = model_id if model_id else model_path if model_path else ""
 
         super().__init__(
             max_requests_per_minute=max_requests_per_minute,
             model_name=model_name,
             custom_configuration=custom_configuration,
+            custom_capabilities=custom_capabilities,
         )
 
         if not model_id and not model_path:

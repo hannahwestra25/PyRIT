@@ -23,7 +23,7 @@ from pyrit.models import (
 )
 from pyrit.prompt_target.common.prompt_chat_target import PromptChatTarget
 from pyrit.prompt_target.common.target_capabilities import TargetCapabilities
-from pyrit.prompt_target.common.target_configuration import TargetConfiguration, _resolve_configuration_compat
+from pyrit.prompt_target.common.target_configuration import TargetConfiguration
 from pyrit.prompt_target.common.utils import limit_requests_per_minute
 from pyrit.prompt_target.openai.openai_target import OpenAITarget
 
@@ -126,11 +126,7 @@ class RealtimeTarget(OpenAITarget, PromptChatTarget):
             httpx_client_kwargs (dict, Optional): Additional kwargs to be passed to the ``httpx.AsyncClient()``
                 constructor. For example, to specify a 3 minute timeout: ``httpx_client_kwargs={"timeout": 180}``
         """
-        custom_configuration = _resolve_configuration_compat(
-            custom_configuration=custom_configuration,
-            custom_capabilities=custom_capabilities,
-        )
-        super().__init__(custom_configuration=custom_configuration, **kwargs)
+        super().__init__(custom_configuration=custom_configuration, custom_capabilities=custom_capabilities, **kwargs)
 
         self.voice = voice
         self._existing_conversation = existing_convo if existing_convo is not None else {}

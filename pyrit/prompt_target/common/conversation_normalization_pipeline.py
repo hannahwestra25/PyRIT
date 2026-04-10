@@ -86,6 +86,9 @@ class ConversationNormalizationPipeline:
         Returns:
             ConversationNormalizationPipeline: A pipeline with the resolved
             ordered tuple of normalizers.
+
+        Raises:
+            ValueError: If a required capability is missing and the policy is RAISE.
         """
         overrides = normalizer_overrides or {}
         normalizers: list[MessageListNormalizer[Message]] = []
@@ -96,9 +99,10 @@ class ConversationNormalizationPipeline:
 
             behavior = policy.get_behavior(capability=capability)
 
-            # RAISE policy: skip — validation is deferred to ensure_can_handle().
+            # TODO: This ValueError can be removed once TargetConfiguration.ensure_can_handle()
+            # is called in the full end-to-end request flow, making validation deferred to request time.
             if behavior == UnsupportedCapabilityBehavior.RAISE:
-                continue
+                raise ValueError(f"Target does not support '{capability.value}' and the handling policy is RAISE.")
 
             normalizer = overrides.get(capability, default_normalizer)
 

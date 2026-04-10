@@ -14,7 +14,7 @@ from pyrit.models import (
     data_serializer_factory,
 )
 from pyrit.prompt_target.common.target_capabilities import TargetCapabilities
-from pyrit.prompt_target.common.target_configuration import TargetConfiguration, _resolve_configuration_compat
+from pyrit.prompt_target.common.target_configuration import TargetConfiguration
 from pyrit.prompt_target.common.utils import limit_requests_per_minute
 from pyrit.prompt_target.openai.openai_target import OpenAITarget
 
@@ -72,11 +72,7 @@ class OpenAITTSTarget(OpenAITarget):
             httpx_client_kwargs (dict, Optional): Additional kwargs to be passed to the ``httpx.AsyncClient()``
                 constructor. For example, to specify a 3 minute timeout: ``httpx_client_kwargs={"timeout": 180}``
         """
-        custom_configuration = _resolve_configuration_compat(
-            custom_configuration=custom_configuration,
-            custom_capabilities=custom_capabilities,
-        )
-        super().__init__(custom_configuration=custom_configuration, **kwargs)
+        super().__init__(custom_configuration=custom_configuration, custom_capabilities=custom_capabilities, **kwargs)
 
         self._voice = voice
         self._response_format = response_format

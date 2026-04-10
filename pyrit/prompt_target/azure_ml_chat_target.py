@@ -21,7 +21,7 @@ from pyrit.models import (
 )
 from pyrit.prompt_target.common.prompt_chat_target import PromptChatTarget
 from pyrit.prompt_target.common.target_capabilities import TargetCapabilities
-from pyrit.prompt_target.common.target_configuration import TargetConfiguration, _resolve_configuration_compat
+from pyrit.prompt_target.common.target_configuration import TargetConfiguration
 from pyrit.prompt_target.common.utils import limit_requests_per_minute, validate_temperature, validate_top_p
 
 logger = logging.getLogger(__name__)
@@ -102,10 +102,6 @@ class AzureMLChatTarget(PromptChatTarget):
                 model-dependent. If a model does not accept a certain parameter that is passed in, it will be skipped
                 without throwing an error.
         """
-        custom_configuration = _resolve_configuration_compat(
-            custom_configuration=custom_configuration,
-            custom_capabilities=custom_capabilities,
-        )
         endpoint_value = default_values.get_required_value(
             env_var_name=self.endpoint_uri_environment_variable, passed_value=endpoint
         )
@@ -115,6 +111,7 @@ class AzureMLChatTarget(PromptChatTarget):
             endpoint=endpoint_value,
             model_name=model_name,
             custom_configuration=custom_configuration,
+            custom_capabilities=custom_capabilities,
         )
 
         self._initialize_vars(endpoint=endpoint, api_key=api_key)
