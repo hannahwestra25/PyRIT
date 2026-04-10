@@ -36,6 +36,7 @@ from PIL import Image
 
 from pyrit.prompt_converter import QRCodeConverter
 from pyrit.prompt_target.common.target_capabilities import TargetCapabilities
+from pyrit.prompt_target.common.target_configuration import TargetConfiguration
 from pyrit.setup import IN_MEMORY, initialize_pyrit_async
 
 await initialize_pyrit_async(memory_db_type=IN_MEMORY)  # type: ignore
@@ -179,11 +180,15 @@ from pyrit.models import SeedGroup, SeedPrompt
 from pyrit.prompt_target import OpenAIChatTarget
 
 llm_target = OpenAIChatTarget(
-    # The target needs to accept a multi-piece message containing an image; override the default text-only capabilities.
-    custom_capabilities=TargetCapabilities(
-        supports_multi_message_pieces=True,
-        supports_multi_turn=True,
-        input_modalities=frozenset({frozenset({"text", "image_path"}), frozenset({"text"}), frozenset({"image_path"})}),
+    # The target needs to accept a multi-piece message containing an image; override the default text-only configuration.
+    custom_configuration=TargetConfiguration(
+        capabilities=TargetCapabilities(
+            supports_multi_message_pieces=True,
+            supports_multi_turn=True,
+            input_modalities=frozenset(
+                {frozenset({"text", "image_path"}), frozenset({"text"}), frozenset({"image_path"})}
+            ),
+        )
     )
 )
 

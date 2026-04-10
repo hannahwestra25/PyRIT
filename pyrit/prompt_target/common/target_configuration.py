@@ -2,6 +2,7 @@
 # Licensed under the MIT license.
 
 import logging
+import warnings
 
 from pyrit.message_normalizer import MessageListNormalizer
 from pyrit.models import Message
@@ -14,6 +15,39 @@ from pyrit.prompt_target.common.target_capabilities import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_configuration_compat(
+    *,
+    custom_configuration: "TargetConfiguration | None",
+    custom_capabilities: TargetCapabilities | None,
+) -> "TargetConfiguration | None":
+    """
+    Resolve the deprecated ``custom_capabilities`` parameter.
+
+    If the caller supplied the old ``custom_capabilities`` keyword, emit a
+    :class:`DeprecationWarning` and wrap the value in a
+    :class:`TargetConfiguration`.  Passing both parameters is an error.
+
+    Returns:
+        The resolved :class:`TargetConfiguration`, or *None* when neither
+        parameter was supplied.
+    """
+    if custom_capabilities is not None and custom_configuration is not None:
+        raise ValueError(
+            "Cannot specify both 'custom_capabilities' and 'custom_configuration'. "
+            "Use 'custom_configuration' only; 'custom_capabilities' is deprecated."
+        )
+    if custom_capabilities is not None:
+        warnings.warn(
+            "'custom_capabilities' is deprecated and will be removed in v0.14.0. "
+            "Use 'custom_configuration=TargetConfiguration(capabilities=...)' instead.",
+            DeprecationWarning,
+            stacklevel=3,
+        )
+        return TargetConfiguration(capabilities=custom_capabilities)
+    return custom_configuration
+
 
 # Default policy: RAISE on all adaptable capabilities.
 _DEFAULT_POLICY = CapabilityHandlingPolicy()
