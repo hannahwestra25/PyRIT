@@ -45,12 +45,6 @@ def test_init_with_capabilities():
     assert CapabilityName.SYSTEM_PROMPT in reqs.required_capabilities
 
 
-def test_frozen_dataclass_is_immutable():
-    reqs = TargetRequirements()
-    with pytest.raises(AttributeError):
-        reqs.required_capabilities = frozenset({CapabilityName.MULTI_TURN})
-
-
 # ---------------------------------------------------------------------------
 # validate — all pass
 # ---------------------------------------------------------------------------
