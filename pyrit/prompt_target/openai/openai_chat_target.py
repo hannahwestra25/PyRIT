@@ -170,7 +170,7 @@ class OpenAIChatTarget(OpenAITarget, PromptChatTarget):
             )
         else:
             effective_configuration = None
-        super().__init__(custom_configuration=effective_configuration, **kwargs)
+        super().__init__(custom_configuration=effective_configuration, custom_capabilities=None, **kwargs)
 
         # Validate temperature and top_p
         validate_temperature(temperature)

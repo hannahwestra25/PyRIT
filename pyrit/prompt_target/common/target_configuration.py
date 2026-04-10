@@ -30,8 +30,8 @@ def resolve_configuration_compat(
     :class:`TargetConfiguration`.  Passing both parameters is an error.
 
     Args:
-    custom_configuration (TargetConfiguration | None): The new-style configuration object.
-    custom_capabilities (TargetCapabilities | None): The deprecated capabilities object.
+        custom_configuration (TargetConfiguration | None): The new-style configuration object.
+        custom_capabilities (TargetCapabilities | None): The deprecated capabilities object.
 
     Returns:
         The resolved :class:`TargetConfiguration`, or *None* when neither
@@ -95,9 +95,6 @@ class TargetConfiguration:
                 capability. Defaults to RAISE for all adaptable capabilities.
             normalizer_overrides (dict[CapabilityName, MessageListNormalizer[Message]] | None):
                 Optional overrides for specific capability normalizers.
-
-        Raises:
-            ValueError: If a required capability is missing and the policy is RAISE.
         """
         self._capabilities = capabilities
         self._policy = policy or _DEFAULT_POLICY
