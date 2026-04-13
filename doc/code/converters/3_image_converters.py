@@ -35,8 +35,7 @@ from IPython.display import display
 from PIL import Image
 
 from pyrit.prompt_converter import QRCodeConverter
-from pyrit.prompt_target.common.target_capabilities import TargetCapabilities
-from pyrit.prompt_target.common.target_configuration import TargetConfiguration
+from pyrit.prompt_target import TargetCapabilities, TargetConfiguration
 from pyrit.setup import IN_MEMORY, initialize_pyrit_async
 
 await initialize_pyrit_async(memory_db_type=IN_MEMORY)  # type: ignore

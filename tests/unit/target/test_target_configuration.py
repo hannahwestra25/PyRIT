@@ -69,10 +69,12 @@ def test_init_missing_capability_adapt_builds_pipeline(adapt_all_policy):
     assert isinstance(config.pipeline.normalizers[1], HistorySquashNormalizer)
 
 
-def test_init_missing_capability_raise_policy_raises():
+def test_init_missing_capability_raise_policy_skips_normalizer():
     caps = TargetCapabilities(supports_multi_turn=False, supports_system_prompt=True)
-    with pytest.raises(ValueError, match="multi_turn"):
-        TargetConfiguration(capabilities=caps)
+    config = TargetConfiguration(capabilities=caps)
+    # RAISE policy: pipeline construction succeeds but no normalizer is added for multi_turn.
+    # Validation is deferred to ensure_can_handle().
+    assert len(config.pipeline.normalizers) == 0
 
 
 # ---------------------------------------------------------------------------
