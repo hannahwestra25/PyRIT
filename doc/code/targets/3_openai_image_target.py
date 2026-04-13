@@ -30,9 +30,7 @@ from pyrit.executor.attack import (
     ConsoleAttackResultPrinter,
     PromptSendingAttack,
 )
-from pyrit.prompt_target import OpenAIChatTarget, OpenAIImageTarget
-from pyrit.prompt_target.common.target_capabilities import TargetCapabilities
-from pyrit.prompt_target.common.target_configuration import TargetConfiguration
+from pyrit.prompt_target import OpenAIChatTarget, OpenAIImageTarget, TargetCapabilities, TargetConfiguration
 from pyrit.score import SelfAskTrueFalseScorer, TrueFalseQuestion
 from pyrit.setup import IN_MEMORY, initialize_pyrit_async
 

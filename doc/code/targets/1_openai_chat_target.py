@@ -124,9 +124,7 @@ from pyrit.executor.attack import (
     PromptSendingAttack,
 )
 from pyrit.models import SeedGroup, SeedPrompt
-from pyrit.prompt_target import OpenAIChatTarget
-from pyrit.prompt_target.common.target_capabilities import TargetCapabilities
-from pyrit.prompt_target.common.target_configuration import TargetConfiguration
+from pyrit.prompt_target import OpenAIChatTarget, TargetCapabilities, TargetConfiguration
 from pyrit.score import SelfAskTrueFalseScorer, TrueFalseQuestion
 from pyrit.setup import IN_MEMORY, initialize_pyrit_async
 

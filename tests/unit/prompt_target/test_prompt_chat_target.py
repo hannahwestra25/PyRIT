@@ -9,6 +9,7 @@ from unit.mocks import MockPromptTarget, get_mock_attack_identifier
 from pyrit.models import MessagePiece
 from pyrit.prompt_target.common.prompt_chat_target import PromptChatTarget
 from pyrit.prompt_target.common.target_capabilities import TargetCapabilities
+from pyrit.prompt_target.common.target_configuration import TargetConfiguration
 
 
 @pytest.mark.usefixtures("patch_central_database")
@@ -18,14 +19,6 @@ def test_init_default_capabilities():
     assert caps.supports_multi_turn is True
     assert caps.supports_multi_message_pieces is True
     assert caps.supports_system_prompt is True
-
-
-@pytest.mark.usefixtures("patch_central_database")
-def test_init_custom_capabilities():
-    custom = TargetCapabilities(supports_multi_turn=True)
-    target = MockPromptTarget()
-    target._capabilities = custom
-    assert target.capabilities.supports_multi_turn is True
 
 
 @pytest.mark.usefixtures("patch_central_database")
@@ -79,9 +72,9 @@ def test_is_response_format_json_true_when_json_format():
 
 @pytest.mark.usefixtures("patch_central_database")
 def test_is_response_format_json_true_with_json_capable_target():
-    custom_caps = TargetCapabilities(supports_json_output=True)
+    custom_conf = TargetConfiguration(capabilities=TargetCapabilities(supports_json_output=True))
     target = MockPromptTarget()
-    target._capabilities = custom_caps
+    target._configuration = custom_conf
     piece = MagicMock(spec=MessagePiece)
     piece.prompt_metadata = {"response_format": "json"}
     result = PromptChatTarget.is_response_format_json(target, message_piece=piece)
@@ -89,6 +82,6 @@ def test_is_response_format_json_true_with_json_capable_target():
 
 
 @pytest.mark.usefixtures("patch_central_database")
-def test_default_capabilities_class_attribute():
-    assert PromptChatTarget._DEFAULT_CAPABILITIES.supports_multi_turn is True
-    assert PromptChatTarget._DEFAULT_CAPABILITIES.supports_system_prompt is True
+def test_default_configuration_class_attribute():
+    assert PromptChatTarget._DEFAULT_CONFIGURATION.capabilities.supports_multi_turn is True
+    assert PromptChatTarget._DEFAULT_CONFIGURATION.capabilities.supports_system_prompt is True

@@ -67,9 +67,7 @@ from pyrit.executor.attack import (
     RedTeamingAttack,
     RTASystemPromptPaths,
 )
-from pyrit.prompt_target import AzureMLChatTarget, OpenAIChatTarget
-from pyrit.prompt_target.common.target_capabilities import TargetCapabilities
-from pyrit.prompt_target.common.target_configuration import TargetConfiguration
+from pyrit.prompt_target import AzureMLChatTarget, OpenAIChatTarget, TargetCapabilities, TargetConfiguration
 from pyrit.score import SelfAskTrueFalseScorer, TrueFalseQuestion
 from pyrit.setup import IN_MEMORY, initialize_pyrit_async
 
