@@ -43,8 +43,14 @@ class PromptTarget(Identifiable):
     _DEFAULT_CONFIGURATION: TargetConfiguration = TargetConfiguration(capabilities=TargetCapabilities())
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
+        """
+        Auto-promote the deprecated ``_DEFAULT_CAPABILITIES`` class attribute.
+
+        If a subclass defines ``_DEFAULT_CAPABILITIES`` directly, this hook wraps it
+        in a ``TargetConfiguration`` and assigns it to ``_DEFAULT_CONFIGURATION``,
+        emitting a ``DeprecationWarning`` to guide migration.
+        """
         super().__init_subclass__(**kwargs)
-        # Auto-promote the deprecated _DEFAULT_CAPABILITIES class attribute.
         if "_DEFAULT_CAPABILITIES" in cls.__dict__:
             warnings.warn(
                 f"{cls.__name__}._DEFAULT_CAPABILITIES is deprecated and will be removed in v0.14.0. "
@@ -265,9 +271,13 @@ class PromptTarget(Identifiable):
     @classmethod
     def get_default_capabilities(cls, underlying_model: Optional[str] = None) -> TargetCapabilities:
         """
-        **Deprecated.** Use :meth:`get_default_configuration` instead.
+        Return the default capabilities for the given model.
 
+        **Deprecated.** Use :meth:`get_default_configuration` instead.
         Will be removed in v0.14.0.
+
+        Returns:
+            TargetCapabilities: The capabilities for the given model or class default.
         """
         warnings.warn(
             "get_default_capabilities() is deprecated and will be removed in v0.14.0. "
