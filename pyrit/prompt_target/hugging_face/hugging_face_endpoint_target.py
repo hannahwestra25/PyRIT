@@ -87,9 +87,7 @@ class HuggingFaceEndpointTarget(PromptTarget):
         )
 
     @limit_requests_per_minute
-    async def _send_prompt_target_async(
-        self, *, normalized_conversation: list[Message]
-    ) -> list[Message]:
+    async def _send_prompt_target_async(self, *, normalized_conversation: list[Message]) -> list[Message]:
         """
         Send a normalized prompt asynchronously to a cloud-based HuggingFace model endpoint.
 

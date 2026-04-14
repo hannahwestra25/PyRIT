@@ -131,14 +131,10 @@ class PromptTarget(Identifiable):
         """
         self._validate_request(message=message)
         normalized_conversation = await self._get_normalized_conversation_async(message=message)
-        return await self._send_prompt_target_async(
-            normalized_conversation=normalized_conversation
-        )
+        return await self._send_prompt_target_async(normalized_conversation=normalized_conversation)
 
     @abc.abstractmethod
-    async def _send_prompt_target_async(
-        self, *, normalized_conversation: list[Message]
-    ) -> list[Message]:
+    async def _send_prompt_target_async(self, *, normalized_conversation: list[Message]) -> list[Message]:
         """
         Target-specific send logic.
 

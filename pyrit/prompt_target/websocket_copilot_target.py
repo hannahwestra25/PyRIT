@@ -644,9 +644,7 @@ class WebSocketCopilotTarget(PromptTarget):
 
     @limit_requests_per_minute
     @pyrit_target_retry
-    async def _send_prompt_target_async(
-        self, *, normalized_conversation: list[Message]
-    ) -> list[Message]:
+    async def _send_prompt_target_async(self, *, normalized_conversation: list[Message]) -> list[Message]:
         """
         Asynchronously send a message to Microsoft Copilot using WebSocket.
 

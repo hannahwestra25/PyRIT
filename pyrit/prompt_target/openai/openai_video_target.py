@@ -182,9 +182,7 @@ class OpenAIVideoTarget(OpenAITarget):
 
     @limit_requests_per_minute
     @pyrit_target_retry
-    async def _send_prompt_target_async(
-        self, *, normalized_conversation: list[Message]
-    ) -> list[Message]:
+    async def _send_prompt_target_async(self, *, normalized_conversation: list[Message]) -> list[Message]:
         """
         Asynchronously sends a message and generates a video using the OpenAI SDK.
 

@@ -196,9 +196,7 @@ class AzureBlobStorageTarget(PromptTarget):
         return container_url, blob_prefix
 
     @limit_requests_per_minute
-    async def _send_prompt_target_async(
-        self, *, normalized_conversation: list[Message]
-    ) -> list[Message]:
+    async def _send_prompt_target_async(self, *, normalized_conversation: list[Message]) -> list[Message]:
         """
         (Async) Sends prompt to target, which creates a file and uploads it as a blob
         to the provided storage container.

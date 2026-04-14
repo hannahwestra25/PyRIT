@@ -205,9 +205,7 @@ class PlaywrightCopilotTarget(PromptTarget):
             file_picker_selector='span.fui-MenuItem__content:has-text("Upload images and files")',
         )
 
-    async def _send_prompt_target_async(
-        self, *, normalized_conversation: list[Message]
-    ) -> list[Message]:
+    async def _send_prompt_target_async(self, *, normalized_conversation: list[Message]) -> list[Message]:
         """
         Send a message to Microsoft Copilot and return the response.
 

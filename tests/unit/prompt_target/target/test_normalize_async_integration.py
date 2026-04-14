@@ -107,9 +107,12 @@ async def test_openai_chat_target_sends_normalized_to_construct_request():
     mock_completion = _create_mock_chat_completion("response")
     target._async_client.chat.completions.create = AsyncMock(return_value=mock_completion)
 
-    with patch.object(
-        target.configuration, "normalize_async", new_callable=AsyncMock, return_value=[adapted_msg]
-    ), patch.object(target, "_construct_request_body", new_callable=AsyncMock, return_value={"model": "gpt-4o", "messages": []}) as mock_construct:
+    with (
+        patch.object(target.configuration, "normalize_async", new_callable=AsyncMock, return_value=[adapted_msg]),
+        patch.object(
+            target, "_construct_request_body", new_callable=AsyncMock, return_value={"model": "gpt-4o", "messages": []}
+        ) as mock_construct,
+    ):
         await target.send_prompt_async(message=user_msg)
 
         # _construct_request_body should receive the adapted message, not the original
@@ -191,7 +194,9 @@ async def test_openai_response_target_calls_normalize_async():
     mock_response.output[0].content = [MagicMock()]
     mock_response.output[0].content[0].type = "output_text"
     mock_response.output[0].content[0].text = "world"
-    mock_response.model_dump_json.return_value = json.dumps({"output": [{"type": "message", "content": [{"type": "output_text", "text": "world"}]}]})
+    mock_response.model_dump_json.return_value = json.dumps(
+        {"output": [{"type": "message", "content": [{"type": "output_text", "text": "world"}]}]}
+    )
     target._async_client.responses.create = AsyncMock(return_value=mock_response)
 
     with patch.object(target.configuration, "normalize_async", new_callable=AsyncMock) as mock_normalize:
@@ -222,8 +227,10 @@ async def test_azure_ml_target_calls_normalize_async():
     mock_memory.get_conversation.return_value = []
     target._memory = mock_memory
 
-    with patch.object(target.configuration, "normalize_async", new_callable=AsyncMock) as mock_normalize, \
-         patch.object(target, "_complete_chat_async", new_callable=AsyncMock, return_value="response"):
+    with (
+        patch.object(target.configuration, "normalize_async", new_callable=AsyncMock) as mock_normalize,
+        patch.object(target, "_complete_chat_async", new_callable=AsyncMock, return_value="response"),
+    ):
         mock_normalize.return_value = [user_msg]
         await target.send_prompt_async(message=user_msg)
 
@@ -246,9 +253,10 @@ async def test_azure_ml_target_sends_normalized_to_complete_chat():
     mock_memory.get_conversation.return_value = []
     target._memory = mock_memory
 
-    with patch.object(
-        target.configuration, "normalize_async", new_callable=AsyncMock, return_value=[adapted_msg]
-    ), patch.object(target, "_complete_chat_async", new_callable=AsyncMock, return_value="response") as mock_chat:
+    with (
+        patch.object(target.configuration, "normalize_async", new_callable=AsyncMock, return_value=[adapted_msg]),
+        patch.object(target, "_complete_chat_async", new_callable=AsyncMock, return_value="response") as mock_chat,
+    ):
         await target.send_prompt_async(message=user_msg)
 
         call_messages = mock_chat.call_args.kwargs["messages"]

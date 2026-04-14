@@ -42,9 +42,7 @@ class TextTarget(PromptTarget):
         super().__init__(custom_configuration=custom_configuration, custom_capabilities=custom_capabilities)
         self._text_stream = text_stream
 
-    async def _send_prompt_target_async(
-        self, *, normalized_conversation: list[Message]
-    ) -> list[Message]:
+    async def _send_prompt_target_async(self, *, normalized_conversation: list[Message]) -> list[Message]:
         """
         Asynchronously write a message to the text stream.
 
