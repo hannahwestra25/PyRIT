@@ -296,13 +296,12 @@ class HuggingFaceChatTarget(PromptChatTarget):
     @limit_requests_per_minute
     @pyrit_target_retry
     async def _send_prompt_target_async(
-        self, *, message: Message, normalized_conversation: list[Message]
+        self, *, normalized_conversation: list[Message]
     ) -> list[Message]:
         """
         Send a normalized prompt asynchronously to the HuggingFace model.
 
         Args:
-            message (Message): The message to send.
             normalized_conversation (list[Message]): The normalized conversation history.
 
         Returns:
@@ -315,6 +314,7 @@ class HuggingFaceChatTarget(PromptChatTarget):
         # Load the model and tokenizer using the encapsulated method
         await self.load_model_and_tokenizer_task
 
+        message = normalized_conversation[-1]
         request = message.message_pieces[0]
         prompt_template = request.converted_value
 

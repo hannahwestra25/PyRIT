@@ -24,7 +24,7 @@ class _MinimalTarget(PromptTarget):
     """Minimal concrete PromptTarget for contract testing."""
 
     async def _send_prompt_target_async(
-        self, *, message: Message, normalized_conversation: list[Message]
+        self, *, normalized_conversation: list[Message]
     ) -> list[Message]:
         return []
 

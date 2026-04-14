@@ -645,7 +645,7 @@ class WebSocketCopilotTarget(PromptTarget):
     @limit_requests_per_minute
     @pyrit_target_retry
     async def _send_prompt_target_async(
-        self, *, message: Message, normalized_conversation: list[Message]
+        self, *, normalized_conversation: list[Message]
     ) -> list[Message]:
         """
         Asynchronously send a message to Microsoft Copilot using WebSocket.
@@ -655,7 +655,6 @@ class WebSocketCopilotTarget(PromptTarget):
         state server-side, so only the current message is sent (no explicit history required).
 
         Args:
-            message (Message): A message to be sent to the target.
             normalized_conversation (list[Message]): The normalized conversation history.
 
         Returns:
@@ -666,6 +665,7 @@ class WebSocketCopilotTarget(PromptTarget):
             InvalidStatus: If the WebSocket handshake fails with an HTTP status error.
             RuntimeError: If any other error occurs during WebSocket communication.
         """
+        message = normalized_conversation[-1]
 
         pyrit_conversation_id = message.message_pieces[0].conversation_id
         is_start_of_session = self._is_start_of_session(conversation_id=pyrit_conversation_id)

@@ -151,7 +151,6 @@ class OpenAIImageTarget(OpenAITarget):
     async def _send_prompt_target_async(
         self,
         *,
-        message: Message,
         normalized_conversation: list[Message],
     ) -> list[Message]:
         """
@@ -159,12 +158,12 @@ class OpenAIImageTarget(OpenAITarget):
         Supports both image generation (text input) and image editing (text + images input).
 
         Args:
-            message (Message): The message to send.
             normalized_conversation (list[Message]): The normalized conversation history.
 
         Returns:
             list[Message]: A list containing the response from the image target.
         """
+        message = normalized_conversation[-1]
 
         logger.info(f"Sending the following prompt to the prompt target: {message}")
 

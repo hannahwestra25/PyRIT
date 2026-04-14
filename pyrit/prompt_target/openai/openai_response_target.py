@@ -519,7 +519,7 @@ class OpenAIResponseTarget(OpenAITarget, PromptChatTarget):
     @limit_requests_per_minute
     @pyrit_target_retry
     async def _send_prompt_target_async(
-        self, *, message: Message, normalized_conversation: list[Message]
+        self, *, normalized_conversation: list[Message]
     ) -> list[Message]:
         """
         Send prompt, handle agentic tool calls (function_call), return all messages.
@@ -529,13 +529,13 @@ class OpenAIResponseTarget(OpenAITarget, PromptChatTarget):
         - Agentic tool-calling loops that may require multiple back-and-forth exchanges
 
         Args:
-            message: The initial prompt from the user.
             normalized_conversation: The normalized conversation history.
 
         Returns:
             List of messages generated during the interaction (assistant responses and tool messages).
             The normalizer will persist all of these to memory.
         """
+        message = normalized_conversation[-1]
         message_piece: MessagePiece = message.message_pieces[0]
         json_config = _JsonResponseConfig(enabled=False)
         if message.message_pieces:

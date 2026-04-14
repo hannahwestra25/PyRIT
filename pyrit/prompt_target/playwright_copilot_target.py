@@ -206,14 +206,12 @@ class PlaywrightCopilotTarget(PromptTarget):
         )
 
     async def _send_prompt_target_async(
-        self, *, message: Message, normalized_conversation: list[Message]
+        self, *, normalized_conversation: list[Message]
     ) -> list[Message]:
         """
         Send a message to Microsoft Copilot and return the response.
 
         Args:
-            message (Message): The message to send. Can contain multiple pieces
-                of type 'text' or 'image_path'.
             normalized_conversation (list[Message]): The normalized conversation history.
 
         Returns:
@@ -222,6 +220,7 @@ class PlaywrightCopilotTarget(PromptTarget):
         Raises:
             RuntimeError: If an error occurs during interaction.
         """
+        message = normalized_conversation[-1]
 
         try:
             response_content = await self._interact_with_copilot_async(message)

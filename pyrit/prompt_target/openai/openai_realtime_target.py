@@ -337,13 +337,12 @@ class RealtimeTarget(OpenAITarget, PromptChatTarget):
     @limit_requests_per_minute
     @pyrit_target_retry
     async def _send_prompt_target_async(
-        self, *, message: Message, normalized_conversation: list[Message]
+        self, *, normalized_conversation: list[Message]
     ) -> list[Message]:
         """
         Asynchronously send a message to the OpenAI realtime target.
 
         Args:
-            message (Message): The message object containing the prompt to send.
             normalized_conversation (list[Message]): The normalized conversation history.
 
         Returns:
@@ -352,6 +351,7 @@ class RealtimeTarget(OpenAITarget, PromptChatTarget):
         Raises:
             ValueError: If the message piece type is unsupported.
         """
+        message = normalized_conversation[-1]
         conversation_id = message.message_pieces[0].conversation_id
         if conversation_id not in self._existing_conversation:
             connection = await self.connect(conversation_id=conversation_id)

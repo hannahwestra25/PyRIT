@@ -117,8 +117,8 @@ class PromptTarget(Identifiable):
         1. Validates the request against the target's capabilities.
         2. Fetches the conversation from memory, appends ``message``, and runs
            the normalization pipeline (system‑squash, history‑squash, etc.).
-        3. Delegates to :meth:`_send_prompt_target_async` with both the original
-           message and the normalized conversation.
+        3. Delegates to :meth:`_send_prompt_target_async` with the normalized
+           conversation.
 
         Subclasses MUST NOT override this method. Override
         :meth:`_send_prompt_target_async` instead.
@@ -132,12 +132,12 @@ class PromptTarget(Identifiable):
         self._validate_request(message=message)
         normalized_conversation = await self._get_normalized_conversation_async(message=message)
         return await self._send_prompt_target_async(
-            message=message, normalized_conversation=normalized_conversation
+            normalized_conversation=normalized_conversation
         )
 
     @abc.abstractmethod
     async def _send_prompt_target_async(
-        self, *, message: Message, normalized_conversation: list[Message]
+        self, *, normalized_conversation: list[Message]
     ) -> list[Message]:
         """
         Target-specific send logic.
@@ -145,11 +145,9 @@ class PromptTarget(Identifiable):
         Called by :meth:`send_prompt_async` after validation and normalization.
 
         Args:
-            message (Message): The original message (unmodified).
             normalized_conversation (list[Message]): The full conversation
                 (history + current message) after running the normalization
-                pipeline. Single-turn targets may ignore this and use only
-                ``message``.
+                pipeline. The current message is the last element.
 
         Returns:
             list[Message]: Response messages from the target.

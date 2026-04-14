@@ -34,7 +34,7 @@ class _ConcreteOpenAITarget(OpenAITarget):
     def _validate_request(self, *, message) -> None:
         pass
 
-    async def _send_prompt_target_async(self, *, message, normalized_conversation):
+    async def _send_prompt_target_async(self, *, normalized_conversation):
         raise NotImplementedError
 
 

@@ -109,7 +109,7 @@ class HTTPXAPITarget(HTTPTarget):
 
     @limit_requests_per_minute
     async def _send_prompt_target_async(
-        self, *, message: Message, normalized_conversation: list[Message]
+        self, *, normalized_conversation: list[Message]
     ) -> list[Message]:
         """
         Override the parent's method to skip raw http_request usage,
@@ -127,6 +127,7 @@ class HTTPXAPITarget(HTTPTarget):
             httpx.RequestError: If the request fails.
             FileNotFoundError: If the specified file to upload is not found.
         """
+        message = normalized_conversation[-1]
         message_piece: MessagePiece = message.message_pieces[0]
 
         # If user didn't set file_path, see if the PDF path is in converted_value

@@ -242,18 +242,18 @@ class OpenAIChatTarget(OpenAITarget, PromptChatTarget):
     @limit_requests_per_minute
     @pyrit_target_retry
     async def _send_prompt_target_async(
-        self, *, message: Message, normalized_conversation: list[Message]
+        self, *, normalized_conversation: list[Message]
     ) -> list[Message]:
         """
         Asynchronously sends a message and handles the response within a managed conversation context.
 
         Args:
-            message (Message): The message object.
             normalized_conversation (list[Message]): The normalized conversation history.
 
         Returns:
             list[Message]: A list containing the response from the prompt target.
         """
+        message = normalized_conversation[-1]
         message_piece: MessagePiece = message.message_pieces[0]
         json_config = self._get_json_response_config(message_piece=message_piece)
 

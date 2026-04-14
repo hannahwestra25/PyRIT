@@ -106,7 +106,7 @@ def test_init_subclass_promotes_default_capabilities_with_warning():
             _DEFAULT_CAPABILITIES = TargetCapabilities(supports_multi_turn=True)
 
             async def _send_prompt_target_async(
-                self, *, message: Message, normalized_conversation: list[Message]
+                self, *, normalized_conversation: list[Message]
             ) -> list[Message]:
                 return []
 

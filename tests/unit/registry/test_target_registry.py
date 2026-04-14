@@ -20,7 +20,6 @@ class MockPromptTarget(PromptTarget):
     async def _send_prompt_target_async(
         self,
         *,
-        message: Message,
         normalized_conversation: list[Message],
     ) -> list[Message]:
         return [
@@ -43,7 +42,6 @@ class MockPromptChatTarget(PromptChatTarget):
     async def _send_prompt_target_async(
         self,
         *,
-        message: Message,
         normalized_conversation: list[Message],
     ) -> list[Message]:
         return [

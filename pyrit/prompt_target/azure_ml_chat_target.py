@@ -200,13 +200,12 @@ class AzureMLChatTarget(PromptChatTarget):
 
     @limit_requests_per_minute
     async def _send_prompt_target_async(
-        self, *, message: Message, normalized_conversation: list[Message]
+        self, *, normalized_conversation: list[Message]
     ) -> list[Message]:
         """
         Asynchronously send a message to the Azure ML chat target.
 
         Args:
-            message (Message): The message object containing the prompt to send.
             normalized_conversation (list[Message]): The normalized conversation history.
 
         Returns:
@@ -217,6 +216,7 @@ class AzureMLChatTarget(PromptChatTarget):
             RateLimitException: If the target rate limit is exceeded.
             HTTPStatusError: For any other HTTP errors during the process.
         """
+        message = normalized_conversation[-1]
         request = message.message_pieces[0]
 
         logger.info(f"Sending the following prompt to the prompt target: {request}")
