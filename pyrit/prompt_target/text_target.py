@@ -42,17 +42,19 @@ class TextTarget(PromptTarget):
         super().__init__(custom_configuration=custom_configuration, custom_capabilities=custom_capabilities)
         self._text_stream = text_stream
 
-    async def send_prompt_async(self, *, message: Message) -> list[Message]:
+    async def _send_prompt_target_async(
+        self, *, message: Message, normalized_conversation: list[Message]
+    ) -> list[Message]:
         """
         Asynchronously write a message to the text stream.
 
         Args:
             message (Message): The message object to write to the stream.
+            normalized_conversation (list[Message]): The normalized conversation history.
 
         Returns:
             list[Message]: An empty list (no response expected).
         """
-        self._validate_request(message=message)
 
         self._text_stream.write(f"{str(message)}\n")
         self._text_stream.flush()

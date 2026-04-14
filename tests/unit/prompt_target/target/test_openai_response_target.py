@@ -343,6 +343,7 @@ async def test_send_prompt_async_empty_response_adds_to_memory(
     ):
         target._async_client.responses.create = AsyncMock(return_value=mock_response)  # type: ignore[method-assign]
         target._memory = MagicMock(MemoryInterface)
+        target._memory.get_conversation.return_value = []
 
         with pytest.raises(EmptyResponseException):
             await target.send_prompt_async(message=message)
@@ -485,6 +486,7 @@ async def test_send_prompt_async_empty_response_retries(openai_response_json: di
     ):
         target._async_client.responses.create = AsyncMock(return_value=mock_response)  # type: ignore[method-assign]
         target._memory = MagicMock(MemoryInterface)
+        target._memory.get_conversation.return_value = []
 
         with pytest.raises(EmptyResponseException):
             await target.send_prompt_async(message=message)

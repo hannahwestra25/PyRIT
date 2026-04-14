@@ -163,6 +163,7 @@ async def test_load_model_and_tokenizer():
 
 @pytest.mark.skipif(not is_torch_installed(), reason="torch is not installed")
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("patch_central_database")
 async def test_send_prompt_async():
     hf_chat = HuggingFaceChatTarget(model_id="test_model", use_cuda=False)
     await hf_chat.load_model_and_tokenizer()
@@ -185,6 +186,7 @@ async def test_send_prompt_async():
 
 @pytest.mark.skipif(not is_torch_installed(), reason="torch is not installed")
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("patch_central_database")
 async def test_missing_chat_template_error():
     hf_chat = HuggingFaceChatTarget(model_id="test_model", use_cuda=False)
     await hf_chat.load_model_and_tokenizer()

@@ -182,7 +182,9 @@ class OpenAIVideoTarget(OpenAITarget):
 
     @limit_requests_per_minute
     @pyrit_target_retry
-    async def send_prompt_async(self, *, message: Message) -> list[Message]:
+    async def _send_prompt_target_async(
+        self, *, message: Message, normalized_conversation: list[Message]
+    ) -> list[Message]:
         """
         Asynchronously sends a message and generates a video using the OpenAI SDK.
 
@@ -197,6 +199,7 @@ class OpenAIVideoTarget(OpenAITarget):
 
         Args:
             message: The message object containing the prompt.
+            normalized_conversation: The normalized conversation history.
 
         Returns:
             A list containing the response with the generated video path.
@@ -205,7 +208,6 @@ class OpenAIVideoTarget(OpenAITarget):
             RateLimitException: If the rate limit is exceeded.
             ValueError: If the request is invalid.
         """
-        self._validate_request(message=message)
 
         text_piece = message.get_piece_by_type(data_type="text")
 

@@ -2,6 +2,7 @@
 # Licensed under the MIT license.
 
 import logging
+import warnings
 from typing import Any, Optional
 
 from httpx import HTTPStatusError
@@ -14,13 +15,18 @@ from pyrit.exceptions import (
     pyrit_target_retry,
 )
 from pyrit.identifiers import ComponentIdentifier
-from pyrit.message_normalizer import ChatMessageNormalizer, MessageListNormalizer
+from pyrit.message_normalizer import ChatMessageNormalizer, GenericSystemSquashNormalizer, MessageListNormalizer
 from pyrit.models import (
     Message,
     construct_response_from_request,
 )
 from pyrit.prompt_target.common.prompt_chat_target import PromptChatTarget
-from pyrit.prompt_target.common.target_capabilities import TargetCapabilities
+from pyrit.prompt_target.common.target_capabilities import (
+    CapabilityHandlingPolicy,
+    CapabilityName,
+    TargetCapabilities,
+    UnsupportedCapabilityBehavior,
+)
 from pyrit.prompt_target.common.target_configuration import TargetConfiguration
 from pyrit.prompt_target.common.utils import limit_requests_per_minute, validate_temperature, validate_top_p
 
@@ -77,9 +83,10 @@ class AzureMLChatTarget(PromptChatTarget):
                 Defaults to the value of the `AZURE_ML_KEY` environment variable.
             model_name (str, Optional): The name of the model being used (e.g., "Llama-3.2-3B-Instruct").
                 Used for identification purposes. Defaults to empty string.
-            message_normalizer (MessageListNormalizer, Optional): The message normalizer.
-                For models that do not allow system prompts such as mistralai-Mixtral-8x7B-Instruct-v01,
-                GenericSystemSquashNormalizer() can be passed in. Defaults to ChatMessageNormalizer().
+            message_normalizer (MessageListNormalizer, Optional): **Deprecated.** Use
+                ``custom_configuration`` with ``CapabilityHandlingPolicy`` instead. Previously used for
+                models that do not allow system prompts. Defaults to ChatMessageNormalizer().
+                Will be removed in v0.14.0.
             max_new_tokens (int, Optional): The maximum number of tokens to generate in the response.
                 Defaults to 400.
             temperature (float, Optional): The temperature for generating diverse responses. 1.0 is most random,
@@ -105,6 +112,34 @@ class AzureMLChatTarget(PromptChatTarget):
         endpoint_value = default_values.get_required_value(
             env_var_name=self.endpoint_uri_environment_variable, passed_value=endpoint
         )
+
+        # Translate legacy message_normalizer into TargetConfiguration
+        if message_normalizer is not None and isinstance(message_normalizer, GenericSystemSquashNormalizer):
+            warnings.warn(
+                "Passing GenericSystemSquashNormalizer as message_normalizer is deprecated. "
+                "Use custom_configuration=TargetConfiguration(capabilities=TargetCapabilities("
+                "supports_system_prompt=False), policy=CapabilityHandlingPolicy(behaviors={"
+                "CapabilityName.SYSTEM_PROMPT: UnsupportedCapabilityBehavior.ADAPT})) instead. "
+                "Will be removed in v0.14.0.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            if custom_configuration is None:
+                custom_configuration = TargetConfiguration(
+                    capabilities=TargetCapabilities(
+                        supports_multi_message_pieces=True,
+                        supports_editable_history=True,
+                        supports_multi_turn=True,
+                        supports_system_prompt=False,
+                    ),
+                    policy=CapabilityHandlingPolicy(
+                        behaviors={
+                            CapabilityName.MULTI_TURN: UnsupportedCapabilityBehavior.RAISE,
+                            CapabilityName.SYSTEM_PROMPT: UnsupportedCapabilityBehavior.ADAPT,
+                        }
+                    ),
+                )
+
         PromptChatTarget.__init__(
             self,
             max_requests_per_minute=max_requests_per_minute,
@@ -164,12 +199,15 @@ class AzureMLChatTarget(PromptChatTarget):
         )
 
     @limit_requests_per_minute
-    async def send_prompt_async(self, *, message: Message) -> list[Message]:
+    async def _send_prompt_target_async(
+        self, *, message: Message, normalized_conversation: list[Message]
+    ) -> list[Message]:
         """
         Asynchronously send a message to the Azure ML chat target.
 
         Args:
             message (Message): The message object containing the prompt to send.
+            normalized_conversation (list[Message]): The normalized conversation history.
 
         Returns:
             list[Message]: A list containing the response from the prompt target.
@@ -179,18 +217,13 @@ class AzureMLChatTarget(PromptChatTarget):
             RateLimitException: If the target rate limit is exceeded.
             HTTPStatusError: For any other HTTP errors during the process.
         """
-        self._validate_request(message=message)
         request = message.message_pieces[0]
-
-        # Get chat messages from memory and append the current message
-        messages = list(self._memory.get_conversation(conversation_id=request.conversation_id))
-        messages.append(message)
 
         logger.info(f"Sending the following prompt to the prompt target: {request}")
 
         try:
             resp_text = await self._complete_chat_async(
-                messages=messages,
+                messages=normalized_conversation,
             )
 
             if not resp_text:

@@ -66,7 +66,9 @@ class MockPromptTarget(PromptChatTarget):
             )
 
     @limit_requests_per_minute
-    async def send_prompt_async(self, *, message: Message) -> list[Message]:
+    async def _send_prompt_target_async(
+        self, *, message: Message, normalized_conversation: list[Message]
+    ) -> list[Message]:
         self.prompt_sent.append(message.get_value())
 
         return [

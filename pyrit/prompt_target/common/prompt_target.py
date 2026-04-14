@@ -108,14 +108,51 @@ class PromptTarget(Identifiable):
         if self._verbose:
             logging.basicConfig(level=logging.INFO)
 
-    @abc.abstractmethod
     async def send_prompt_async(self, *, message: Message) -> list[Message]:
         """
-        Send a normalized prompt async to the prompt target.
+        Validate, normalize, and send a prompt to the target.
+
+        This is the public entry point called by the prompt normalizer. It:
+
+        1. Validates the request against the target's capabilities.
+        2. Fetches the conversation from memory, appends ``message``, and runs
+           the normalization pipeline (system‑squash, history‑squash, etc.).
+        3. Delegates to :meth:`_send_prompt_target_async` with both the original
+           message and the normalized conversation.
+
+        Subclasses MUST NOT override this method. Override
+        :meth:`_send_prompt_target_async` instead.
+
+        Args:
+            message (Message): The message to send.
 
         Returns:
-            list[Message]: A list of message responses. Most targets return a single message,
-                but some (like response target with tool calls) may return multiple messages.
+            list[Message]: Response messages from the target.
+        """
+        self._validate_request(message=message)
+        normalized_conversation = await self._get_normalized_conversation_async(message=message)
+        return await self._send_prompt_target_async(
+            message=message, normalized_conversation=normalized_conversation
+        )
+
+    @abc.abstractmethod
+    async def _send_prompt_target_async(
+        self, *, message: Message, normalized_conversation: list[Message]
+    ) -> list[Message]:
+        """
+        Target-specific send logic.
+
+        Called by :meth:`send_prompt_async` after validation and normalization.
+
+        Args:
+            message (Message): The original message (unmodified).
+            normalized_conversation (list[Message]): The full conversation
+                (history + current message) after running the normalization
+                pipeline. Single-turn targets may ignore this and use only
+                ``message``.
+
+        Returns:
+            list[Message]: Response messages from the target.
         """
 
     def _validate_request(self, *, message: Message) -> None:
@@ -162,6 +199,26 @@ class PromptTarget(Identifiable):
                 raise ValueError(
                     f"This target only supports a single turn conversation. {custom_configuration_message}"
                 )
+
+    async def _get_normalized_conversation_async(self, *, message: Message) -> list[Message]:
+        """
+        Fetch the conversation from memory, append the current message, and run the
+        normalization pipeline.
+
+        The original conversation in memory is never mutated. The returned list is an
+        ephemeral copy intended only for building the API request body.
+
+        Args:
+            message (Message): The current message to append.
+
+        Returns:
+            list[Message]: The normalized conversation (possibly with system prompt squashed,
+                history squashed, etc.).
+        """
+        conversation_id = message.message_pieces[0].conversation_id
+        conversation = self._memory.get_conversation(conversation_id=conversation_id)
+        conversation.append(message)
+        return await self.configuration.normalize_async(messages=list(conversation))
 
     def set_model_name(self, *, model_name: str) -> None:
         """

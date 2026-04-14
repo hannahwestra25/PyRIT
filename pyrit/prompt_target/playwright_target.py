@@ -100,12 +100,15 @@ class PlaywrightTarget(PromptTarget):
         self._page = page
 
     @limit_requests_per_minute
-    async def send_prompt_async(self, *, message: Message) -> list[Message]:
+    async def _send_prompt_target_async(
+        self, *, message: Message, normalized_conversation: list[Message]
+    ) -> list[Message]:
         """
         Asynchronously send a message to the Playwright target.
 
         Args:
             message (Message): The message object containing the prompt to send.
+            normalized_conversation (list[Message]): The normalized conversation history.
 
         Returns:
             list[Message]: A list containing the response from the prompt target.
@@ -113,7 +116,6 @@ class PlaywrightTarget(PromptTarget):
         Raises:
             RuntimeError: If the Playwright page is not initialized or if an error occurs during interaction.
         """
-        self._validate_request(message=message)
         if not self._page:
             raise RuntimeError(
                 "Playwright page is not initialized. Please pass a Page object when initializing PlaywrightTarget."

@@ -493,7 +493,9 @@ class TestGetDefaultConfiguration:
         class _ConcreteTarget(PromptTarget):
             _DEFAULT_CONFIGURATION = default_config
 
-            async def send_prompt_async(self, *, message: Message) -> list[Message]:
+            async def _send_prompt_target_async(
+                self, *, message: Message, normalized_conversation: list[Message]
+            ) -> list[Message]:
                 return []
 
         return _ConcreteTarget

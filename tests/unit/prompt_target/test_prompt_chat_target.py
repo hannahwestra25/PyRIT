@@ -105,7 +105,9 @@ def test_init_subclass_promotes_default_capabilities_with_warning():
         class _LegacyTarget(PromptTarget):
             _DEFAULT_CAPABILITIES = TargetCapabilities(supports_multi_turn=True)
 
-            async def send_prompt_async(self, *, message: Message) -> list[Message]:
+            async def _send_prompt_target_async(
+                self, *, message: Message, normalized_conversation: list[Message]
+            ) -> list[Message]:
                 return []
 
     deprecation_warnings = [w for w in caught if issubclass(w.category, DeprecationWarning)]

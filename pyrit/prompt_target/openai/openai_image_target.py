@@ -148,10 +148,11 @@ class OpenAIImageTarget(OpenAITarget):
 
     @limit_requests_per_minute
     @pyrit_target_retry
-    async def send_prompt_async(
+    async def _send_prompt_target_async(
         self,
         *,
         message: Message,
+        normalized_conversation: list[Message],
     ) -> list[Message]:
         """
         Send a prompt to the OpenAI image target and return the response.
@@ -159,11 +160,11 @@ class OpenAIImageTarget(OpenAITarget):
 
         Args:
             message (Message): The message to send.
+            normalized_conversation (list[Message]): The normalized conversation history.
 
         Returns:
             list[Message]: A list containing the response from the image target.
         """
-        self._validate_request(message=message)
 
         logger.info(f"Sending the following prompt to the prompt target: {message}")
 

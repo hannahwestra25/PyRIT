@@ -87,13 +87,16 @@ class HuggingFaceEndpointTarget(PromptTarget):
         )
 
     @limit_requests_per_minute
-    async def send_prompt_async(self, *, message: Message) -> list[Message]:
+    async def _send_prompt_target_async(
+        self, *, message: Message, normalized_conversation: list[Message]
+    ) -> list[Message]:
         """
         Send a normalized prompt asynchronously to a cloud-based HuggingFace model endpoint.
 
         Args:
             message (Message): The message containing the input data and associated details
             such as conversation ID and role.
+            normalized_conversation (list[Message]): The normalized conversation history.
 
         Returns:
             list[Message]: A list containing the response object with generated text pieces.
@@ -102,7 +105,6 @@ class HuggingFaceEndpointTarget(PromptTarget):
             ValueError: If the response from the Hugging Face API is not successful.
             Exception: If an error occurs during the HTTP request to the Hugging Face endpoint.
         """
-        self._validate_request(message=message)
         request = message.message_pieces[0]
         headers = {"Authorization": f"Bearer {self.hf_token}"}
         payload: dict[str, object] = {
