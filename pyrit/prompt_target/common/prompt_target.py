@@ -80,7 +80,7 @@ class PromptTarget(Identifiable):
             model_name (str): The model name. Defaults to empty string.
             underlying_model (str, Optional): The underlying model name (e.g., "gpt-4o") for
                 identification purposes. This is useful when the deployment name in Azure differs
-                from the actual model. If not provided, `model_name` will be used for the identifier.
+                from the actual model. If not provided, ``model_name`` will be used for the identifier.
                 Defaults to None.
             custom_configuration (TargetConfiguration, Optional): Override the default configuration
                 for this target instance. Useful for targets whose capabilities depend on deployment
@@ -102,7 +102,7 @@ class PromptTarget(Identifiable):
         self._configuration = (
             custom_configuration
             if custom_configuration is not None
-            else type(self).get_default_configuration(underlying_model)
+            else type(self).get_default_configuration(self._underlying_model)
         )
 
         if self._verbose:
@@ -254,11 +254,10 @@ class PromptTarget(Identifiable):
         Returns:
             ComponentIdentifier: The identifier for this prompt target.
         """
-        model_name = self._underlying_model or self._model_name or ""
-
         all_params: dict[str, Any] = {
             "endpoint": self._endpoint,
-            "model_name": model_name,
+            "model_name": self._model_name or "",
+            "underlying_model_name": self._underlying_model or "",
             "max_requests_per_minute": self._max_requests_per_minute,
             "supports_multi_turn": self.capabilities.supports_multi_turn,
         }
