@@ -85,7 +85,7 @@ class AzureMLChatTarget(PromptChatTarget):
                 Used for identification purposes. Defaults to empty string.
             message_normalizer (MessageListNormalizer, Optional): **Deprecated.** Use
                 ``custom_configuration`` with ``CapabilityHandlingPolicy`` instead. Previously used for
-                models that do not allow system prompts. Defaults to ChatMessageNormalizer().
+                models that do not allow system prompts.
                 Will be removed in v0.14.0.
             max_new_tokens (int, Optional): The maximum number of tokens to generate in the response.
                 Defaults to 400.
@@ -114,12 +114,9 @@ class AzureMLChatTarget(PromptChatTarget):
         )
 
         # Translate legacy message_normalizer into TargetConfiguration
-        if message_normalizer is not None and isinstance(message_normalizer, GenericSystemSquashNormalizer):
+        if message_normalizer is not None:
             warnings.warn(
-                "Passing GenericSystemSquashNormalizer as message_normalizer is deprecated. "
-                "Use custom_configuration=TargetConfiguration(capabilities=TargetCapabilities("
-                "supports_system_prompt=False), policy=CapabilityHandlingPolicy(behaviors={"
-                "CapabilityName.SYSTEM_PROMPT: UnsupportedCapabilityBehavior.ADAPT})) instead. "
+                "Passing message_normalizer is deprecated. Use custom_configuration with CapabilityHandlingPolicy instead. "
                 "Will be removed in v0.14.0.",
                 DeprecationWarning,
                 stacklevel=2,
@@ -138,6 +135,7 @@ class AzureMLChatTarget(PromptChatTarget):
                             CapabilityName.SYSTEM_PROMPT: UnsupportedCapabilityBehavior.ADAPT,
                         }
                     ),
+                    normalizer_overrides={CapabilityName.SYSTEM_PROMPT: MessageListNormalizer([ChatMessageNormalizer()])}
                 )
 
         PromptChatTarget.__init__(
