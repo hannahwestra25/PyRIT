@@ -185,7 +185,7 @@ async def test_send_prompt_async_invalid_request(target):
     )
     message = Message(message_pieces=[message_piece])
     with pytest.raises(ValueError) as excinfo:
-        target._validate_request(message=message)
+        target._validate_request(normalized_conversation=[message])
 
     assert "This target supports only the following data types" in str(excinfo.value)
     assert "image_path" in str(excinfo.value)

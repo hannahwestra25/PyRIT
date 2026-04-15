@@ -583,7 +583,7 @@ def test_validate_request_unsupported_data_types(target: OpenAIChatTarget):
     )
 
     with pytest.raises(ValueError) as excinfo:
-        target._validate_request(message=message)
+        target._validate_request(normalized_conversation=[message])
 
     assert "This target supports only the following data types" in str(excinfo.value), (
         "Error not raised for unsupported data types"

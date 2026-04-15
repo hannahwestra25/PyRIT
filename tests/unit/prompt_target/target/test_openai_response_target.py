@@ -586,7 +586,7 @@ def test_validate_request_unsupported_data_types(target: OpenAIResponseTarget):
     )
 
     with pytest.raises(ValueError) as excinfo:
-        target._validate_request(message=message)
+        target._validate_request(normalized_conversation=[message])
 
     assert "This target supports only the following data types" in str(excinfo.value), (
         "Error not raised for unsupported data types"
@@ -659,7 +659,7 @@ def test_validate_request_allows_text_and_image(target: OpenAIResponseTarget):
             ),
         ]
     )
-    target._validate_request(message=req)
+    target._validate_request(normalized_conversation=[req])
 
 
 def test_validate_request_raises_for_invalid_type(target: OpenAIResponseTarget):
@@ -669,7 +669,7 @@ def test_validate_request_raises_for_invalid_type(target: OpenAIResponseTarget):
         ]
     )
     with pytest.raises(ValueError) as excinfo:
-        target._validate_request(message=req)
+        target._validate_request(normalized_conversation=[req])
     assert "This target supports only the following data types" in str(excinfo.value)
 
 

@@ -123,7 +123,7 @@ class PromptShieldTarget(PromptTarget):
         )
 
     @limit_requests_per_minute
-    async def _send_prompt_target_async(self, *, normalized_conversation: list[Message]) -> list[Message]:
+    async def _send_prompt_to_target_async(self, *, normalized_conversation: list[Message]) -> list[Message]:
         """
         Parse the text in message to separate the userPrompt and documents contents,
         then send an HTTP request to the endpoint and obtain a response in JSON. For more info, visit

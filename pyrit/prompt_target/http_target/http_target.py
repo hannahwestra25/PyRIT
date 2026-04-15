@@ -155,12 +155,14 @@ class HTTPTarget(PromptTarget):
         return http_request_w_prompt
 
     @limit_requests_per_minute
-    async def _send_prompt_target_async(self, *, normalized_conversation: list[Message]) -> list[Message]:
+    async def _send_prompt_to_target_async(self, *, normalized_conversation: list[Message]) -> list[Message]:
         """
         Asynchronously send a message to the HTTP target.
 
         Args:
-            normalized_conversation (list[Message]): The normalized conversation history.
+            normalized_conversation (list[Message]): The full conversation
+                (history + current message) after running the normalization
+                pipeline. The current message is the last element.
 
         Returns:
             list[Message]: A list containing the response from the prompt target.

@@ -4,7 +4,7 @@
 import abc
 import logging
 import warnings
-from typing import Any, Optional, Union
+from typing import Any, Union, final
 
 from pyrit.identifiers import ComponentIdentifier, Identifiable
 from pyrit.memory import CentralMemory, MemoryInterface
@@ -29,7 +29,7 @@ class PromptTarget(Identifiable):
     # An empty list implies that the prompt target supports all converters.
     supported_converters: list[Any]
 
-    _identifier: Optional[ComponentIdentifier] = None
+    _identifier: ComponentIdentifier | None = None
 
     # Class-level default configuration for this target type.
     #
@@ -63,30 +63,30 @@ class PromptTarget(Identifiable):
     def __init__(
         self,
         verbose: bool = False,
-        max_requests_per_minute: Optional[int] = None,
+        max_requests_per_minute: int | None = None,
         endpoint: str = "",
         model_name: str = "",
-        underlying_model: Optional[str] = None,
-        custom_configuration: Optional[TargetConfiguration] = None,
-        custom_capabilities: Optional[TargetCapabilities] = None,
+        underlying_model: str | None = None,
+        custom_configuration: TargetConfiguration | None = None,
+        custom_capabilities: TargetCapabilities | None = None,
     ) -> None:
         """
         Initialize the PromptTarget.
 
         Args:
             verbose (bool): Enable verbose logging. Defaults to False.
-            max_requests_per_minute (int, Optional): Maximum number of requests per minute.
+            max_requests_per_minute (int | None): Maximum number of requests per minute.
             endpoint (str): The endpoint URL. Defaults to empty string.
             model_name (str): The model name. Defaults to empty string.
-            underlying_model (str, Optional): The underlying model name (e.g., "gpt-4o") for
+            underlying_model (str | None): The underlying model name (e.g., "gpt-4o") for
                 identification purposes. This is useful when the deployment name in Azure differs
                 from the actual model. If not provided, ``model_name`` will be used for the identifier.
                 Defaults to None.
-            custom_configuration (TargetConfiguration, Optional): Override the default configuration
+            custom_configuration (TargetConfiguration | None): Override the default configuration
                 for this target instance. Useful for targets whose capabilities depend on deployment
                 configuration (e.g., Playwright, HTTP). If None, uses the class-level
                 ``_DEFAULT_CONFIGURATION``. Defaults to None.
-            custom_capabilities (TargetCapabilities, Optional): **Deprecated.** Use
+            custom_capabilities (TargetCapabilities | None): **Deprecated.** Use
                 ``custom_configuration`` instead. Will be removed in v0.14.0.
         """
         custom_configuration = resolve_configuration_compat(
@@ -108,20 +108,21 @@ class PromptTarget(Identifiable):
         if self._verbose:
             logging.basicConfig(level=logging.INFO)
 
+    @final
     async def send_prompt_async(self, *, message: Message) -> list[Message]:
         """
         Validate, normalize, and send a prompt to the target.
 
         This is the public entry point called by the prompt normalizer. It:
 
-        1. Validates the request against the target's capabilities.
-        2. Fetches the conversation from memory, appends ``message``, and runs
+        1. Fetches the conversation from memory, appends ``message``, and runs
            the normalization pipeline (system‑squash, history‑squash, etc.).
-        3. Delegates to :meth:`_send_prompt_target_async` with the normalized
+        2. Validates the normalized conversation against the target's capabilities.
+        3. Delegates to :meth:`_send_prompt_to_target_async` with the normalized
            conversation.
 
         Subclasses MUST NOT override this method. Override
-        :meth:`_send_prompt_target_async` instead.
+        :meth:`_send_prompt_to_target_async` instead.
 
         Args:
             message (Message): The message to send.
@@ -129,12 +130,16 @@ class PromptTarget(Identifiable):
         Returns:
             list[Message]: Response messages from the target.
         """
-        self._validate_request(message=message)
+        if not message.message_pieces:
+            raise ValueError("Message must contain at least one message piece. Received: 0 pieces.")
         normalized_conversation = await self._get_normalized_conversation_async(message=message)
-        return await self._send_prompt_target_async(normalized_conversation=normalized_conversation)
+        if not normalized_conversation:
+            raise ValueError("Normalization pipeline returned an empty conversation. Cannot send an empty request.")
+        self._validate_request(normalized_conversation=normalized_conversation)
+        return await self._send_prompt_to_target_async(normalized_conversation=normalized_conversation)
 
     @abc.abstractmethod
-    async def _send_prompt_target_async(self, *, normalized_conversation: list[Message]) -> list[Message]:
+    async def _send_prompt_to_target_async(self, *, normalized_conversation: list[Message]) -> list[Message]:
         """
         Target-specific send logic.
 
@@ -149,22 +154,24 @@ class PromptTarget(Identifiable):
             list[Message]: Response messages from the target.
         """
 
-    def _validate_request(self, *, message: Message) -> None:
+    def _validate_request(self, *, normalized_conversation: list[Message]) -> None:
         """
-        Validate the provided message.
+        Validate the normalized conversation before sending to the target.
+
+        Called after the normalization pipeline has run. Validates the last
+        message (the current request) for piece count, data types, and checks
+        whether the full conversation violates multi-turn constraints.
 
         Args:
-            message: The message to validate.
+            normalized_conversation: The normalized conversation to validate.
+                The last element is the current request message.
 
         Raises:
-            ValueError: if the target does not support the provided message pieces or if the message
-                violates any constraints based on the target's capabilities. This includes checks
-                for the number of message pieces, supported data types, and multi-turn conversation support.
-
+            ValueError: if the target does not support the provided message pieces or if the
+                conversation violates any constraints based on the target's capabilities.
         """
+        message = normalized_conversation[-1]
         n_pieces = len(message.message_pieces)
-        if n_pieces == 0:
-            raise ValueError("Message must contain at least one message piece. Received: 0 pieces.")
 
         custom_configuration_message = (
             "If your target does support this, set the custom_configuration parameter accordingly."
@@ -185,14 +192,10 @@ class PromptTarget(Identifiable):
                     f"{custom_configuration_message}"
                 )
 
-        if not self.capabilities.supports_multi_turn:
-            request = message.message_pieces[0]
-            messages = self._memory.get_message_pieces(conversation_id=request.conversation_id)
-
-            if len(messages) > 0:
-                raise ValueError(
-                    f"This target only supports a single turn conversation. {custom_configuration_message}"
-                )
+        if not self.capabilities.supports_multi_turn and len(normalized_conversation) > 1:
+            raise ValueError(
+                f"This target only supports a single turn conversation. {custom_configuration_message}"
+            )
 
     async def _get_normalized_conversation_async(self, *, message: Message) -> list[Message]:
         """
@@ -210,9 +213,9 @@ class PromptTarget(Identifiable):
                 history squashed, etc.).
         """
         conversation_id = message.message_pieces[0].conversation_id
-        conversation = self._memory.get_conversation(conversation_id=conversation_id)
+        conversation = list(self._memory.get_conversation(conversation_id=conversation_id))
         conversation.append(message)
-        return await self.configuration.normalize_async(messages=list(conversation))
+        return await self.configuration.normalize_async(messages=conversation)
 
     def set_model_name(self, *, model_name: str) -> None:
         """
@@ -232,8 +235,8 @@ class PromptTarget(Identifiable):
     def _create_identifier(
         self,
         *,
-        params: Optional[dict[str, Any]] = None,
-        children: Optional[dict[str, Union[ComponentIdentifier, list[ComponentIdentifier]]]] = None,
+        params: dict[str, Any] | None = None,
+        children: dict[str, Union[ComponentIdentifier, list[ComponentIdentifier]]] | None = None,
     ) -> ComponentIdentifier:
         """
         Construct the target identifier.
@@ -246,9 +249,9 @@ class PromptTarget(Identifiable):
         to set the identifier with their specific parameters.
 
         Args:
-            params (Optional[Dict[str, Any]]): Additional behavioral parameters from
+            params (dict[str, Any] | None): Additional behavioral parameters from
                 the subclass (e.g., temperature, top_p). Merged into the base params.
-            children (Optional[Dict[str, Union[ComponentIdentifier, List[ComponentIdentifier]]]]):
+            children (dict[str, Union[ComponentIdentifier, list[ComponentIdentifier]]] | None):
                 Named child component identifiers.
 
         Returns:
@@ -294,7 +297,7 @@ class PromptTarget(Identifiable):
         return self._configuration.capabilities
 
     @classmethod
-    def get_default_configuration(cls, underlying_model: Optional[str] = None) -> TargetConfiguration:
+    def get_default_configuration(cls, underlying_model: str | None = None) -> TargetConfiguration:
         """
         Return the configuration for the given underlying model, falling back to
         the class-level ``_DEFAULT_CONFIGURATION`` when the model is not recognized.
@@ -319,7 +322,7 @@ class PromptTarget(Identifiable):
         return cls._DEFAULT_CONFIGURATION
 
     @classmethod
-    def get_default_capabilities(cls, underlying_model: Optional[str] = None) -> TargetCapabilities:
+    def get_default_capabilities(cls, underlying_model: str | None = None) -> TargetCapabilities:
         """
         Return the default capabilities for the given model.
 

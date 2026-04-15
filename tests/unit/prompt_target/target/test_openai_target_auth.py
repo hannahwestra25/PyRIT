@@ -31,10 +31,10 @@ class _ConcreteOpenAITarget(OpenAITarget):
     async def _construct_message_from_response(self, response, request):
         raise NotImplementedError
 
-    def _validate_request(self, *, message) -> None:
+    def _validate_request(self, *, normalized_conversation) -> None:
         pass
 
-    async def _send_prompt_target_async(self, *, normalized_conversation):
+    async def _send_prompt_to_target_async(self, *, normalized_conversation):
         raise NotImplementedError
 
 

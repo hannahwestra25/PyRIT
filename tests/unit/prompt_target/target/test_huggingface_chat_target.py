@@ -232,7 +232,7 @@ async def test_invalid_prompt_request_validation():
     message = Message(message_pieces=[message_piece1, message_piece2])
 
     with pytest.raises(ValueError) as excinfo:
-        hf_chat._validate_request(message=message)
+        hf_chat._validate_request(normalized_conversation=[message])
 
     assert "This target only supports a single message piece." in str(excinfo.value)
 
