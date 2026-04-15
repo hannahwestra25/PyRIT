@@ -193,9 +193,7 @@ class PromptTarget(Identifiable):
                 )
 
         if not self.capabilities.supports_multi_turn and len(normalized_conversation) > 1:
-            raise ValueError(
-                f"This target only supports a single turn conversation. {custom_configuration_message}"
-            )
+            raise ValueError(f"This target only supports a single turn conversation. {custom_configuration_message}")
 
     async def _get_normalized_conversation_async(self, *, message: Message) -> list[Message]:
         """

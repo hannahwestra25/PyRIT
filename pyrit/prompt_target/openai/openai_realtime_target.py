@@ -297,33 +297,32 @@ class RealtimeTarget(OpenAITarget, PromptChatTarget):
 
         return session_config
 
-    async def send_config(self, conversation_id: str) -> None:
+    async def send_config(self, *, conversation_id: str, conversation: list[Message]) -> None:
         """
         Send the session configuration using OpenAI client.
 
         Args:
             conversation_id (str): Conversation ID
+            conversation (list[Message]): The conversation history to extract the system prompt from.
         """
         # Extract system prompt from conversation history
-        system_prompt = self._get_system_prompt_from_conversation(conversation_id=conversation_id)
+        system_prompt = self._get_system_prompt_from_conversation(conversation=conversation)
         config_variables = self._set_system_prompt_and_config_vars(system_prompt=system_prompt)
 
         connection = self._get_connection(conversation_id=conversation_id)
         await connection.session.update(session=config_variables)
         logger.info("Session configuration sent")
 
-    def _get_system_prompt_from_conversation(self, *, conversation_id: str) -> str:
+    def _get_system_prompt_from_conversation(self, *, conversation: list[Message]) -> str:
         """
         Retrieve the system prompt from conversation history.
 
         Args:
-            conversation_id (str): The conversation ID
+            conversation (list[Message]): The conversation messages to search.
 
         Returns:
             str: The system prompt from conversation history, or a default if none found
         """
-        conversation = self._memory.get_conversation(conversation_id=conversation_id)
-
         # Look for a system message at the beginning of the conversation
         if conversation and len(conversation) > 0:
             first_message = conversation[0]
@@ -357,7 +356,7 @@ class RealtimeTarget(OpenAITarget, PromptChatTarget):
             self._existing_conversation[conversation_id] = connection
 
             # Only send config when creating a new connection
-            await self.send_config(conversation_id=conversation_id)
+            await self.send_config(conversation_id=conversation_id, conversation=normalized_conversation)
             # Give the server a moment to process the session update
             await asyncio.sleep(0.5)
 
@@ -367,12 +366,14 @@ class RealtimeTarget(OpenAITarget, PromptChatTarget):
         # Order of messages sent varies based on the data format of the prompt
         if response_type == "audio_path":
             output_audio_path, result = await self.send_audio_async(
-                filename=request.converted_value, conversation_id=conversation_id
+                filename=request.converted_value, conversation_id=conversation_id,
+                conversation=normalized_conversation,
             )
 
         elif response_type == "text":
             output_audio_path, result = await self.send_text_async(
-                text=request.converted_value, conversation_id=conversation_id
+                text=request.converted_value, conversation_id=conversation_id,
+                conversation=normalized_conversation,
             )
         else:
             raise ValueError(f"Unsupported response type: {response_type}")
@@ -669,13 +670,16 @@ class RealtimeTarget(OpenAITarget, PromptChatTarget):
                 return f"[{error_type}] {error_message}"
         return "Unknown error occurred"
 
-    async def send_text_async(self, text: str, conversation_id: str) -> tuple[str, RealtimeTargetResult]:
+    async def send_text_async(
+        self, text: str, conversation_id: str, conversation: list[Message],
+    ) -> tuple[str, RealtimeTargetResult]:
         """
         Send text prompt using OpenAI Realtime API client.
 
         Args:
             text: prompt to send.
             conversation_id: conversation ID
+            conversation: The normalized conversation history.
 
         Returns:
             Tuple[str, RealtimeTargetResult]: Path to saved audio file and the RealtimeTargetResult
@@ -715,7 +719,7 @@ class RealtimeTarget(OpenAITarget, PromptChatTarget):
         self._existing_conversation[conversation_id] = new_connection
 
         # Send session configuration to new connection
-        system_prompt = self._get_system_prompt_from_conversation(conversation_id=conversation_id)
+        system_prompt = self._get_system_prompt_from_conversation(conversation=conversation)
         session_config = self._set_system_prompt_and_config_vars(system_prompt=system_prompt)
         await new_connection.session.update(session=session_config)
 
@@ -723,13 +727,16 @@ class RealtimeTarget(OpenAITarget, PromptChatTarget):
         output_audio_path = await self.save_audio(audio_bytes=result.audio_bytes, sample_rate=24000)
         return output_audio_path, result
 
-    async def send_audio_async(self, filename: str, conversation_id: str) -> tuple[str, RealtimeTargetResult]:
+    async def send_audio_async(
+        self, filename: str, conversation_id: str, conversation: list[Message],
+    ) -> tuple[str, RealtimeTargetResult]:
         """
         Send an audio message using OpenAI Realtime API client.
 
         Args:
             filename (str): The path to the audio file.
             conversation_id (str): Conversation ID
+            conversation (list[Message]): The normalized conversation history.
 
         Returns:
             Tuple[str, RealtimeTargetResult]: Path to saved audio file and the RealtimeTargetResult
@@ -784,7 +791,7 @@ class RealtimeTarget(OpenAITarget, PromptChatTarget):
         self._existing_conversation[conversation_id] = new_connection
 
         # Send session configuration to new connection
-        system_prompt = self._get_system_prompt_from_conversation(conversation_id=conversation_id)
+        system_prompt = self._get_system_prompt_from_conversation(conversation=conversation)
         session_config = self._set_system_prompt_and_config_vars(system_prompt=system_prompt)
         await new_connection.session.update(session=session_config)
 
