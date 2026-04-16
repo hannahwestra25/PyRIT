@@ -366,13 +366,15 @@ class RealtimeTarget(OpenAITarget, PromptChatTarget):
         # Order of messages sent varies based on the data format of the prompt
         if response_type == "audio_path":
             output_audio_path, result = await self.send_audio_async(
-                filename=request.converted_value, conversation_id=conversation_id,
+                filename=request.converted_value,
+                conversation_id=conversation_id,
                 conversation=normalized_conversation,
             )
 
         elif response_type == "text":
             output_audio_path, result = await self.send_text_async(
-                text=request.converted_value, conversation_id=conversation_id,
+                text=request.converted_value,
+                conversation_id=conversation_id,
                 conversation=normalized_conversation,
             )
         else:
@@ -671,7 +673,11 @@ class RealtimeTarget(OpenAITarget, PromptChatTarget):
         return "Unknown error occurred"
 
     async def send_text_async(
-        self, text: str, conversation_id: str, conversation: list[Message],
+        self,
+        *,
+        text: str,
+        conversation_id: str,
+        conversation: list[Message],
     ) -> tuple[str, RealtimeTargetResult]:
         """
         Send text prompt using OpenAI Realtime API client.
@@ -728,7 +734,11 @@ class RealtimeTarget(OpenAITarget, PromptChatTarget):
         return output_audio_path, result
 
     async def send_audio_async(
-        self, filename: str, conversation_id: str, conversation: list[Message],
+        self,
+        *,
+        filename: str,
+        conversation_id: str,
+        conversation: list[Message],
     ) -> tuple[str, RealtimeTargetResult]:
         """
         Send an audio message using OpenAI Realtime API client.

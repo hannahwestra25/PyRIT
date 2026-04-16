@@ -108,6 +108,10 @@ class AzureMLChatTarget(PromptChatTarget):
                 Note that the link above may not be comprehensive, and specific acceptable parameters may be
                 model-dependent. If a model does not accept a certain parameter that is passed in, it will be skipped
                 without throwing an error.
+
+        Raises:
+            ValueError: If both `message_normalizer` and `custom_configuration` are provided,
+                since `message_normalizer` is deprecated and the two configurations may conflict.
         """
         endpoint_value = default_values.get_required_value(
             env_var_name=self.endpoint_uri_environment_variable, passed_value=endpoint
@@ -159,7 +163,6 @@ class AzureMLChatTarget(PromptChatTarget):
         validate_temperature(temperature)
         validate_top_p(top_p)
 
-        self.message_normalizer = message_normalizer
         self._max_new_tokens = max_new_tokens
         self._temperature = temperature
         self._top_p = top_p

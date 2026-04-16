@@ -20,7 +20,6 @@ class _ConcreteOpenAITarget(OpenAITarget):
         self.model_name_environment_variable = "TEST_MODEL"
         self.endpoint_environment_variable = "TEST_ENDPOINT"
         self.api_key_environment_variable = "TEST_API_KEY"
-        self.underlying_model_environment_variable = "TEST_UNDERLYING_MODEL"
 
     def _get_target_api_paths(self) -> list[str]:
         return []

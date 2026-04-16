@@ -1,10 +1,15 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
+from __future__ import annotations
+
 import json
 import warnings
-from collections.abc import MutableSequence
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
+
+if TYPE_CHECKING:
+    from collections.abc import MutableSequence
 
 import pytest
 from openai.types.chat import ChatCompletion

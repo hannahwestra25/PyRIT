@@ -129,6 +129,9 @@ class PromptTarget(Identifiable):
 
         Returns:
             list[Message]: Response messages from the target.
+
+        Raises:
+            ValueError: If the message or normalized conversation are empty.
         """
         if not message.message_pieces:
             raise ValueError("Message must contain at least one message piece. Received: 0 pieces.")

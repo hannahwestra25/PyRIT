@@ -536,10 +536,8 @@ class OpenAIResponseTarget(OpenAITarget, PromptChatTarget):
         """
         message = normalized_conversation[-1]
         message_piece: MessagePiece = message.message_pieces[0]
-        json_config = _JsonResponseConfig(enabled=False)
-        if message.message_pieces:
-            last_piece = message.message_pieces[-1]
-            json_config = self._get_json_response_config(message_piece=last_piece)
+        last_piece = message.message_pieces[-1]
+        json_config = self._get_json_response_config(message_piece=last_piece)
 
         working_conversation: MutableSequence[Message] = list(normalized_conversation)
 
