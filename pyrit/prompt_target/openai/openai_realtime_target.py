@@ -297,20 +297,22 @@ class RealtimeTarget(OpenAITarget, PromptChatTarget):
 
         return session_config
 
-    async def send_config(self, *, conversation_id: str, normalized_conversation: list[Message] | None = None) -> None:
+    async def send_config(self, *, conversation_id: str, conversation: list[Message] | None = None) -> None:
         """
         Send the session configuration using OpenAI client.
 
         Args:
             conversation_id (str): Conversation ID
-            normalized_conversation (list[Message] | None): The normalized_conversation history to extract the system
-                prompt from. If None, the conversation is fetched from memory. Defaults to None.
+            conversation (list[Message] | None): The conversation history to extract the system
+                prompt from. This is useful if the conversation has already been normalized and we want
+                to use the normalized conversation. If None, the conversation is fetched from memory.
+                Defaults to None.s
         """
         # Extract system prompt from conversation history. Use the conversation passed in if available,
         # otherwise fetch from memory.
         resolved_conversation = (
-            normalized_conversation
-            if normalized_conversation is not None
+            conversation
+            if conversation is not None
             else list(self._memory.get_conversation(conversation_id=conversation_id))
         )
         system_prompt = self._get_system_prompt_from_conversation(conversation=resolved_conversation)

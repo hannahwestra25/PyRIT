@@ -249,11 +249,7 @@ class PromptTarget(Identifiable):
         """
         source_piece = source.message_pieces[0]
         for piece in target_message.message_pieces:
-            piece.conversation_id = source_piece.conversation_id
-            piece.labels = source_piece.labels
-            piece.attack_identifier = source_piece.attack_identifier
-            piece.prompt_target_identifier = source_piece.prompt_target_identifier
-            piece.prompt_metadata = source_piece.prompt_metadata
+            piece.copy_lineage_from(source_piece)
 
     def set_model_name(self, *, model_name: str) -> None:
         """
