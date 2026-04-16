@@ -5,6 +5,7 @@ import os
 import tempfile
 import time
 import uuid
+import warnings
 from collections.abc import MutableSequence
 from datetime import datetime, timedelta, timezone
 
@@ -1043,3 +1044,68 @@ class TestSimulatedAssistantRole:
         assert piece.get_role_for_storage() == "simulated_assistant"
         assert piece.api_role == "assistant"
         assert piece.is_simulated is True
+
+
+class TestMessagePieceDeprecationWarnings:
+    """Tests for deprecation warnings on parameters scheduled for removal."""
+
+    def test_scorer_identifier_emits_deprecation_warning(self):
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            MessagePiece(
+                role="user",
+                original_value="Hello",
+                scorer_identifier=ComponentIdentifier(class_name="S", class_module="m"),
+            )
+        deprecation_msgs = [x for x in w if issubclass(x.category, DeprecationWarning)]
+        assert any("scorer_identifier" in str(m.message) for m in deprecation_msgs)
+
+    def test_scorer_identifier_none_no_warning(self):
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            MessagePiece(role="user", original_value="Hello")
+        deprecation_msgs = [x for x in w if issubclass(x.category, DeprecationWarning)]
+        assert not any("scorer_identifier" in str(m.message) for m in deprecation_msgs)
+
+    def test_originator_non_default_emits_deprecation_warning(self):
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            MessagePiece(role="user", original_value="Hello", originator="attack")
+        deprecation_msgs = [x for x in w if issubclass(x.category, DeprecationWarning)]
+        assert any("originator" in str(m.message) for m in deprecation_msgs)
+
+    def test_originator_default_no_warning(self):
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            MessagePiece(role="user", original_value="Hello")
+        deprecation_msgs = [x for x in w if issubclass(x.category, DeprecationWarning)]
+        assert not any("originator" in str(m.message) for m in deprecation_msgs)
+
+    def test_scores_emits_deprecation_warning(self):
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            MessagePiece(role="user", original_value="Hello", scores=[])
+        # scores=[] is falsy but not None, however the check is `scores is not None`
+        deprecation_msgs = [x for x in w if issubclass(x.category, DeprecationWarning)]
+        assert any("scores" in str(m.message) for m in deprecation_msgs)
+
+    def test_scores_none_no_warning(self):
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            MessagePiece(role="user", original_value="Hello")
+        deprecation_msgs = [x for x in w if issubclass(x.category, DeprecationWarning)]
+        assert not any("scores" in str(m.message) for m in deprecation_msgs)
+
+    def test_targeted_harm_categories_emits_deprecation_warning(self):
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            MessagePiece(role="user", original_value="Hello", targeted_harm_categories=["violence"])
+        deprecation_msgs = [x for x in w if issubclass(x.category, DeprecationWarning)]
+        assert any("targeted_harm_categories" in str(m.message) for m in deprecation_msgs)
+
+    def test_targeted_harm_categories_none_no_warning(self):
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            MessagePiece(role="user", original_value="Hello")
+        deprecation_msgs = [x for x in w if issubclass(x.category, DeprecationWarning)]
+        assert not any("targeted_harm_categories" in str(m.message) for m in deprecation_msgs)

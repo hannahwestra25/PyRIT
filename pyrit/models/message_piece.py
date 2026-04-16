@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import uuid
+import warnings
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, get_args
 from uuid import uuid4
@@ -15,6 +16,7 @@ if TYPE_CHECKING:
     from pyrit.models.score import Score
 
 Originator = Literal["attack", "converter", "undefined", "scorer"]
+"""Deprecated: The Originator type alias will be removed in a future release."""
 
 
 class MessagePiece:
@@ -135,6 +137,12 @@ class MessagePiece:
         )
 
         # Handle scorer_identifier: normalize to ComponentIdentifier (handles dict with deprecation warning)
+        if scorer_identifier is not None:
+            warnings.warn(
+                "The 'scorer_identifier' parameter is deprecated and will be removed in a future release.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
         self.scorer_identifier: Optional[ComponentIdentifier] = (
             ComponentIdentifier.normalize(scorer_identifier) if scorer_identifier else None
         )
@@ -161,12 +169,33 @@ class MessagePiece:
             raise ValueError(f"response_error {response_error} is not a valid response error.")
 
         self.response_error = response_error
+
+        if originator != "undefined":
+            warnings.warn(
+                "The 'originator' parameter is deprecated and will be removed in a future release.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
         self.originator = originator
 
         # Original prompt id defaults to id (assumes that this is the original prompt, not a duplicate)
         self.original_prompt_id = original_prompt_id or self.id
 
+        if scores is not None:
+            warnings.warn(
+                "The 'scores' parameter is deprecated and will be removed in a future release. "
+                "Scores are now hydrated by the memory layer.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
         self.scores = scores if scores else []
+
+        if targeted_harm_categories is not None:
+            warnings.warn(
+                "The 'targeted_harm_categories' parameter is deprecated and will be removed in a future release.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
         self.targeted_harm_categories = targeted_harm_categories if targeted_harm_categories else []
 
     async def set_sha256_values_async(self) -> None:
