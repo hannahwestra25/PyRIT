@@ -1,16 +1,26 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
+import json
 from collections.abc import MutableSequence
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from openai.types.chat import ChatCompletion
 from unit.mocks import get_sample_conversations, openai_chat_response_json_dict
 
 from pyrit.executor.attack.core.attack_strategy import AttackStrategy
 from pyrit.identifiers import ComponentIdentifier
+from pyrit.memory.memory_interface import MemoryInterface
 from pyrit.models import Message, MessagePiece
 from pyrit.prompt_target import OpenAIChatTarget
+from pyrit.prompt_target.common.target_capabilities import (
+    CapabilityHandlingPolicy,
+    CapabilityName,
+    TargetCapabilities,
+    UnsupportedCapabilityBehavior,
+)
+from pyrit.prompt_target.common.target_configuration import TargetConfiguration
 
 
 @pytest.fixture
@@ -150,3 +160,243 @@ async def test_send_prompt_async_with_delay(
 
         mock_create.assert_called_once()
         mock_sleep.assert_called_once_with(6)  # 60/max_requests_per_minute
+
+
+# ---------------------------------------------------------------------------
+# _propagate_lineage — metadata preservation after normalization
+# ---------------------------------------------------------------------------
+
+_LINEAGE_CONVERSATION_ID = "original-conv-id-12345"
+_LINEAGE_LABELS = {"op_name": "test_op", "user_id": "user42"}
+_LINEAGE_ATTACK_IDENTIFIER = ComponentIdentifier(class_name="TestAttack", class_module="tests.attacks")
+_LINEAGE_PROMPT_TARGET_IDENTIFIER = ComponentIdentifier(class_name="OpenAIChatTarget", class_module="pyrit")
+_LINEAGE_PROMPT_METADATA = {"scenario": "test_scenario", "turn": 3}
+
+
+def _make_lineage_piece(*, role: str, content: str) -> MessagePiece:
+    return MessagePiece(
+        role=role,
+        conversation_id=_LINEAGE_CONVERSATION_ID,
+        original_value=content,
+        converted_value=content,
+        original_value_data_type="text",
+        converted_value_data_type="text",
+        labels=dict(_LINEAGE_LABELS),
+        prompt_target_identifier=_LINEAGE_PROMPT_TARGET_IDENTIFIER,
+        attack_identifier=_LINEAGE_ATTACK_IDENTIFIER,
+        prompt_metadata=dict(_LINEAGE_PROMPT_METADATA),
+    )
+
+
+def _make_lineage_message(*, role: str, content: str) -> Message:
+    return Message(message_pieces=[_make_lineage_piece(role=role, content=content)])
+
+
+def _make_mock_chat_completion(content: str = "response") -> MagicMock:
+    mock = MagicMock(spec=ChatCompletion)
+    mock.choices = [MagicMock()]
+    mock.choices[0].finish_reason = "stop"
+    mock.choices[0].message.content = content
+    mock.choices[0].message.audio = None
+    mock.choices[0].message.tool_calls = None
+    mock.model_dump_json.return_value = json.dumps(
+        {"choices": [{"finish_reason": "stop", "message": {"content": content}}]}
+    )
+    return mock
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("patch_central_database")
+async def test_history_squash_preserves_metadata_on_normalized_message():
+    """
+    After history squash, _propagate_lineage should restore the original request's
+    metadata (conversation_id, labels, attack_identifier) onto the squashed message.
+    """
+    target = OpenAIChatTarget(
+        model_name="gpt-4o",
+        endpoint="https://mock.azure.com/",
+        api_key="mock-api-key",
+        custom_configuration=TargetConfiguration(
+            capabilities=TargetCapabilities(
+                supports_multi_turn=False,
+                supports_system_prompt=True,
+                supports_multi_message_pieces=True,
+                input_modalities=frozenset({frozenset(["text"])}),
+            ),
+            policy=CapabilityHandlingPolicy(
+                behaviors={
+                    CapabilityName.MULTI_TURN: UnsupportedCapabilityBehavior.ADAPT,
+                    CapabilityName.SYSTEM_PROMPT: UnsupportedCapabilityBehavior.RAISE,
+                }
+            ),
+        ),
+    )
+
+    history_msg = _make_lineage_message(role="assistant", content="previous answer")
+    user_msg = _make_lineage_message(role="user", content="follow-up question")
+
+    mock_memory = MagicMock(spec=MemoryInterface)
+    mock_memory.get_conversation.return_value = [history_msg]
+    target._memory = mock_memory
+
+    normalized = await target._get_normalized_conversation_async(message=user_msg)
+
+    assert len(normalized) == 1
+
+    normalized_piece = normalized[0].message_pieces[0]
+
+    assert normalized_piece.conversation_id == _LINEAGE_CONVERSATION_ID
+    assert normalized_piece.labels == _LINEAGE_LABELS
+    assert normalized_piece.attack_identifier == _LINEAGE_ATTACK_IDENTIFIER
+    assert normalized_piece.prompt_target_identifier == _LINEAGE_PROMPT_TARGET_IDENTIFIER
+    assert normalized_piece.prompt_metadata == _LINEAGE_PROMPT_METADATA
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("patch_central_database")
+async def test_response_preserves_metadata_after_history_squash():
+    """
+    End-to-end: after history squash the response must carry the original
+    request's conversation_id, labels, and attack_identifier — not the
+    random values created by the normalizer.
+    """
+    target = OpenAIChatTarget(
+        model_name="gpt-4o",
+        endpoint="https://mock.azure.com/",
+        api_key="mock-api-key",
+        custom_configuration=TargetConfiguration(
+            capabilities=TargetCapabilities(
+                supports_multi_turn=False,
+                supports_system_prompt=True,
+                supports_multi_message_pieces=True,
+                input_modalities=frozenset({frozenset(["text"])}),
+            ),
+            policy=CapabilityHandlingPolicy(
+                behaviors={
+                    CapabilityName.MULTI_TURN: UnsupportedCapabilityBehavior.ADAPT,
+                    CapabilityName.SYSTEM_PROMPT: UnsupportedCapabilityBehavior.RAISE,
+                }
+            ),
+        ),
+    )
+
+    history_msg = _make_lineage_message(role="assistant", content="previous answer")
+    user_msg = _make_lineage_message(role="user", content="follow-up question")
+
+    mock_memory = MagicMock(spec=MemoryInterface)
+    mock_memory.get_conversation.return_value = [history_msg]
+    target._memory = mock_memory
+
+    mock_completion = _make_mock_chat_completion("target response")
+    target._async_client.chat.completions.create = AsyncMock(return_value=mock_completion)
+
+    response_messages = await target.send_prompt_async(message=user_msg)
+
+    assert len(response_messages) == 1
+    response_piece = response_messages[0].message_pieces[0]
+
+    assert response_piece.conversation_id == _LINEAGE_CONVERSATION_ID
+    assert response_piece.labels == _LINEAGE_LABELS
+    assert response_piece.attack_identifier == _LINEAGE_ATTACK_IDENTIFIER
+    assert response_piece.prompt_target_identifier == _LINEAGE_PROMPT_TARGET_IDENTIFIER
+    assert response_piece.prompt_metadata == _LINEAGE_PROMPT_METADATA
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("patch_central_database")
+async def test_system_squash_preserves_metadata():
+    """
+    GenericSystemSquashNormalizer also creates messages via Message.from_prompt.
+    _propagate_lineage should restore the original metadata after system squash too.
+    """
+    target = OpenAIChatTarget(
+        model_name="gpt-4o",
+        endpoint="https://mock.azure.com/",
+        api_key="mock-api-key",
+        custom_configuration=TargetConfiguration(
+            capabilities=TargetCapabilities(
+                supports_multi_turn=True,
+                supports_system_prompt=False,
+                supports_multi_message_pieces=True,
+                input_modalities=frozenset({frozenset(["text"])}),
+            ),
+            policy=CapabilityHandlingPolicy(
+                behaviors={
+                    CapabilityName.MULTI_TURN: UnsupportedCapabilityBehavior.RAISE,
+                    CapabilityName.SYSTEM_PROMPT: UnsupportedCapabilityBehavior.ADAPT,
+                }
+            ),
+        ),
+    )
+
+    system_msg = _make_lineage_message(role="system", content="be helpful")
+    user_msg = _make_lineage_message(role="user", content="hello")
+
+    mock_memory = MagicMock(spec=MemoryInterface)
+    mock_memory.get_conversation.return_value = [system_msg]
+    target._memory = mock_memory
+
+    normalized = await target._get_normalized_conversation_async(message=user_msg)
+
+    assert len(normalized) == 1
+    assert "be helpful" in normalized[0].get_value()
+
+    normalized_piece = normalized[0].message_pieces[0]
+
+    assert normalized_piece.conversation_id == _LINEAGE_CONVERSATION_ID
+    assert normalized_piece.labels == _LINEAGE_LABELS
+    assert normalized_piece.attack_identifier == _LINEAGE_ATTACK_IDENTIFIER
+    assert normalized_piece.prompt_target_identifier == _LINEAGE_PROMPT_TARGET_IDENTIFIER
+    assert normalized_piece.prompt_metadata == _LINEAGE_PROMPT_METADATA
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("patch_central_database")
+async def test_history_squash_propagates_lineage_to_all_pieces():
+    """
+    When the squashed message contains multiple pieces, _propagate_lineage
+    must stamp every piece — not just the first one.
+    """
+    target = OpenAIChatTarget(
+        model_name="gpt-4o",
+        endpoint="https://mock.azure.com/",
+        api_key="mock-api-key",
+        custom_configuration=TargetConfiguration(
+            capabilities=TargetCapabilities(
+                supports_multi_turn=False,
+                supports_system_prompt=True,
+                supports_multi_message_pieces=True,
+                input_modalities=frozenset({frozenset(["text"])}),
+            ),
+            policy=CapabilityHandlingPolicy(
+                behaviors={
+                    CapabilityName.MULTI_TURN: UnsupportedCapabilityBehavior.ADAPT,
+                    CapabilityName.SYSTEM_PROMPT: UnsupportedCapabilityBehavior.RAISE,
+                }
+            ),
+        ),
+    )
+
+    history_msg = _make_lineage_message(role="assistant", content="previous answer")
+    # Build a user message with two pieces to exercise multi-piece stamping.
+    user_msg = Message(
+        message_pieces=[
+            _make_lineage_piece(role="user", content="first part"),
+            _make_lineage_piece(role="user", content="second part"),
+        ]
+    )
+
+    mock_memory = MagicMock(spec=MemoryInterface)
+    mock_memory.get_conversation.return_value = [history_msg]
+    target._memory = mock_memory
+
+    normalized = await target._get_normalized_conversation_async(message=user_msg)
+
+    assert len(normalized) == 1
+
+    for piece in normalized[0].message_pieces:
+        assert piece.conversation_id == _LINEAGE_CONVERSATION_ID
+        assert piece.labels == _LINEAGE_LABELS
+        assert piece.attack_identifier == _LINEAGE_ATTACK_IDENTIFIER
+        assert piece.prompt_target_identifier == _LINEAGE_PROMPT_TARGET_IDENTIFIER
+        assert piece.prompt_metadata == _LINEAGE_PROMPT_METADATA

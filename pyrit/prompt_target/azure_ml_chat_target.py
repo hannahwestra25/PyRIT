@@ -86,7 +86,7 @@ class AzureMLChatTarget(PromptChatTarget):
             message_normalizer (MessageListNormalizer[Any] | None): **Deprecated.** Use
                 ``custom_configuration`` with ``CapabilityHandlingPolicy`` instead. Previously used for
                 models that do not allow system prompts.
-                Will be removed in v0.14.0.
+                Will be removed in v0.15.0.
             max_new_tokens (int): The maximum number of tokens to generate in the response.
                 Defaults to 400.
             temperature (float): The temperature for generating diverse responses. 1.0 is most random,
@@ -123,7 +123,7 @@ class AzureMLChatTarget(PromptChatTarget):
                 raise ValueError(
                     "Cannot specify both 'message_normalizer' and 'custom_configuration'. "
                     "Use 'custom_configuration' only; 'message_normalizer' is deprecated and "
-                    "will be removed in v0.14.0."
+                    "will be removed in v0.15.0."
                 )
             warnings.warn(
                 "Passing message_normalizer is deprecated. Use custom_configuration with "

@@ -297,16 +297,23 @@ class RealtimeTarget(OpenAITarget, PromptChatTarget):
 
         return session_config
 
-    async def send_config(self, *, conversation_id: str, conversation: list[Message]) -> None:
+    async def send_config(self, *, conversation_id: str, normalized_conversation: list[Message] | None = None) -> None:
         """
         Send the session configuration using OpenAI client.
 
         Args:
             conversation_id (str): Conversation ID
-            conversation (list[Message]): The conversation history to extract the system prompt from.
+            conversation (list[Message] | None): The conversation history to extract the system prompt
+                from. If None, the conversation is fetched from memory. Defaults to None.
         """
-        # Extract system prompt from conversation history
-        system_prompt = self._get_system_prompt_from_conversation(conversation=conversation)
+        # Extract system prompt from conversation history. Use the conversation passed in if available,
+        # otherwise fetch from memory.
+        resolved_conversation = (
+            normalized_conversation
+            if normalized_conversation is not None
+            else list(self._memory.get_conversation(conversation_id=conversation_id))
+        )
+        system_prompt = self._get_system_prompt_from_conversation(conversation=resolved_conversation)
         config_variables = self._set_system_prompt_and_config_vars(system_prompt=system_prompt)
 
         connection = self._get_connection(conversation_id=conversation_id)
@@ -356,7 +363,7 @@ class RealtimeTarget(OpenAITarget, PromptChatTarget):
             self._existing_conversation[conversation_id] = connection
 
             # Only send config when creating a new connection
-            await self.send_config(conversation_id=conversation_id, conversation=normalized_conversation)
+            await self.send_config(conversation_id=conversation_id, normalized_conversation=normalized_conversation)
             # Give the server a moment to process the session update
             await asyncio.sleep(0.5)
 

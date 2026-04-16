@@ -115,7 +115,7 @@ class PromptTarget(Identifiable):
 
         This is the public entry point called by the prompt normalizer. It:
 
-        1. Fetches the conversation from memory, appends ``message``, and runs
+        1. Validates the message, fetches the conversation from memory, appends ``message``, and runs
            the normalization pipeline (system‑squash, history‑squash, etc.).
         2. Validates the normalized conversation against the target's capabilities.
         3. Delegates to :meth:`_send_prompt_to_target_async` with the normalized
@@ -133,8 +133,7 @@ class PromptTarget(Identifiable):
         Raises:
             ValueError: If the message or normalized conversation are empty.
         """
-        if not message.message_pieces:
-            raise ValueError("Message must contain at least one message piece. Received: 0 pieces.")
+        message.validate()
         normalized_conversation = await self._get_normalized_conversation_async(message=message)
         if not normalized_conversation:
             raise ValueError("Normalization pipeline returned an empty conversation. Cannot send an empty request.")
@@ -206,6 +205,11 @@ class PromptTarget(Identifiable):
         The original conversation in memory is never mutated. The returned list is an
         ephemeral copy intended only for building the API request body.
 
+        After normalization, the metadata from the original ``message`` is copied
+        onto the last normalized message so that downstream code (e.g.
+        ``construct_response_from_request``) propagates the correct
+        ``conversation_id``, ``labels``, ``attack_identifier``, etc. to the response.
+
         Args:
             message (Message): The current message to append.
 
@@ -216,7 +220,40 @@ class PromptTarget(Identifiable):
         conversation_id = message.message_pieces[0].conversation_id
         conversation = list(self._memory.get_conversation(conversation_id=conversation_id))
         conversation.append(message)
-        return await self.configuration.normalize_async(messages=conversation)
+        normalized = await self.configuration.normalize_async(messages=conversation)
+        if normalized:
+            self._propagate_lineage(source=message, target_message=normalized[-1])
+        return normalized
+
+    @staticmethod
+    def _propagate_lineage(*, source: Message, target_message: Message) -> None:
+        """
+        Copy request-lineage metadata from ``source`` onto every piece in ``target_message``.
+
+        Normalizers may create brand-new ``Message`` objects (e.g. ``HistorySquashNormalizer``
+        uses ``Message.from_prompt``) that carry fresh random ``conversation_id`` values and
+        lack ``labels``, ``attack_identifier``, etc.  This method restores the original
+        metadata so that the response built from the normalized message stays part of the
+        correct conversation and retains traceability.
+
+        Note:
+            Only the **last** message in the normalized list is stamped (the caller passes
+            ``normalized[-1]``).  This is intentional: earlier messages in the list are
+            history entries fetched from memory that already carry correct metadata.
+            Only the final message — which corresponds to the current user turn and may
+            have been rebuilt by a normalizer — needs its lineage restored.
+
+        Args:
+            source: The original (pre-normalization) message whose metadata is authoritative.
+            target_message: The normalized message whose pieces will be updated in place.
+        """
+        source_piece = source.message_pieces[0]
+        for piece in target_message.message_pieces:
+            piece.conversation_id = source_piece.conversation_id
+            piece.labels = source_piece.labels
+            piece.attack_identifier = source_piece.attack_identifier
+            piece.prompt_target_identifier = source_piece.prompt_target_identifier
+            piece.prompt_metadata = source_piece.prompt_metadata
 
     def set_model_name(self, *, model_name: str) -> None:
         """
