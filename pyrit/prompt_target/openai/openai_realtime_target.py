@@ -303,7 +303,7 @@ class RealtimeTarget(OpenAITarget, PromptChatTarget):
 
         Args:
             conversation_id (str): Conversation ID
-            normalized_conversation (list[Message] | None): The normalized_conversation history to extract the system 
+            normalized_conversation (list[Message] | None): The normalized_conversation history to extract the system
                 prompt from. If None, the conversation is fetched from memory. Defaults to None.
         """
         # Extract system prompt from conversation history. Use the conversation passed in if available,
