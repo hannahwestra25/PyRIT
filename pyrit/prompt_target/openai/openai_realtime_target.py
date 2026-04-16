@@ -365,7 +365,7 @@ class RealtimeTarget(OpenAITarget, PromptChatTarget):
             self._existing_conversation[conversation_id] = connection
 
             # Only send config when creating a new connection
-            await self.send_config(conversation_id=conversation_id, normalized_conversation=normalized_conversation)
+            await self.send_config(conversation_id=conversation_id, conversation=normalized_conversation)
             # Give the server a moment to process the session update
             await asyncio.sleep(0.5)
 
