@@ -702,4 +702,3 @@ class OpenAIChatTarget(OpenAITarget, PromptChatTarget):
             }
 
         return {"type": "json_object"}
-    
