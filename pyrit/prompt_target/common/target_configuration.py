@@ -171,3 +171,43 @@ class TargetConfiguration:
             list[Message]: The (possibly adapted) message list.
         """
         return await self._pipeline.normalize_async(messages=messages)
+
+    def as_identifier_params(self) -> dict[str, Any]:
+        """
+        Return a deterministic, serializable representation of this configuration
+        suitable for inclusion in a :class:`ComponentIdentifier`.
+
+        Two configurations that behave identically must produce equal dicts;
+        configurations that differ in any identity-bearing field must produce
+        unequal dicts. Modality sets are flattened to sorted lists of sorted
+        lists so ordering is stable across runs.
+
+        Returns:
+            dict[str, Any]: The identifier parameters for this configuration.
+        """
+        caps = self._capabilities
+        return {
+            "supports_multi_turn": caps.supports_multi_turn,
+            "supports_multi_message_pieces": caps.supports_multi_message_pieces,
+            "supports_json_schema": caps.supports_json_schema,
+            "supports_json_output": caps.supports_json_output,
+            "supports_editable_history": caps.supports_editable_history,
+            "supports_system_prompt": caps.supports_system_prompt,
+            "input_modalities": sorted(sorted(combo) for combo in caps.input_modalities),
+            "output_modalities": sorted(sorted(combo) for combo in caps.output_modalities),
+            # Only adaptable, unsupported capabilities appear here — behavior for
+            # supported capabilities is fully determined by the flags above, and
+            # non-adaptable capabilities have no policy entry by design.
+            "capability_policy": {
+                capability.value: behavior.value
+                for capability, behavior in self._policy.behaviors.items()
+                if not caps.includes(capability=capability)
+            },
+            # Stable, ordered representation of the resolved normalization
+            # pipeline. Captures the effect of ``normalizer_overrides`` since
+            # the pipeline is built from defaults + overrides.
+            "normalization_pipeline": [
+                f"{type(normalizer).__module__}.{type(normalizer).__qualname__}"
+                for normalizer in self._pipeline.normalizers
+            ],
+        }
