@@ -222,7 +222,24 @@ class PromptTarget(Identifiable):
         conversation.append(message)
         normalized = await self.configuration.normalize_async(messages=conversation)
         if normalized:
+            # Normalizers may create new Message objects (via Message.from_prompt) with
+            # random conversation_ids.  Stamp the correct conversation_id on every
+            # message (idempotent for originals, fixes new ones).  Full lineage is only
+            # propagated to the last message — it's the one targets use to build the
+            # response, and earlier messages carry their own legitimate metadata.
+            for msg in normalized:
+                for piece in msg.message_pieces:
+                    piece.conversation_id = conversation_id
             self._propagate_lineage(source=message, target_message=normalized[-1])
+            if len(normalized) > len(conversation):
+                logger.warning(
+                    "Normalization produced more messages than the input conversation "
+                    "(%d → %d). Only the last normalized message has full lineage "
+                    "(labels, attack_identifier, etc.). Additional new messages have "
+                    "conversation_id set but require manual lineage updates if needed.",
+                    len(conversation),
+                    len(normalized),
+                )
         return normalized
 
     @staticmethod
@@ -235,13 +252,6 @@ class PromptTarget(Identifiable):
         lack ``labels``, ``attack_identifier``, etc.  This method restores the original
         metadata so that the response built from the normalized message stays part of the
         correct conversation and retains traceability.
-
-        Note:
-            Only the **last** message in the normalized list is stamped (the caller passes
-            ``normalized[-1]``).  This is intentional: earlier messages in the list are
-            history entries fetched from memory that already carry correct metadata.
-            Only the final message — which corresponds to the current user turn and may
-            have been rebuilt by a normalizer — needs its lineage restored.
 
         Args:
             source: The original (pre-normalization) message whose metadata is authoritative.

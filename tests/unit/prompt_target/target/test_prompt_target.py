@@ -400,3 +400,100 @@ async def test_history_squash_propagates_lineage_to_all_pieces():
         assert piece.attack_identifier == _LINEAGE_ATTACK_IDENTIFIER
         assert piece.prompt_target_identifier == _LINEAGE_PROMPT_TARGET_IDENTIFIER
         assert piece.prompt_metadata == _LINEAGE_PROMPT_METADATA
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("patch_central_database")
+async def test_conversation_id_stamped_on_all_but_full_lineage_only_on_last():
+    """
+    conversation_id is stamped on every normalized message (including new ones
+    created by the normalizer).  Full lineage (labels, attack_identifier, etc.)
+    is only propagated to the last message.  Earlier messages keep their own
+    metadata.  A warning is logged when the normalizer increases message count.
+    """
+    target = OpenAIChatTarget(
+        model_name="gpt-4o",
+        endpoint="https://mock.azure.com/",
+        api_key="mock-api-key",
+    )
+
+    history_msg = _make_lineage_message(role="assistant", content="previous answer")
+    # Give history distinct metadata to verify it's preserved.
+    history_msg.message_pieces[0].labels = {"original": "history_labels"}
+    history_msg.message_pieces[0].prompt_metadata = {"original": "history_meta"}
+
+    user_msg = _make_lineage_message(role="user", content="hello")
+
+    mock_memory = MagicMock(spec=MemoryInterface)
+    mock_memory.get_conversation.return_value = [history_msg]
+    target._memory = mock_memory
+
+    # Simulate a normalizer that inserts a new message with a random conversation_id.
+    new_piece = MessagePiece(
+        role="user",
+        conversation_id="random-normalizer-uuid",
+        original_value="injected",
+        converted_value="injected",
+        original_value_data_type="text",
+        converted_value_data_type="text",
+    )
+    new_msg = Message(message_pieces=[new_piece])
+
+    with patch.object(target.configuration, "normalize_async", new_callable=AsyncMock) as mock_normalize:
+        mock_normalize.return_value = [history_msg, new_msg, user_msg]
+
+        import logging
+
+        with patch.object(logging.getLogger("pyrit.prompt_target.common.prompt_target"), "warning") as mock_warn:
+            normalized = await target._get_normalized_conversation_async(message=user_msg)
+
+        # All messages should carry the correct conversation_id.
+        for msg in normalized:
+            for piece in msg.message_pieces:
+                assert piece.conversation_id == _LINEAGE_CONVERSATION_ID
+
+        # History message's other metadata should be untouched.
+        assert normalized[0].message_pieces[0].labels == {"original": "history_labels"}
+        assert normalized[0].message_pieces[0].prompt_metadata == {"original": "history_meta"}
+
+        # New middle message should NOT have full lineage overwritten.
+        assert normalized[1].message_pieces[0].labels == {}
+
+        # Last message should carry full lineage.
+        last_piece = normalized[-1].message_pieces[0]
+        assert last_piece.labels == _LINEAGE_LABELS
+        assert last_piece.attack_identifier == _LINEAGE_ATTACK_IDENTIFIER
+        assert last_piece.prompt_target_identifier == _LINEAGE_PROMPT_TARGET_IDENTIFIER
+        assert last_piece.prompt_metadata == _LINEAGE_PROMPT_METADATA
+
+        # Warning should fire because message count increased (2 → 3).
+        mock_warn.assert_called_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("patch_central_database")
+async def test_no_warning_when_message_count_unchanged():
+    """
+    No warning is logged when the normalizer does not increase the message count.
+    """
+    target = OpenAIChatTarget(
+        model_name="gpt-4o",
+        endpoint="https://mock.azure.com/",
+        api_key="mock-api-key",
+    )
+
+    user_msg = _make_lineage_message(role="user", content="hello")
+
+    mock_memory = MagicMock(spec=MemoryInterface)
+    mock_memory.get_conversation.return_value = []
+    target._memory = mock_memory
+
+    with patch.object(target.configuration, "normalize_async", new_callable=AsyncMock) as mock_normalize:
+        mock_normalize.return_value = [user_msg]
+
+        import logging
+
+        with patch.object(logging.getLogger("pyrit.prompt_target.common.prompt_target"), "warning") as mock_warn:
+            await target._get_normalized_conversation_async(message=user_msg)
+
+        mock_warn.assert_not_called()

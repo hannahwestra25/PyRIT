@@ -102,7 +102,7 @@ class AzureMLChatTarget(PromptChatTarget):
             custom_configuration (TargetConfiguration | None): Override the default configuration for this target
                 instance. Useful for targets whose capabilities depend on deployment configuration.
             custom_capabilities (TargetCapabilities | None): **Deprecated.** Use
-                ``custom_configuration`` instead. Will be removed in v0.14.0.
+                ``custom_configuration`` instead. Will be removed in v0.15.0.
             **param_kwargs: Additional parameters to pass to the model for generating responses. Example
                 parameters can be found here: https://huggingface.co/docs/api-inference/tasks/text-generation.
                 Note that the link above may not be comprehensive, and specific acceptable parameters may be
@@ -127,7 +127,7 @@ class AzureMLChatTarget(PromptChatTarget):
                 )
             warnings.warn(
                 "Passing message_normalizer is deprecated. Use custom_configuration with "
-                "CapabilityHandlingPolicy instead. Will be removed in v0.14.0.",
+                "CapabilityHandlingPolicy instead. Will be removed in v0.15.0.",
                 DeprecationWarning,
                 stacklevel=2,
             )
