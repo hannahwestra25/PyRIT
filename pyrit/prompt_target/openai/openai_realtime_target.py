@@ -306,7 +306,7 @@ class RealtimeTarget(OpenAITarget, PromptChatTarget):
             conversation (list[Message] | None): The conversation history to extract the system
                 prompt from. This is useful if the conversation has already been normalized and we want
                 to use the normalized conversation. If None, the conversation is fetched from memory.
-                Defaults to None.s
+                Defaults to None.
         """
         # Extract system prompt from conversation history. Use the conversation passed in if available,
         # otherwise fetch from memory.
