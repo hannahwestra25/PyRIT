@@ -608,9 +608,7 @@ def test_identifier_differs_when_normalizer_overrides_differ():
             return messages
 
     capabilities = TargetCapabilities(supports_multi_turn=True, supports_system_prompt=False)
-    policy = CapabilityHandlingPolicy(
-        behaviors={CapabilityName.SYSTEM_PROMPT: UnsupportedCapabilityBehavior.ADAPT}
-    )
+    policy = CapabilityHandlingPolicy(behaviors={CapabilityName.SYSTEM_PROMPT: UnsupportedCapabilityBehavior.ADAPT})
 
     default_cfg = TargetConfiguration(
         capabilities=capabilities,
