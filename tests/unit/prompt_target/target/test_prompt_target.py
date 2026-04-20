@@ -3,6 +3,7 @@
 
 import json
 from collections.abc import MutableSequence
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -509,7 +510,7 @@ def _make_identifier_target(
     capabilities: TargetCapabilities | None = None,
     policy: CapabilityHandlingPolicy | None = None,
 ) -> OpenAIChatTarget:
-    kwargs: dict = {}
+    kwargs: dict[str, Any] = {}
     if capabilities is not None or policy is not None:
         kwargs["custom_configuration"] = TargetConfiguration(
             capabilities=capabilities or TargetCapabilities(),
@@ -537,16 +538,24 @@ def test_identifier_includes_capability_params():
     )
 
     params = target.get_identifier().params
+    target_config = params["target_configuration"]
+    capabilities = target_config["capabilities"]
 
-    assert params["supports_multi_turn"] is True
-    assert params["supports_multi_message_pieces"] is True
-    assert params["supports_json_schema"] is True
-    assert params["supports_json_output"] is True
-    assert params["supports_editable_history"] is False
-    assert params["supports_system_prompt"] is True
-    assert params["input_modalities"] == [["text"]]
-    assert params["output_modalities"] == [["text"]]
-    assert isinstance(params["capability_policy"], dict)
+    # Config-derived fields are nested under ``target_configuration``, not
+    # spread at the top level — guards against accidental re-flattening.
+    assert "supports_multi_turn" not in params
+    assert set(target_config.keys()) == {"capabilities", "capability_policy", "normalization_pipeline"}
+
+    assert capabilities["supports_multi_turn"] is True
+    assert capabilities["supports_multi_message_pieces"] is True
+    assert capabilities["supports_json_schema"] is True
+    assert capabilities["supports_json_output"] is True
+    assert capabilities["supports_editable_history"] is False
+    assert capabilities["supports_system_prompt"] is True
+    assert capabilities["input_modalities"] == [["text"]]
+    assert capabilities["output_modalities"] == [["text"]]
+    assert isinstance(target_config["capability_policy"], dict)
+    assert isinstance(target_config["normalization_pipeline"], list)
 
 
 @pytest.mark.usefixtures("patch_central_database")

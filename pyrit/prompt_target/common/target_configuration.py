@@ -4,6 +4,7 @@
 import logging
 import warnings
 from collections.abc import Mapping
+from dataclasses import fields
 from typing import Any
 
 from pyrit.message_normalizer import MessageListNormalizer
@@ -177,6 +178,11 @@ class TargetConfiguration:
         Return a deterministic, serializable representation of this configuration
         suitable for inclusion in a :class:`ComponentIdentifier`.
 
+        The returned dict preserves the structure of :class:`TargetConfiguration`
+        — capabilities, policy, and pipeline are kept as nested sub-dicts rather
+        than flattened into the caller — so the identifier reflects the shape of
+        the object it describes.
+
         Two configurations that behave identically must produce equal dicts;
         configurations that differ in any identity-bearing field must produce
         unequal dicts. Modality sets are flattened to sorted lists of sorted
@@ -187,17 +193,11 @@ class TargetConfiguration:
         """
         caps = self._capabilities
         return {
-            "supports_multi_turn": caps.supports_multi_turn,
-            "supports_multi_message_pieces": caps.supports_multi_message_pieces,
-            "supports_json_schema": caps.supports_json_schema,
-            "supports_json_output": caps.supports_json_output,
-            "supports_editable_history": caps.supports_editable_history,
-            "supports_system_prompt": caps.supports_system_prompt,
-            "input_modalities": sorted(sorted(combo) for combo in caps.input_modalities),
-            "output_modalities": sorted(sorted(combo) for combo in caps.output_modalities),
-            # Only adaptable, unsupported capabilities appear here — behavior for
-            # supported capabilities is fully determined by the flags above, and
-            # non-adaptable capabilities have no policy entry by design.
+            "capabilities": self._capabilities_to_identifier_params(caps),
+            # Only unsupported capabilities appear here. Policy entries for
+            # natively-supported capabilities are moot (the behavior never
+            # fires), and omitting them keeps identifiers stable when default
+            # policies expand to cover more capabilities.
             "capability_policy": {
                 capability.value: behavior.value
                 for capability, behavior in self._policy.behaviors.items()
@@ -211,3 +211,34 @@ class TargetConfiguration:
                 for normalizer in self._pipeline.normalizers
             ],
         }
+
+    @staticmethod
+    def _capabilities_to_identifier_params(capabilities: TargetCapabilities) -> dict[str, Any]:
+        """
+        Project a :class:`TargetCapabilities` instance into a deterministic dict
+        suitable for inclusion in a :class:`ComponentIdentifier`.
+
+        Fields are discovered dynamically via ``dataclasses.fields`` so new
+        capability fields are picked up automatically. Set-valued fields (e.g.,
+        the modality frozensets) are detected by type and normalized to sorted
+        lists of sorted lists; all other fields are passed through as-is.
+
+        Args:
+            capabilities (TargetCapabilities): The capabilities to serialize.
+
+        Returns:
+            dict[str, Any]: Field-name to serialized-value mapping.
+        """
+        params: dict[str, Any] = {}
+        for dataclass_field in fields(capabilities):
+            value = getattr(capabilities, dataclass_field.name)
+            # Normalize set-valued fields (e.g., modality frozensets) to a
+            # deterministic representation. Handles both frozenset[frozenset[...]]
+            # (modality combinations) and plain frozensets.
+            if isinstance(value, (frozenset, set)):
+                params[dataclass_field.name] = sorted(
+                    sorted(item) if isinstance(item, (frozenset, set)) else item for item in value
+                )
+            else:
+                params[dataclass_field.name] = value
+        return params

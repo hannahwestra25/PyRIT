@@ -306,7 +306,7 @@ class PromptTarget(Identifiable):
             "model_name": self._model_name or "",
             "underlying_model_name": self._underlying_model or "",
             "max_requests_per_minute": self._max_requests_per_minute,
-            **self.configuration.as_identifier_params(),
+            "target_configuration": self.configuration.as_identifier_params(),
         }
         if params:
             all_params.update(params)
