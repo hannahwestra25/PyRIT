@@ -32,7 +32,7 @@ from pyrit.prompt_target import PromptTarget
 from pyrit.score import Scorer
 
 if TYPE_CHECKING:
-    from pyrit.prompt_target import PromptChatTarget
+    from pyrit.prompt_target import PromptTarget
     from pyrit.score import TrueFalseScorer
 
 logger = logging.getLogger(__name__)
@@ -54,7 +54,7 @@ class MultiPromptSendingAttackParameters(AttackParameters):
         cls: type["MultiPromptSendingAttackParameters"],
         seed_group: SeedAttackGroup,
         *,
-        adversarial_chat: Optional["PromptChatTarget"] = None,
+        adversarial_chat: Optional["PromptTarget"] = None,
         objective_scorer: Optional["TrueFalseScorer"] = None,
         **overrides: Any,
     ) -> "MultiPromptSendingAttackParameters":

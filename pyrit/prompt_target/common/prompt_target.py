@@ -8,7 +8,8 @@ from typing import Any, Union, final
 
 from pyrit.identifiers import ComponentIdentifier, Identifiable
 from pyrit.memory import CentralMemory, MemoryInterface
-from pyrit.models import Message
+from pyrit.models import Message, MessagePiece
+from pyrit.models.json_response_config import _JsonResponseConfig
 from pyrit.prompt_target.common.target_capabilities import TargetCapabilities
 from pyrit.prompt_target.common.target_configuration import TargetConfiguration, resolve_configuration_compat
 
@@ -398,3 +399,82 @@ class PromptTarget(Identifiable):
             ComponentIdentifier: The identifier for this prompt target.
         """
         return self._create_identifier()
+
+    def set_system_prompt(
+        self,
+        *,
+        system_prompt: str,
+        conversation_id: str,
+        attack_identifier: ComponentIdentifier | None = None,
+        labels: dict[str, str] | None = None,
+    ) -> None:
+        """
+        Set the system prompt for the prompt target. May be overridden by subclasses.
+
+        Requires the target to support multi-turn conversations and editable history.
+
+        Raises:
+            RuntimeError: If the conversation already exists.
+            ValueError: If the target does not support multi-turn or editable history.
+        """
+        if not self.capabilities.supports_multi_turn or not self.capabilities.supports_editable_history:
+            raise ValueError(
+                f"Target {type(self).__name__} does not support setting a system prompt. "
+                "It must support both multi-turn conversations and editable history."
+            )
+
+        messages = self._memory.get_conversation(conversation_id=conversation_id)
+
+        if messages:
+            raise RuntimeError("Conversation already exists, system prompt needs to be set at the beginning")
+
+        self._memory.add_message_to_memory(
+            request=MessagePiece(
+                role="system",
+                conversation_id=conversation_id,
+                original_value=system_prompt,
+                converted_value=system_prompt,
+                prompt_target_identifier=self.get_identifier(),
+                attack_identifier=attack_identifier,
+                labels=labels,
+            ).to_message()
+        )
+
+    def is_response_format_json(self, message_piece: MessagePiece) -> bool:
+        """
+        Check if the response format is JSON and ensure the target supports it.
+
+        Args:
+            message_piece: A MessagePiece object with a `prompt_metadata` dictionary that may
+                include a "response_format" key.
+
+        Returns:
+            bool: True if the response format is JSON, False otherwise.
+
+        Raises:
+            ValueError: If "json" response format is requested but unsupported.
+        """
+        config = self._get_json_response_config(message_piece=message_piece)
+        return config.enabled
+
+    def _get_json_response_config(self, *, message_piece: MessagePiece) -> _JsonResponseConfig:
+        """
+        Get the JSON response configuration from the message piece metadata.
+
+        Args:
+            message_piece: A MessagePiece object with a `prompt_metadata` dictionary that may
+                include JSON response configuration.
+
+        Returns:
+            _JsonResponseConfig: The JSON response configuration.
+
+        Raises:
+            ValueError: If JSON response format is requested but unsupported.
+        """
+        config = _JsonResponseConfig.from_metadata(metadata=message_piece.prompt_metadata)
+
+        if config.enabled and not self.capabilities.supports_json_output:
+            target_name = self.get_identifier().class_name
+            raise ValueError(f"This target {target_name} does not support JSON response format.")
+
+        return config

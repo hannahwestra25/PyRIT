@@ -20,8 +20,6 @@ from pyrit.prompt_normalizer.prompt_converter_configuration import (
 )
 from pyrit.prompt_normalizer.prompt_normalizer import PromptNormalizer
 from pyrit.prompt_target import PromptTarget
-from pyrit.prompt_target.common.prompt_chat_target import PromptChatTarget
-
 if TYPE_CHECKING:
     from pyrit.executor.attack.core import AttackContext
 
@@ -242,7 +240,7 @@ class ConversationManager:
     def set_system_prompt(
         self,
         *,
-        target: PromptChatTarget,
+        target: PromptTarget,
         conversation_id: str,
         system_prompt: str,
         labels: Optional[dict[str, str]] = None,
@@ -283,7 +281,7 @@ class ConversationManager:
         3. Updates context.executed_turns for multi-turn attacks
         4. Sets context.next_message if there's an unanswered user message
 
-        For PromptChatTarget:
+        For PromptTarget:
             - Adds prepended messages to memory with simulated_assistant role
             - All messages get new UUIDs
 
@@ -306,7 +304,7 @@ class ConversationManager:
 
         Raises:
             ValueError: If conversation_id is empty, or if prepended_conversation
-                requires a PromptChatTarget but target is not one.
+                requires a PromptTarget but target is not one.
         """
         if not conversation_id:
             raise ValueError("conversation_id cannot be empty")
@@ -321,8 +319,11 @@ class ConversationManager:
             logger.debug(f"No prepended conversation for context initialization: {conversation_id}")
             return state
 
-        # Handle target type compatibility
-        is_chat_target = isinstance(target, PromptChatTarget)
+        # Handle target type compatibility: an "editable history" target supports
+        # injecting prepended conversation directly into memory.
+        is_chat_target = (
+            target.capabilities.supports_multi_turn and target.capabilities.supports_editable_history
+        )
         if not is_chat_target:
             return await self._handle_non_chat_target_async(
                 context=context,
@@ -366,8 +367,8 @@ class ConversationManager:
 
         if config.non_chat_target_behavior == "raise":
             raise ValueError(
-                "prepended_conversation requires the objective target to be a PromptChatTarget. "
-                "Non-chat objective targets do not support conversation history. "
+                "prepended_conversation requires the objective target to support multi-turn "
+                "conversations with editable history. The current target does not. "
                 "Use PrependedConversationConfig with non_chat_target_behavior='normalize_first_turn' "
                 "to normalize the conversation into the first message instead."
             )

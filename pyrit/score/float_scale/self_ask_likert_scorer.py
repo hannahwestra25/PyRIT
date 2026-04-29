@@ -12,7 +12,7 @@ import yaml
 from pyrit.common.path import HARM_DEFINITION_PATH, SCORER_LIKERT_PATH
 from pyrit.identifiers import ComponentIdentifier
 from pyrit.models import MessagePiece, Score, SeedPrompt, UnvalidatedScore
-from pyrit.prompt_target import PromptChatTarget
+from pyrit.prompt_target import PromptTarget
 from pyrit.score.float_scale.float_scale_scorer import FloatScaleScorer
 from pyrit.score.scorer_prompt_validator import ScorerPromptValidator
 
@@ -177,7 +177,7 @@ class SelfAskLikertScorer(FloatScaleScorer):
     def __init__(
         self,
         *,
-        chat_target: PromptChatTarget,
+        chat_target: PromptTarget,
         likert_scale: Optional[LikertScalePaths] = None,
         custom_likert_path: Optional[Path] = None,
         custom_system_prompt_path: Optional[Path] = None,
@@ -187,7 +187,7 @@ class SelfAskLikertScorer(FloatScaleScorer):
         Initialize the SelfAskLikertScorer.
 
         Args:
-            chat_target (PromptChatTarget): The chat target to use for scoring.
+            chat_target (PromptTarget): The chat target to use for scoring.
             likert_scale (Optional[LikertScalePaths]): The Likert scale configuration to use for scoring.
             custom_likert_path (Optional[Path]): Path to a custom YAML file containing the Likert scale definition.
                 This allows users to use their own Likert scales without modifying the code, as long as

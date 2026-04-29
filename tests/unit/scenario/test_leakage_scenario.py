@@ -12,7 +12,7 @@ from pyrit.common.path import DATASETS_PATH
 from pyrit.executor.attack.core.attack_config import AttackScoringConfig
 from pyrit.identifiers import ComponentIdentifier
 from pyrit.models import SeedAttackGroup, SeedDataset, SeedObjective
-from pyrit.prompt_target import OpenAIChatTarget, PromptChatTarget, PromptTarget
+from pyrit.prompt_target import OpenAIChatTarget, PromptTarget
 from pyrit.scenario import DatasetConfiguration
 from pyrit.scenario.airt import Leakage, LeakageStrategy
 from pyrit.score import TrueFalseCompositeScorer
@@ -91,7 +91,7 @@ def mock_objective_scorer():
 
 @pytest.fixture
 def mock_adversarial_target():
-    mock = MagicMock(spec=PromptChatTarget)
+    mock = MagicMock(spec=PromptTarget)
     mock.get_identifier.return_value = _mock_target_id("MockAdversarialTarget")
     return mock
 

@@ -19,20 +19,24 @@ async def send_prompt_async(self, *, message: Message) -> Message:
 
 A `Message` object is a normalized object with all the information a target will need to send a prompt, including a way to get a history for that prompt (in the cases that also needs to be sent). This is discussed in more depth [here](../memory/3_memory_data_types.md).
 
-## PromptChatTargets vs PromptTargets
+## Chat-style targets vs general targets
 
 A `PromptTarget` is a generic place to send a prompt. With PyRIT, the idea is that it will eventually be consumed by an AI application, but that doesn't have to be immediate. For example, you could have a SharePoint target. Everything you send a prompt to is a `PromptTarget`. Many attacks work generically with any `PromptTarget` including `RedTeamingAttack` and `PromptSendingAttack`.
 
-With some algorithms, you want to send a prompt, set a system prompt, and modify conversation history (including PAIR [@chao2023pair], TAP [@mehrotra2023tap], and flip attack [@li2024flipattack]). These often require a `PromptChatTarget`, which implies you can modify a conversation history. `PromptChatTarget` is a subclass of `PromptTarget`.
+With some algorithms, you want to send a prompt, set a system prompt, and modify conversation history (including PAIR [@chao2023pair], TAP [@mehrotra2023tap], and flip attack [@li2024flipattack]). These algorithms require a target whose `TargetCapabilities` declare both `supports_multi_turn=True` and `supports_editable_history=True` — i.e. you can modify a conversation history. Consumers express this requirement via `CHAT_TARGET_REQUIREMENTS` and validate it against `target.configuration` at construction time.
+
+```{note}
+The previous `PromptChatTarget` class is **deprecated** as of v0.13.0 and will be removed in v0.15.0. Use `PromptTarget` directly with a `TargetConfiguration` declaring `supports_multi_turn=True` and `supports_editable_history=True`.
+```
 
 Here are some examples:
 
-| Example                             | Is `PromptChatTarget`?               | Notes                                                                                           |
-|-------------------------------------|---------------------------------------|-------------------------------------------------------------------------------------------------|
-| **OpenAIChatTarget** (e.g., GPT-4)  | **Yes** (`PromptChatTarget`)         | Designed for conversational prompts (system messages, conversation history, etc.).               |
-| **OpenAIImageTarget**               | **No** (not a `PromptChatTarget`)    | Used for image generation; does not manage conversation history.                                 |
-| **HTTPTarget**                      | **No** (not a `PromptChatTarget`)    | Generic HTTP target. Some apps might allow conversation history, but this target doesn't handle it. |
-| **AzureBlobStorageTarget**          | **No** (not a `PromptChatTarget`)    | Used primarily for storage; not for conversation-based AI.                                       |
+| Example                             | Chat-style target?                                | Notes                                                                                           |
+|-------------------------------------|---------------------------------------------------|-------------------------------------------------------------------------------------------------|
+| **OpenAIChatTarget** (e.g., GPT-4)  | **Yes** (multi-turn + editable history)           | Designed for conversational prompts (system messages, conversation history, etc.).               |
+| **OpenAIImageTarget**               | **No**                                            | Used for image generation; does not manage conversation history.                                 |
+| **HTTPTarget**                      | **No**                                            | Generic HTTP target. Some apps might allow conversation history, but this target doesn't handle it. |
+| **AzureBlobStorageTarget**          | **No**                                            | Used primarily for storage; not for conversation-based AI.                                       |
 
 ## Multi-Modal Targets
 

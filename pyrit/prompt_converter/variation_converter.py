@@ -23,7 +23,7 @@ from pyrit.models import (
     SeedPrompt,
 )
 from pyrit.prompt_converter.prompt_converter import ConverterResult, PromptConverter
-from pyrit.prompt_target import PromptChatTarget
+from pyrit.prompt_target import PromptTarget
 
 logger = logging.getLogger(__name__)
 
@@ -40,14 +40,14 @@ class VariationConverter(PromptConverter):
     def __init__(
         self,
         *,
-        converter_target: PromptChatTarget = REQUIRED_VALUE,  # type: ignore[assignment]
+        converter_target: PromptTarget = REQUIRED_VALUE,  # type: ignore[assignment]
         prompt_template: Optional[SeedPrompt] = None,
     ):
         """
         Initialize the converter with the specified target and prompt template.
 
         Args:
-            converter_target (PromptChatTarget): The target to which the prompt will be sent for conversion.
+            converter_target (PromptTarget): The target to which the prompt will be sent for conversion.
                 Can be omitted if a default has been configured via PyRIT initialization.
             prompt_template (SeedPrompt, optional): The template used for generating the system prompt.
                 If not provided, a default template will be used.

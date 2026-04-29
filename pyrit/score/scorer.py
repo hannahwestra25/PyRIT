@@ -39,7 +39,7 @@ from pyrit.prompt_target.batch_helper import batch_task_async
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from pyrit.prompt_target import PromptChatTarget, PromptTarget
+    from pyrit.prompt_target import PromptTarget
     from pyrit.score.scorer_evaluation.metrics_type import RegistryUpdateBehavior
     from pyrit.score.scorer_evaluation.scorer_evaluator import (
         ScorerEvalDatasetFiles,
@@ -493,7 +493,7 @@ class Scorer(Identifiable, abc.ABC):
     async def _score_value_with_llm(
         self,
         *,
-        prompt_target: PromptChatTarget,
+        prompt_target: PromptTarget,
         system_prompt: str,
         message_value: str,
         message_data_type: PromptDataType,
@@ -515,7 +515,7 @@ class Scorer(Identifiable, abc.ABC):
         description fields.
 
         Args:
-            prompt_target (PromptChatTarget): The target LLM to send the message to.
+            prompt_target (PromptTarget): The target LLM to send the message to.
             system_prompt (str): The system-level prompt that guides the behavior of the target LLM.
             message_value (str): The actual value or content to be scored by the LLM (e.g., text, image path,
                 audio path).

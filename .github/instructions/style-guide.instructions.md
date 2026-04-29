@@ -249,7 +249,7 @@ In the same module, importing from the specific path is usually necessary to pre
 
 ```python
 # Correct
-from pyrit.prompt_target import PromptChatTarget, OpenAIChatTarget
+from pyrit.prompt_target import PromptTarget, OpenAIChatTarget
 
 # Correct
 from pyrit.score import (
@@ -263,7 +263,7 @@ from pyrit.score import (
 )
 
 # Incorrect (if importing from a non-target module)
-from pyrit.prompt_target.common.prompt_chat_target import PromptChatTarget
+from pyrit.prompt_target.common.prompt_target import PromptTarget
 from pyrit.prompt_target.openai.openai_chat_target import OpenAIChatTarget
 
 ```
