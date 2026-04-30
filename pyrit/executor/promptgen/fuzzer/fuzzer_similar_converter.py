@@ -21,7 +21,7 @@ class FuzzerSimilarConverter(FuzzerConverter):
     @apply_defaults
     def __init__(
         self, *, converter_target: Optional[PromptTarget] = None, prompt_template: Optional[SeedPrompt] = None
-    ):
+    ) -> None:
         """Initialize the similar converter with optional chat target and prompt template."""
         prompt_template = (
             prompt_template

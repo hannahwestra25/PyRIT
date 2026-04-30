@@ -156,12 +156,12 @@ class LikertScalePaths(enum.Enum):
     @property
     def path(self) -> Path:
         """Get the path to the Likert scale YAML file."""
-        return self.value[0]  # type: ignore[no-any-return]
+        return self.value[0]
 
     @property
     def evaluation_files(self) -> Optional[LikertScaleEvalFiles]:
         """Get the evaluation file configuration, or None if no evaluation dataset exists."""
-        return self.value[1]  # type: ignore[no-any-return]
+        return self.value[1]
 
 
 class SelfAskLikertScorer(FloatScaleScorer):
@@ -201,7 +201,7 @@ class SelfAskLikertScorer(FloatScaleScorer):
             ValueError: If both `likert_scale` and `custom_likert_path` are provided, if neither is provided,
                 or if the provided Likert scale or system prompt YAML file is improperly formatted.
         """
-        super().__init__(validator=validator or self._DEFAULT_VALIDATOR)
+        super().__init__(validator=validator or self._DEFAULT_VALIDATOR, chat_target=chat_target)
 
         self._prompt_target = chat_target
         self._likert_scale = likert_scale
@@ -454,7 +454,7 @@ class SelfAskLikertScorer(FloatScaleScorer):
             system_prompt=self._system_prompt,
             message_value=message_piece.converted_value,
             message_data_type=message_piece.converted_value_data_type,
-            scored_prompt_id=message_piece.id,
+            scored_prompt_id=message_piece.id,  # type: ignore[ty:invalid-argument-type]
             category=self._score_category,
             attack_identifier=message_piece.attack_identifier,
             objective=objective,

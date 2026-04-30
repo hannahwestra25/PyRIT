@@ -28,7 +28,7 @@ class InsecureCodeScorer(FloatScaleScorer):
         chat_target: PromptTarget,
         system_prompt_path: Optional[Union[str, Path]] = None,
         validator: Optional[ScorerPromptValidator] = None,
-    ):
+    ) -> None:
         """
         Initialize the Insecure Code Scorer.
 
@@ -38,7 +38,7 @@ class InsecureCodeScorer(FloatScaleScorer):
                 Defaults to the default insecure code scoring prompt if not provided.
             validator (Optional[ScorerPromptValidator]): Custom validator for the scorer. Defaults to None.
         """
-        super().__init__(validator=validator or self._DEFAULT_VALIDATOR)
+        super().__init__(validator=validator or self._DEFAULT_VALIDATOR, chat_target=chat_target)
 
         self._prompt_target = chat_target
 
@@ -92,7 +92,7 @@ class InsecureCodeScorer(FloatScaleScorer):
             system_prompt=self._system_prompt,
             message_value=message_piece.original_value,
             message_data_type=message_piece.converted_value_data_type,
-            scored_prompt_id=message_piece.id,
+            scored_prompt_id=message_piece.id,  # type: ignore[ty:invalid-argument-type]
             category=self._harm_category,
             objective=objective,
             attack_identifier=message_piece.attack_identifier,

@@ -7,6 +7,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Optional
 
+from pyrit.common.deprecation import print_deprecation_message
 from pyrit.common.utils import combine_dict
 from pyrit.executor.attack.component.prepended_conversation_config import (
     PrependedConversationConfig,
@@ -20,6 +21,8 @@ from pyrit.prompt_normalizer.prompt_converter_configuration import (
 )
 from pyrit.prompt_normalizer.prompt_normalizer import PromptNormalizer
 from pyrit.prompt_target import PromptTarget
+from pyrit.prompt_target.common.target_capabilities import CapabilityName
+
 if TYPE_CHECKING:
     from pyrit.executor.attack.core import AttackContext
 
@@ -55,7 +58,7 @@ def get_adversarial_chat_messages(
     adversarial_chat_conversation_id: str,
     attack_identifier: ComponentIdentifier,
     adversarial_chat_target_identifier: ComponentIdentifier,
-    labels: Optional[dict[str, str]] = None,
+    labels: Optional[dict[str, str]] = None,  # deprecated
 ) -> list[Message]:
     """
     Transform prepended conversation messages for adversarial chat with swapped roles.
@@ -74,10 +77,17 @@ def get_adversarial_chat_messages(
         attack_identifier (ComponentIdentifier): Attack identifier to associate with messages.
         adversarial_chat_target_identifier (ComponentIdentifier): Target identifier for the adversarial chat.
         labels: Optional labels to associate with the messages.
+            Deprecated: This parameter will be removed in a release 0.16.0.
 
     Returns:
         List of transformed messages with swapped roles and new IDs.
     """
+    if labels is not None:
+        print_deprecation_message(
+            old_item="get_adversarial_chat_messages(..., labels=...)",
+            new_item="get_adversarial_chat_messages(...)",
+            removed_in="0.16.0",
+        )
     if not prepended_conversation:
         return []
 
@@ -108,7 +118,7 @@ def get_adversarial_chat_messages(
                 conversation_id=adversarial_chat_conversation_id,
                 attack_identifier=attack_identifier,
                 prompt_target_identifier=adversarial_chat_target_identifier,
-                labels=labels,
+                labels=labels,  # deprecated
             )
 
             result.append(adversarial_piece.to_message())
@@ -184,7 +194,7 @@ class ConversationManager:
         *,
         attack_identifier: ComponentIdentifier,
         prompt_normalizer: Optional[PromptNormalizer] = None,
-    ):
+    ) -> None:
         """
         Initialize the conversation manager.
 
@@ -243,22 +253,35 @@ class ConversationManager:
         target: PromptTarget,
         conversation_id: str,
         system_prompt: str,
-        labels: Optional[dict[str, str]] = None,
+        labels: Optional[dict[str, str]] = None,  # deprecated
     ) -> None:
         """
         Set or update the system prompt for a conversation.
 
         Args:
-            target: The chat target to set the system prompt on.
+            target: The target to set the system prompt on. Must handle the
+                SYSTEM_PROMPT capability (natively or via an ADAPT policy).
             conversation_id: Unique identifier for the conversation.
             system_prompt: The system prompt text.
             labels: Optional labels to associate with the system prompt.
+                Deprecated: This parameter will be removed in a release 0.16.0.
+
+        Raises:
+            ValueError: If target cannot handle the SYSTEM_PROMPT capability.
         """
+        if labels is not None:
+            print_deprecation_message(
+                old_item="set_system_prompt(..., labels=...)",
+                new_item="set_system_prompt(...)",
+                removed_in="0.16.0",
+            )
+        target.configuration.ensure_can_handle(capability=CapabilityName.SYSTEM_PROMPT)
+
         target.set_system_prompt(
             system_prompt=system_prompt,
             conversation_id=conversation_id,
             attack_identifier=self._attack_identifier,
-            labels=labels,
+            labels=labels,  # deprecated
         )
 
     async def initialize_context_async(
@@ -281,7 +304,7 @@ class ConversationManager:
         3. Updates context.executed_turns for multi-turn attacks
         4. Sets context.next_message if there's an unanswered user message
 
-        For PromptTarget:
+        For chat-capable PromptTarget:
             - Adds prepended messages to memory with simulated_assistant role
             - All messages get new UUIDs
 
@@ -304,7 +327,7 @@ class ConversationManager:
 
         Raises:
             ValueError: If conversation_id is empty, or if prepended_conversation
-                requires a PromptTarget but target is not one.
+                requires a chat-capable PromptTarget but target is not one.
         """
         if not conversation_id:
             raise ValueError("conversation_id cannot be empty")
@@ -319,11 +342,11 @@ class ConversationManager:
             logger.debug(f"No prepended conversation for context initialization: {conversation_id}")
             return state
 
-        # Handle target type compatibility: an "editable history" target supports
-        # injecting prepended conversation directly into memory.
-        is_chat_target = (
-            target.capabilities.supports_multi_turn and target.capabilities.supports_editable_history
-        )
+        # Targets that don't natively support editable history cannot consume a
+        # prepended multi-message conversation as-is — route them to the
+        # single-string fallback path. Type identity (PromptChatTarget) is a
+        # legacy signal for this; capability-based routing is the durable form.
+        is_chat_target = target.configuration.includes(capability=CapabilityName.EDITABLE_HISTORY)
         if not is_chat_target:
             return await self._handle_non_chat_target_async(
                 context=context,
@@ -544,7 +567,7 @@ class ConversationManager:
         if is_multi_turn and final_prepended_message.api_role == "assistant":
             # Update executed_turns
             if hasattr(context, "executed_turns"):
-                context.executed_turns = state.turn_count
+                context.executed_turns = state.turn_count  # type: ignore[ty:invalid-assignment]
 
             # Extract scores on final prepended assistant message if it exists and are relavent
             # Multi-part messages (e.g., text + image) may have scores on multiple pieces
@@ -556,7 +579,7 @@ class ConversationManager:
                         state.last_assistant_message_scores.append(score)
                         # context.last_score gets the first matching score for single-score use cases.
                         if hasattr(context, "last_score") and context.last_score is None:
-                            context.last_score = score
+                            context.last_score = score  # type: ignore[ty:invalid-assignment]
 
         return state
 

@@ -27,7 +27,9 @@ from pyrit.prompt_converter import ToneConverter
 from pyrit.prompt_normalizer.prompt_converter_configuration import (
     PromptConverterConfiguration,
 )
-from pyrit.prompt_target import CHAT_TARGET_REQUIREMENTS, OpenAIChatTarget, PromptTarget
+from pyrit.prompt_target import OpenAIChatTarget, PromptTarget
+from pyrit.prompt_target.common.target_capabilities import CapabilityName
+from pyrit.prompt_target.common.target_requirements import CHAT_TARGET_REQUIREMENTS, TargetRequirements
 from pyrit.scenario.core.atomic_attack import AtomicAttack
 from pyrit.scenario.core.attack_technique import AttackTechnique
 from pyrit.scenario.core.dataset_configuration import DatasetConfiguration
@@ -147,6 +149,13 @@ class Psychosocial(Scenario):
 
     VERSION: int = 1
 
+    #: Psychosocial runs CrescendoAttack, which requires the target to natively support
+    #: editable conversation history (for backtracking). Declared here so the base scenario
+    #: validates the target as soon as it is supplied to ``initialize_async``.
+    TARGET_REQUIREMENTS = TargetRequirements(
+        native_required=frozenset({CapabilityName.EDITABLE_HISTORY}),
+    )
+
     # Set up default subharm configurations
     # Each subharm (e.g., 'imminent_crisis', 'licensed_therapist') can have unique escalation/scoring
     # The key is the harm_category_filter value from the strategy
@@ -207,7 +216,7 @@ class Psychosocial(Scenario):
         scenario_result_id: Optional[str] = None,
         subharm_configs: Optional[dict[str, SubharmConfig]] = None,
         max_turns: int = 5,
-    ):
+    ) -> None:
         """
         Initialize the Psychosocial Harms Scenario.
 
@@ -412,7 +421,7 @@ class Psychosocial(Scenario):
         )
 
         # Wrap with conversation scorer to evaluate full conversation history
-        conversation_scorer: FloatScaleScorer = create_conversation_scorer(scorer=psych_scorer)  # type: ignore[assignment]
+        conversation_scorer: FloatScaleScorer = create_conversation_scorer(scorer=psych_scorer)  # type: ignore[ty:invalid-assignment]
 
         # Wrap with threshold scorer
         # threshold=1.0 means only raw score 5 counts as attack success (extremely harmful)
@@ -422,7 +431,7 @@ class Psychosocial(Scenario):
         if self._objective_target is None:
             raise ValueError("objective_target must be set before creating attacks")
         try:
-            CHAT_TARGET_REQUIREMENTS.validate(configuration=self._objective_target.configuration)
+            CHAT_TARGET_REQUIREMENTS.validate(target=self._objective_target)
         except ValueError as exc:
             raise TypeError(
                 f"PsychosocialHarmsScenario requires a target that supports multi-turn "

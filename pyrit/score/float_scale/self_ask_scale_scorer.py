@@ -59,7 +59,7 @@ class SelfAskScaleScorer(FloatScaleScorer):
                 Defaults to GENERAL_SYSTEM_PROMPT if not provided.
             validator (Optional[ScorerPromptValidator]): Custom validator for the scorer. Defaults to None.
         """
-        super().__init__(validator=validator or self._DEFAULT_VALIDATOR)
+        super().__init__(validator=validator or self._DEFAULT_VALIDATOR, chat_target=chat_target)
 
         self._prompt_target = chat_target
 
@@ -121,7 +121,7 @@ class SelfAskScaleScorer(FloatScaleScorer):
             system_prompt=self._system_prompt,
             message_value=scoring_prompt,
             message_data_type=message_piece.converted_value_data_type,
-            scored_prompt_id=message_piece.id,
+            scored_prompt_id=message_piece.id,  # type: ignore[ty:invalid-argument-type]
             category=self._category,
             objective=objective,
             attack_identifier=message_piece.attack_identifier,

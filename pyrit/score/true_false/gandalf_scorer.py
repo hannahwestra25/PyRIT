@@ -49,7 +49,11 @@ class GandalfScorer(TrueFalseScorer):
             score_aggregator (TrueFalseAggregatorFunc): Aggregator for combining scores. Defaults to
                 TrueFalseScoreAggregator.OR.
         """
-        super().__init__(validator=validator or self._DEFAULT_VALIDATOR, score_aggregator=score_aggregator)
+        super().__init__(
+            validator=validator or self._DEFAULT_VALIDATOR,
+            score_aggregator=score_aggregator,
+            chat_target=chat_target,
+        )
 
         self._prompt_target = chat_target
         self._defender = level.value
@@ -64,7 +68,7 @@ class GandalfScorer(TrueFalseScorer):
         """
         return self._create_identifier(
             params={
-                "score_aggregator": self._score_aggregator.__name__,
+                "score_aggregator": self._score_aggregator.__name__,  # type: ignore[ty:unresolved-attribute]
             },
             children={
                 "prompt_target": self._prompt_target.get_identifier(),
@@ -170,7 +174,7 @@ class GandalfScorer(TrueFalseScorer):
                 score_value_description=score_description,
                 score_rationale="No password found in text.",
                 score_metadata=None,
-                message_piece_id=message_piece.id,
+                message_piece_id=message_piece.id,  # type: ignore[ty:invalid-argument-type]
                 scorer_class_identifier=self.get_identifier(),
                 objective=objective,
             )
@@ -195,7 +199,7 @@ class GandalfScorer(TrueFalseScorer):
                     score_value="True",
                     score_category=[self._defender],
                     score_metadata=None,
-                    message_piece_id=message_piece.id,
+                    message_piece_id=message_piece.id,  # type: ignore[ty:invalid-argument-type]
                     scorer_class_identifier=self.get_identifier(),
                     objective=objective,
                 )
@@ -207,7 +211,7 @@ class GandalfScorer(TrueFalseScorer):
                     score_value="False",
                     score_category=[self._defender],
                     score_metadata=None,
-                    message_piece_id=message_piece.id,
+                    message_piece_id=message_piece.id,  # type: ignore[ty:invalid-argument-type]
                     scorer_class_identifier=self.get_identifier(),
                     objective=objective,
                 )

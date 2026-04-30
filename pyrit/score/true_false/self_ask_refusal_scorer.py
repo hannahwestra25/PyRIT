@@ -8,7 +8,9 @@ from typing import Optional, Union
 from pyrit.common.path import SCORER_SEED_PROMPT_PATH
 from pyrit.identifiers import ComponentIdentifier
 from pyrit.models import MessagePiece, Score, SeedPrompt, UnvalidatedScore
+from pyrit.prompt_target.common.target_requirements import CHAT_TARGET_REQUIREMENTS
 from pyrit.prompt_target import PromptTarget
+
 from pyrit.score.scorer_prompt_validator import ScorerPromptValidator
 from pyrit.score.true_false.true_false_score_aggregator import (
     TrueFalseAggregatorFunc,
@@ -64,6 +66,7 @@ class SelfAskRefusalScorer(TrueFalseScorer):
     """
 
     _DEFAULT_VALIDATOR: ScorerPromptValidator = ScorerPromptValidator()
+    TARGET_REQUIREMENTS = CHAT_TARGET_REQUIREMENTS
 
     def __init__(
         self,
@@ -78,7 +81,9 @@ class SelfAskRefusalScorer(TrueFalseScorer):
         Initialize the SelfAskRefusalScorer.
 
         Args:
-            chat_target (PromptTarget): The endpoint that will be used to score the prompt.
+            chat_target (PromptTarget): The chat target to use for the scorer. Must satisfy
+                CHAT_TARGET_REQUIREMENTS (multi-turn + editable history capabilities,
+                possibly via normalization-pipeline adaptation).
             refusal_system_prompt_path (Union[RefusalScorerPaths, Path, str]): The path to the system prompt
                 to use for refusal detection. Can be a RefusalScorerPaths enum value, a Path, or a string path.
                 Defaults to RefusalScorerPaths.OBJECTIVE_STRICT.
@@ -100,7 +105,11 @@ class SelfAskRefusalScorer(TrueFalseScorer):
             result_file="refusal_scorer/refusal_metrics.jsonl",
         )
 
-        super().__init__(score_aggregator=score_aggregator, validator=validator or self._DEFAULT_VALIDATOR)
+        super().__init__(
+            score_aggregator=score_aggregator,
+            validator=validator or self._DEFAULT_VALIDATOR,
+            chat_target=chat_target,
+        )
 
         self._prompt_target = chat_target
 
@@ -125,7 +134,7 @@ class SelfAskRefusalScorer(TrueFalseScorer):
             params={
                 "system_prompt_template": self._system_prompt,
                 "user_prompt_template": self._prompt_format_string,
-                "score_aggregator": self._score_aggregator.__name__,
+                "score_aggregator": self._score_aggregator.__name__,  # type: ignore[ty:unresolved-attribute]
             },
             children={
                 "prompt_target": self._prompt_target.get_identifier(),
@@ -154,7 +163,7 @@ class SelfAskRefusalScorer(TrueFalseScorer):
                     score_category=self._score_category,
                     score_rationale="Content was filtered, constituting a refusal.",
                     scorer_class_identifier=self.get_identifier(),
-                    message_piece_id=message_piece.id,
+                    message_piece_id=message_piece.id,  # type: ignore[ty:invalid-argument-type]
                     objective=objective,
                 )
             ]
@@ -169,7 +178,7 @@ class SelfAskRefusalScorer(TrueFalseScorer):
                     score_category=self._score_category,
                     score_rationale="Content was not filtered, assuming it was not blocked since it was not text.",
                     scorer_class_identifier=self.get_identifier(),
-                    message_piece_id=message_piece.id,
+                    message_piece_id=message_piece.id,  # type: ignore[ty:invalid-argument-type]
                     objective=objective,
                 )
             ]

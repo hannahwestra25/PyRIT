@@ -41,7 +41,7 @@ class TranslationConverter(PromptConverter):
     def __init__(
         self,
         *,
-        converter_target: PromptTarget = REQUIRED_VALUE,  # type: ignore[assignment]
+        converter_target: PromptTarget = REQUIRED_VALUE,  # type: ignore[ty:invalid-parameter-default]
         language: str,
         prompt_template: Optional[SeedPrompt] = None,
         max_retries: int = 3,
@@ -62,6 +62,7 @@ class TranslationConverter(PromptConverter):
             ValueError: If converter_target is not provided and no default has been configured.
             ValueError: If the language is not provided.
         """
+        super().__init__(converter_target=converter_target)
         self.converter_target = converter_target
 
         # Retry strategy for the conversion
