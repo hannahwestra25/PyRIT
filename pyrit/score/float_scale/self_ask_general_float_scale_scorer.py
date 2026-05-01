@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Optional
 
+from pyrit.prompt_target.common.target_requirements import CHAT_TARGET_REQUIREMENTS
 from pyrit.score.float_scale.float_scale_scorer import FloatScaleScorer
 from pyrit.score.scorer_prompt_validator import ScorerPromptValidator
 
@@ -24,6 +25,7 @@ class SelfAskGeneralFloatScaleScorer(FloatScaleScorer):
         supported_data_types=["text"],
         is_objective_required=True,
     )
+    TARGET_REQUIREMENTS = CHAT_TARGET_REQUIREMENTS
 
     def __init__(
         self,
