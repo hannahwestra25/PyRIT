@@ -402,7 +402,6 @@ class TestGetAdversarialChatMessages:
 class TestBuildConversationContextStringAsync:
     """Tests for the build_conversation_context_string_async helper function."""
 
-    @pytest.mark.asyncio
     async def test_formats_messages_into_context_string(self) -> None:
         """Test that messages are formatted into a context string."""
         user_piece = MessagePiece(role="user", original_value="Hello", conversation_id="test")
@@ -417,7 +416,6 @@ class TestBuildConversationContextStringAsync:
         assert "Hello" in result
         assert "Hi there" in result
 
-    @pytest.mark.asyncio
     async def test_returns_empty_string_for_empty_messages(self) -> None:
         """Test that empty list returns empty string."""
         result = await build_conversation_context_string_async([])
@@ -698,7 +696,6 @@ class TestSystemPromptHandling:
 class TestInitializeContext:
     """Tests for initialize_context_async method."""
 
-    @pytest.mark.asyncio
     async def test_raises_error_for_empty_conversation_id(
         self,
         attack_identifier: ComponentIdentifier,
@@ -715,7 +712,6 @@ class TestInitializeContext:
                 conversation_id="",
             )
 
-    @pytest.mark.asyncio
     async def test_returns_default_state_for_no_prepended_conversation(
         self,
         attack_identifier: ComponentIdentifier,
@@ -736,7 +732,6 @@ class TestInitializeContext:
         assert state.turn_count == 0
         assert state.last_assistant_message_scores == []
 
-    @pytest.mark.asyncio
     async def test_merges_memory_labels(
         self,
         attack_identifier: ComponentIdentifier,
@@ -759,7 +754,6 @@ class TestInitializeContext:
         assert context.memory_labels["attack_key"] == "attack_value"
         assert context.memory_labels["context_key"] == "context_value"
 
-    @pytest.mark.asyncio
     async def test_adds_prepended_conversation_to_memory_for_chat_target(
         self,
         attack_identifier: ComponentIdentifier,
@@ -782,7 +776,6 @@ class TestInitializeContext:
         stored = manager.get_conversation(conversation_id)
         assert len(stored) == 2
 
-    @pytest.mark.asyncio
     async def test_converts_assistant_to_simulated_assistant(
         self,
         attack_identifier: ComponentIdentifier,
@@ -807,7 +800,6 @@ class TestInitializeContext:
         assert stored[0].get_piece().get_role_for_storage() == "simulated_assistant"
         assert stored[0].get_piece().api_role == "assistant"
 
-    @pytest.mark.asyncio
     async def test_normalizes_for_non_chat_target_by_default(
         self,
         attack_identifier: ComponentIdentifier,
@@ -833,7 +825,6 @@ class TestInitializeContext:
         text_value = context.next_message.get_piece().original_value
         assert len(text_value) > 0
 
-    @pytest.mark.asyncio
     async def test_normalizes_for_non_chat_target_when_configured(
         self,
         attack_identifier: ComponentIdentifier,
@@ -862,7 +853,6 @@ class TestInitializeContext:
         assert "Next message" in text_value
         assert "Hello" in text_value or "doing well" in text_value
 
-    @pytest.mark.asyncio
     async def test_returns_turn_count_for_multi_turn_attacks(
         self,
         attack_identifier: ComponentIdentifier,
@@ -885,7 +875,6 @@ class TestInitializeContext:
         # sample_conversation has 1 assistant message = 1 turn
         assert state.turn_count == 1
 
-    @pytest.mark.asyncio
     async def test_multipart_message_extracts_scores_from_all_pieces(
         self,
         attack_identifier: ComponentIdentifier,
@@ -959,7 +948,6 @@ class TestInitializeContext:
         assert score1 in state.last_assistant_message_scores
         assert score2 in state.last_assistant_message_scores
 
-    @pytest.mark.asyncio
     async def test_prepended_conversation_ignores_true_scores(
         self,
         attack_identifier: ComponentIdentifier,
@@ -1063,7 +1051,6 @@ class TestPrependedConversationConfigSettings:
     # non_chat_target_behavior Tests
     # -------------------------------------------------------------------------
 
-    @pytest.mark.asyncio
     async def test_non_chat_target_behavior_normalize_is_default(
         self,
         attack_identifier: ComponentIdentifier,
@@ -1089,7 +1076,6 @@ class TestPrependedConversationConfigSettings:
         text_value = context.next_message.get_piece().original_value
         assert len(text_value) > 0
 
-    @pytest.mark.asyncio
     async def test_non_chat_target_behavior_raise_explicit(
         self,
         attack_identifier: ComponentIdentifier,
@@ -1114,7 +1100,6 @@ class TestPrependedConversationConfigSettings:
                 prepended_conversation_config=config,
             )
 
-    @pytest.mark.asyncio
     async def test_non_chat_target_behavior_normalize_first_turn_creates_next_message(
         self,
         attack_identifier: ComponentIdentifier,
@@ -1142,7 +1127,6 @@ class TestPrependedConversationConfigSettings:
         text_value = context.next_message.get_piece().original_value
         assert len(text_value) > 0
 
-    @pytest.mark.asyncio
     async def test_non_chat_target_behavior_normalize_first_turn_prepends_to_existing_message(
         self,
         attack_identifier: ComponentIdentifier,
@@ -1172,7 +1156,6 @@ class TestPrependedConversationConfigSettings:
         question_index = text_value.find("My question")
         assert question_index > 0  # Context should be prepended
 
-    @pytest.mark.asyncio
     async def test_non_chat_target_behavior_normalize_returns_empty_state(
         self,
         attack_identifier: ComponentIdentifier,
@@ -1202,7 +1185,6 @@ class TestPrependedConversationConfigSettings:
     # apply_converters_to_roles Tests
     # -------------------------------------------------------------------------
 
-    @pytest.mark.asyncio
     async def test_apply_converters_to_roles_default_applies_to_all(
         self,
         attack_identifier: ComponentIdentifier,
@@ -1229,7 +1211,6 @@ class TestPrependedConversationConfigSettings:
         # convert_values should be called for each message (both user and assistant)
         assert mock_normalizer.convert_values.call_count == 2
 
-    @pytest.mark.asyncio
     async def test_apply_converters_to_roles_user_only(
         self,
         attack_identifier: ComponentIdentifier,
@@ -1258,7 +1239,6 @@ class TestPrependedConversationConfigSettings:
         # convert_values should be called only for user message
         assert mock_normalizer.convert_values.call_count == 1
 
-    @pytest.mark.asyncio
     async def test_apply_converters_to_roles_assistant_only(
         self,
         attack_identifier: ComponentIdentifier,
@@ -1287,7 +1267,6 @@ class TestPrependedConversationConfigSettings:
         # convert_values should be called only for assistant message
         assert mock_normalizer.convert_values.call_count == 1
 
-    @pytest.mark.asyncio
     async def test_apply_converters_to_roles_empty_list_skips_all(
         self,
         attack_identifier: ComponentIdentifier,
@@ -1320,7 +1299,6 @@ class TestPrependedConversationConfigSettings:
     # message_normalizer Tests
     # -------------------------------------------------------------------------
 
-    @pytest.mark.asyncio
     async def test_message_normalizer_default_uses_conversation_context_normalizer(
         self,
         attack_identifier: ComponentIdentifier,
@@ -1348,7 +1326,6 @@ class TestPrependedConversationConfigSettings:
         text_value = context.next_message.get_piece().original_value
         assert "Turn 1" in text_value or "turn 1" in text_value.lower()
 
-    @pytest.mark.asyncio
     async def test_message_normalizer_custom_normalizer_is_used(
         self,
         attack_identifier: ComponentIdentifier,
@@ -1429,7 +1406,6 @@ class TestPrependedConversationConfigSettings:
     # Chat Target Behavior (Config has no effect)
     # -------------------------------------------------------------------------
 
-    @pytest.mark.asyncio
     async def test_chat_target_ignores_non_chat_target_behavior(
         self,
         attack_identifier: ComponentIdentifier,
@@ -1461,7 +1437,6 @@ class TestPrependedConversationConfigSettings:
     # Integration with max_turns validation
     # -------------------------------------------------------------------------
 
-    @pytest.mark.asyncio
     async def test_config_with_max_turns_validation(
         self,
         attack_identifier: ComponentIdentifier,
@@ -1511,7 +1486,6 @@ class TestPrependedConversationConfigSettings:
 class TestAddPrependedConversationToMemory:
     """Tests for add_prepended_conversation_to_memory_async method."""
 
-    @pytest.mark.asyncio
     async def test_adds_messages_to_memory(
         self,
         attack_identifier: ComponentIdentifier,
@@ -1530,7 +1504,6 @@ class TestAddPrependedConversationToMemory:
         assert len(stored) == 2
         assert turn_count == 1  # One assistant message
 
-    @pytest.mark.asyncio
     async def test_assigns_conversation_id_to_all_pieces(
         self,
         attack_identifier: ComponentIdentifier,
@@ -1550,7 +1523,6 @@ class TestAddPrependedConversationToMemory:
             for piece in msg.message_pieces:
                 assert piece.conversation_id == conversation_id
 
-    @pytest.mark.asyncio
     async def test_assigns_attack_identifier_to_all_pieces(
         self,
         attack_identifier: ComponentIdentifier,
@@ -1570,7 +1542,6 @@ class TestAddPrependedConversationToMemory:
             for piece in msg.message_pieces:
                 assert piece.attack_identifier == attack_identifier
 
-    @pytest.mark.asyncio
     async def test_raises_error_when_exceeds_max_turns(
         self,
         attack_identifier: ComponentIdentifier,
@@ -1596,7 +1567,6 @@ class TestAddPrependedConversationToMemory:
                 max_turns=1,
             )
 
-    @pytest.mark.asyncio
     async def test_multipart_response_counts_as_one_turn(
         self,
         attack_identifier: ComponentIdentifier,
@@ -1635,7 +1605,6 @@ class TestAddPrependedConversationToMemory:
 
         assert turn_count == 1
 
-    @pytest.mark.asyncio
     async def test_returns_zero_for_empty_conversation(
         self,
         attack_identifier: ComponentIdentifier,
@@ -1651,7 +1620,6 @@ class TestAddPrependedConversationToMemory:
 
         assert turn_count == 0
 
-    @pytest.mark.asyncio
     async def test_applies_converters_when_provided(
         self,
         attack_identifier: ComponentIdentifier,
@@ -1673,7 +1641,6 @@ class TestAddPrependedConversationToMemory:
         # Verify convert_values was called
         mock_prompt_normalizer.convert_values.assert_called()
 
-    @pytest.mark.asyncio
     async def test_handles_none_messages_gracefully(
         self,
         attack_identifier: ComponentIdentifier,
@@ -1699,7 +1666,6 @@ class TestAddPrependedConversationToMemory:
 class TestEdgeCasesAndErrorHandling:
     """Tests for edge cases and error handling."""
 
-    @pytest.mark.asyncio
     async def test_preserves_piece_metadata(
         self,
         attack_identifier: ComponentIdentifier,
@@ -1728,7 +1694,6 @@ class TestEdgeCasesAndErrorHandling:
         assert processed_piece.labels == {"test": "label"}
         assert processed_piece.prompt_metadata == {"key": "value", "count": 1}
 
-    @pytest.mark.asyncio
     async def test_preserves_original_and_converted_values(
         self,
         attack_identifier: ComponentIdentifier,
@@ -1756,7 +1721,6 @@ class TestEdgeCasesAndErrorHandling:
         assert stored_piece.original_value == "Original message"
         assert stored_piece.converted_value == "Converted message"
 
-    @pytest.mark.asyncio
     async def test_handles_system_messages_in_prepended_conversation(
         self,
         attack_identifier: ComponentIdentifier,
