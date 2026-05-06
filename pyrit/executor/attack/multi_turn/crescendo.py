@@ -45,7 +45,7 @@ from pyrit.models import (
     SeedPrompt,
 )
 from pyrit.prompt_normalizer import PromptNormalizer
-from pyrit.prompt_target import CapabilityName, PromptTarget, TargetRequirements
+from pyrit.prompt_target import CapabilityName, TargetRequirements
 from pyrit.score import (
     FloatScaleThresholdScorer,
     Scorer,
