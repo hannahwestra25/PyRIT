@@ -75,12 +75,8 @@ class TargetRequirements:
 
 def _build_chat_target_requirements() -> TargetRequirements:
     """Build the requirements for a chat-style target (multi-turn with editable history)."""
-    from pyrit.prompt_target.common.target_capabilities import CapabilityName
-
     return TargetRequirements(
-        required_capabilities=frozenset(
-            {CapabilityName.MULTI_TURN, CapabilityName.EDITABLE_HISTORY}
-        )
+        required=frozenset({CapabilityName.MULTI_TURN, CapabilityName.EDITABLE_HISTORY})
     )
 
 

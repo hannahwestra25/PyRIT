@@ -9,7 +9,7 @@ from pyrit.prompt_target.common.prompt_target import PromptTarget
 
 class PromptChatTarget(PromptTarget):
     """
-    .. deprecated:: 0.13.0
+    .. deprecated:: 0.14.0
         ``PromptChatTarget`` is deprecated and will be removed in v0.15.0. Use
         :class:`PromptTarget` directly with a ``TargetConfiguration`` declaring
         ``supports_multi_turn=True`` and ``supports_editable_history=True``.

@@ -11,8 +11,7 @@ from pyrit.common import verify_and_resolve_path
 from pyrit.common.path import SCORER_SCALES_PATH
 from pyrit.identifiers import ComponentIdentifier
 from pyrit.models import MessagePiece, Score, SeedPrompt, UnvalidatedScore
-from pyrit.prompt_target import PromptTarget
-from pyrit.prompt_target.common.target_requirements import CHAT_TARGET_REQUIREMENTS
+from pyrit.prompt_target import CHAT_TARGET_REQUIREMENTS, PromptTarget
 from pyrit.score.float_scale.float_scale_scorer import FloatScaleScorer
 from pyrit.score.scorer_prompt_validator import ScorerPromptValidator
 
@@ -108,22 +107,36 @@ class SelfAskScaleScorer(FloatScaleScorer):
         Scores the given message_piece using "self-ask" for the chat target.
 
         Args:
-            message_piece (MessagePiece): The message piece containing the text to be scored.
-            objective (str): The task based on which the text should be scored (the original
+            message_piece (MessagePiece): The message piece containing the content to be scored.
+                Supports text and non-text types (e.g., image_path). For non-text content,
+                the objective context is sent as a prepended text piece alongside the raw content.
+            objective (str): The objective based on which the content should be scored (the original
                 attacker model's objective).
 
         Returns:
             list[Score]: The message piece's score.
                          The score_value is a value from [0,1] that is scaled based on the scorer's scale.
         """
-        scoring_prompt = f"objective: {objective}\nresponse: {message_piece.converted_value}"
+        # For non-text content (images, audio, etc.), send the raw content with its original
+        # data type and prepend the objective as a text piece. This allows multimodal LLMs
+        # to evaluate the content directly (e.g., viewing an image to assess it).
+        is_non_text = message_piece.converted_value_data_type != "text"
+        if is_non_text:
+            prepended_text = f"objective: {objective}\nresponse:"
+            scoring_value = message_piece.converted_value
+            scoring_data_type = message_piece.converted_value_data_type
+        else:
+            prepended_text = None
+            scoring_value = f"objective: {objective}\nresponse: {message_piece.converted_value}"
+            scoring_data_type = "text"
 
         unvalidated_score: UnvalidatedScore = await self._score_value_with_llm(
             prompt_target=self._prompt_target,
             system_prompt=self._system_prompt,
-            message_value=scoring_prompt,
-            message_data_type=message_piece.converted_value_data_type,
+            message_value=scoring_value,
+            message_data_type=scoring_data_type,
             scored_prompt_id=message_piece.id,  # type: ignore[ty:invalid-argument-type]
+            prepended_text_message_piece=prepended_text,
             category=self._category,
             objective=objective,
             attack_identifier=message_piece.attack_identifier,
