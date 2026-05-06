@@ -303,6 +303,7 @@ class PromptTarget(Identifiable):
             labels (dict[str, str] | None): Optional labels.
 
         Raises:
+            ValueError: If the target does not support multi-turn or editable history.
             RuntimeError: If the conversation already has messages.
         """
         if labels is not None:
@@ -310,6 +311,12 @@ class PromptTarget(Identifiable):
                 old_item="set_system_prompt(..., labels=...)",
                 new_item="set_system_prompt(...)",
                 removed_in="0.16.0",
+            )
+
+        if not self.capabilities.supports_multi_turn or not self.capabilities.supports_editable_history:
+            raise ValueError(
+                f"Target {type(self).__name__} does not support setting a system prompt. "
+                "It must support both multi-turn conversations and editable history."
             )
 
         messages = self._memory.get_conversation(conversation_id=conversation_id)
