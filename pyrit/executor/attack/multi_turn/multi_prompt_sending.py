@@ -28,7 +28,7 @@ from pyrit.models import (
     SeedAttackGroup,
 )
 from pyrit.prompt_normalizer import PromptNormalizer
-from pyrit.prompt_target import PromptTarget, CapabilityName
+from pyrit.prompt_target import CapabilityName, PromptTarget
 from pyrit.prompt_target.common.target_requirements import TargetRequirements
 from pyrit.score import Scorer
 
