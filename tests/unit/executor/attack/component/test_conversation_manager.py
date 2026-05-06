@@ -1092,7 +1092,8 @@ class TestPrependedConversationConfigSettings:
 
         with pytest.raises(
             ValueError,
-            match="prepended_conversation requires the objective target to support multi-turn conversations with editable history",
+            match="prepended_conversation requires the objective target to support multi-turn conversations "
+            " with editable history",
         ):
             await manager.initialize_context_async(
                 context=context,

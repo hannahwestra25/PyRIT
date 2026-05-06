@@ -189,6 +189,9 @@ def _is_llm_based(converter_class: type) -> bool:
 
     A converter is considered LLM-based if any of its ``__init__`` parameters is
     annotated as a :class:`PromptTarget` (or subclass).
+
+    Returns:
+        bool: True if the converter is LLM-based, False otherwise.
     """
     try:
         sig = inspect.signature(converter_class.__init__)

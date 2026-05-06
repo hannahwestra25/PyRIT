@@ -31,6 +31,10 @@ class PromptChatTarget(PromptTarget):
     )
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
+        """
+        Call the superclass __init_subclass__ and emit a deprecation warning when subclassing PromptChatTarget.
+        Use PromptTarget with an appropriate TargetConfiguration instead.
+        """
         super().__init_subclass__(**kwargs)
         warnings.warn(
             f"Subclassing PromptChatTarget is deprecated and will be removed in v0.16.0. "
@@ -42,6 +46,10 @@ class PromptChatTarget(PromptTarget):
         )
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
+        """
+        Initialize the PromptChatTarget. This constructor is deprecated and will emit a warning.
+        Use PromptTarget with an appropriate TargetConfiguration instead.
+        """
         warnings.warn(
             "PromptChatTarget is deprecated and will be removed in v0.16.0. "
             "Use PromptTarget directly with a TargetConfiguration declaring "
