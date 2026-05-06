@@ -77,7 +77,7 @@ def _build_chat_target_requirements() -> TargetRequirements:
     """
     Build the requirements for a chat-style target (multi-turn with editable history).
 
-    Return:
+    Returns:
         TargetRequirements: The requirements for a chat-style target.
     """
     return TargetRequirements(required=frozenset({CapabilityName.MULTI_TURN, CapabilityName.EDITABLE_HISTORY}))
