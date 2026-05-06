@@ -7,7 +7,7 @@ from typing import Optional, Union
 
 from pyrit.executor.core import StrategyConverterConfig
 from pyrit.models import SeedPrompt
-from pyrit.prompt_target.common.prompt_chat_target import PromptTarget
+from pyrit.prompt_target import PromptTarget
 from pyrit.score import Scorer, TrueFalseScorer
 
 

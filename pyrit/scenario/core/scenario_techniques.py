@@ -34,8 +34,7 @@ from pyrit.executor.attack import (
 )
 from pyrit.models import SeedAttackTechniqueGroup, SeedSimulatedConversation
 from pyrit.models.seeds.seed_simulated_conversation import NextMessageSystemPromptPaths
-from pyrit.prompt_target import OpenAIChatTarget, PromptTarget
-from pyrit.prompt_target.common.target_capabilities import CapabilityName
+from pyrit.prompt_target import CapabilityName, OpenAIChatTarget, PromptTarget
 from pyrit.registry import TargetRegistry
 from pyrit.registry.object_registries.attack_technique_registry import (
     AttackTechniqueRegistry,

@@ -37,8 +37,7 @@ from pyrit.models import (
     SeedPrompt,
 )
 from pyrit.prompt_normalizer import PromptNormalizer
-from pyrit.prompt_target import PromptTarget
-from pyrit.prompt_target.common.target_capabilities import CapabilityName
+from pyrit.prompt_target import CapabilityName, PromptTarget
 from pyrit.score import FloatScaleThresholdScorer, Scorer, TrueFalseScorer
 from pyrit.score.float_scale.float_scale_scorer import FloatScaleScorer
 from pyrit.score.score_utils import normalize_score_to_float

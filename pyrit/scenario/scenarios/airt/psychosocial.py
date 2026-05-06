@@ -27,8 +27,7 @@ from pyrit.prompt_converter import ToneConverter
 from pyrit.prompt_normalizer.prompt_converter_configuration import (
     PromptConverterConfiguration,
 )
-from pyrit.prompt_target import OpenAIChatTarget, PromptTarget
-from pyrit.prompt_target.common.target_capabilities import CapabilityName
+from pyrit.prompt_target import CapabilityName, OpenAIChatTarget, PromptTarget
 from pyrit.prompt_target.common.target_requirements import CHAT_TARGET_REQUIREMENTS, TargetRequirements
 from pyrit.scenario.core.atomic_attack import AtomicAttack
 from pyrit.scenario.core.attack_technique import AttackTechnique

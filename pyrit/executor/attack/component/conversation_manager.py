@@ -20,8 +20,7 @@ from pyrit.prompt_normalizer.prompt_converter_configuration import (
     PromptConverterConfiguration,
 )
 from pyrit.prompt_normalizer.prompt_normalizer import PromptNormalizer
-from pyrit.prompt_target import PromptTarget
-from pyrit.prompt_target.common.target_capabilities import CapabilityName
+from pyrit.prompt_target import CapabilityName, PromptTarget
 
 if TYPE_CHECKING:
     from pyrit.executor.attack.core import AttackContext

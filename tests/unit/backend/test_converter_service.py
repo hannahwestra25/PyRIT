@@ -400,7 +400,7 @@ def _try_instantiate_converter(converter_name: str):
     from unittest.mock import MagicMock
 
     from pyrit.common.apply_defaults import _RequiredValueSentinel
-    from pyrit.prompt_target.common.prompt_chat_target import PromptTarget
+    from pyrit.prompt_target import PromptTarget
 
     # Converters requiring external credentials or resources that can't be mocked
     # at the constructor level — these validate env vars / files in __init__ body

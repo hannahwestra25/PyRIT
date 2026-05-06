@@ -52,8 +52,7 @@ from pyrit.models import (
 )
 from pyrit.models.literals import PromptDataType, PromptResponseError
 from pyrit.prompt_normalizer import PromptConverterConfiguration, PromptNormalizer
-from pyrit.prompt_target import PromptTarget
-from pyrit.prompt_target.common.target_capabilities import CapabilityName
+from pyrit.prompt_target import CapabilityName, PromptTarget
 from pyrit.prompt_target.common.target_requirements import TargetRequirements
 from pyrit.score import (
     FloatScaleThresholdScorer,
@@ -1354,7 +1353,7 @@ class TreeOfAttacksWithPruningAttack(AttackStrategy[TAPAttackContext, TAPAttackR
     def __init__(
         self,
         *,
-        objective_target: PromptTarget = REQUIRED_VALUE,  # type: ignore[ty:invalid-assignment, ty:invalid-parameter-default]
+        objective_target: PromptTarget = REQUIRED_VALUE,  # type: ignore[ty:invalid-parameter-default]
         attack_adversarial_config: AttackAdversarialConfig,
         attack_converter_config: Optional[AttackConverterConfig] = None,
         attack_scoring_config: Optional[AttackScoringConfig] = None,
@@ -2006,7 +2005,7 @@ class TreeOfAttacksWithPruningAttack(AttackStrategy[TAPAttackContext, TAPAttackR
                 generate adversarial prompts and evaluate responses.
         """
         node = _TreeOfAttacksNode(
-            objective_target=cast("PromptTarget", self._objective_target),
+            objective_target=self._objective_target,
             adversarial_chat=self._adversarial_chat,
             adversarial_chat_seed_prompt=self._adversarial_chat_seed_prompt,
             adversarial_chat_system_seed_prompt=self._adversarial_chat_system_seed_prompt,

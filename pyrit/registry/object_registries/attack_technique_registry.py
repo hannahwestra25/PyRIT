@@ -26,8 +26,8 @@ if TYPE_CHECKING:
         AttackConverterConfig,
         AttackScoringConfig,
     )
-    from pyrit.prompt_target import PromptTarget
     from pyrit.models import SeedAttackTechniqueGroup
+    from pyrit.prompt_target import PromptTarget
     from pyrit.registry.tag_query import TagQuery
     from pyrit.scenario.core.attack_technique import AttackTechnique
     from pyrit.scenario.core.attack_technique_factory import AttackTechniqueFactory

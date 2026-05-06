@@ -11,7 +11,7 @@ from pyrit.identifiers import ComponentIdentifier, Identifiable
 from pyrit.memory import CentralMemory, MemoryInterface
 from pyrit.models import Message, MessagePiece
 from pyrit.models.json_response_config import _JsonResponseConfig
-from pyrit.prompt_target.common.target_capabilities import TargetCapabilities
+from pyrit.prompt_target.common.target_capabilities import CapabilityName, TargetCapabilities
 from pyrit.prompt_target.common.target_configuration import TargetConfiguration, resolve_configuration_compat
 
 logger = logging.getLogger(__name__)

@@ -45,7 +45,7 @@ from pyrit.score import (
 from pyrit.setup.initializers.pyrit_initializer import PyRITInitializer
 
 if TYPE_CHECKING:
-    from pyrit.prompt_target.common.prompt_chat_target import PromptTarget
+    from pyrit.prompt_target import PromptTarget
 
 logger = logging.getLogger(__name__)
 RequiredDependencyT = TypeVar("RequiredDependencyT")

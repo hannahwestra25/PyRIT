@@ -9,9 +9,7 @@ from sqlalchemy import inspect
 from pyrit.identifiers import ComponentIdentifier
 from pyrit.memory import MemoryInterface, SQLiteMemory
 from pyrit.models import Message, MessagePiece
-from pyrit.prompt_target import PromptTarget, limit_requests_per_minute
-from pyrit.prompt_target.common.target_capabilities import TargetCapabilities
-from pyrit.prompt_target.common.target_configuration import TargetConfiguration
+from pyrit.prompt_target import PromptTarget, TargetCapabilities, TargetConfiguration, limit_requests_per_minute
 
 
 def get_memory_interface() -> Generator[MemoryInterface, None, None]:
