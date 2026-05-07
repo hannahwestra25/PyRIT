@@ -185,10 +185,11 @@ def _extract_parameters(converter_class: type) -> list[ConverterParameterSchema]
 
 def _is_llm_based(converter_class: type) -> bool:
     """
-    Return True if the converter requires an LLM target parameter.
+    Check if the converter requires a target parameter.
 
-    A converter is considered LLM-based if any of its ``__init__`` parameters is
-    annotated as a :class:`PromptTarget` (or subclass).
+    Matches any converter whose ``__init__`` accepts
+    a ``PromptTarget`` (or subclass) parameter.
+    These converters perform LLM-based transformations and should not automatically be applied
 
     Returns:
         bool: True if the converter is LLM-based, False otherwise.
