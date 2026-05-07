@@ -22,6 +22,10 @@ from pyrit.prompt_target.common.target_capabilities import (
     TargetCapabilities,
     UnsupportedCapabilityBehavior,
 )
+from pyrit.prompt_target.common.query_target_capabilities import (
+    query_target_capabilities_async,
+    verify_target_modalities_async,
+)
 from pyrit.prompt_target.common.target_configuration import TargetConfiguration
 from pyrit.prompt_target.common.target_requirements import CHAT_TARGET_REQUIREMENTS, TargetRequirements
 from pyrit.prompt_target.common.utils import limit_requests_per_minute
@@ -97,11 +101,13 @@ __all__ = [
     "PromptChatTarget",
     "PromptShieldTarget",
     "PromptTarget",
+    "query_target_capabilities_async",
     "RealtimeTarget",
     "TargetCapabilities",
     "TargetConfiguration",
     "TargetRequirements",
     "UnsupportedCapabilityBehavior",
     "TextTarget",
+    "verify_target_modalities_async",
     "WebSocketCopilotTarget",
 ]
