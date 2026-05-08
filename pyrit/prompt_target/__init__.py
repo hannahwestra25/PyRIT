@@ -16,15 +16,15 @@ from pyrit.prompt_target.azure_ml_chat_target import AzureMLChatTarget
 from pyrit.prompt_target.common.conversation_normalization_pipeline import ConversationNormalizationPipeline
 from pyrit.prompt_target.common.prompt_chat_target import PromptChatTarget
 from pyrit.prompt_target.common.prompt_target import PromptTarget
+from pyrit.prompt_target.common.query_target_capabilities import (
+    query_target_capabilities_async,
+    verify_target_modalities_async,
+)
 from pyrit.prompt_target.common.target_capabilities import (
     CapabilityHandlingPolicy,
     CapabilityName,
     TargetCapabilities,
     UnsupportedCapabilityBehavior,
-)
-from pyrit.prompt_target.common.query_target_capabilities import (
-    query_target_capabilities_async,
-    verify_target_modalities_async,
 )
 from pyrit.prompt_target.common.target_configuration import TargetConfiguration
 from pyrit.prompt_target.common.target_requirements import CHAT_TARGET_REQUIREMENTS, TargetRequirements
