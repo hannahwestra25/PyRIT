@@ -358,7 +358,11 @@ async def _probe_multi_turn_async(target: PromptTarget, timeout_s: float, retrie
 
     second = _user_text_piece(value="What did I just tell you?", conversation_id=conversation_id)
     return await _send_and_check_async(
-        target=target, message=Message([second]), timeout_s=timeout_s, retries=retries, label="Multi-turn probe (turn 2)"
+        target=target,
+        message=Message([second]),
+        timeout_s=timeout_s,
+        retries=retries,
+        label="Multi-turn probe (turn 2)",
     )
 
 
