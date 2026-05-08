@@ -22,17 +22,15 @@ import json
 import logging
 import os
 import uuid
-from collections.abc import Awaitable, Iterable
+from collections.abc import Awaitable, Callable, Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import replace
-from typing import Callable, Iterator, cast
 
 from pyrit.models import Message, MessagePiece, PromptDataType
 from pyrit.prompt_target.common.prompt_target import PromptTarget
 from pyrit.prompt_target.common.target_capabilities import (
     CapabilityHandlingPolicy,
     CapabilityName,
-    TargetCapabilities,
     UnsupportedCapabilityBehavior,
 )
 from pyrit.prompt_target.common.target_configuration import TargetConfiguration
@@ -356,7 +354,7 @@ async def verify_target_modalities_async(
     """
     if test_modalities is None:
         declared = target.capabilities.input_modalities
-        test_modalities = cast("set[frozenset[PromptDataType]]", set(declared))
+        test_modalities = set(declared)
 
     assets = test_assets if test_assets is not None else DEFAULT_TEST_ASSETS
 
@@ -443,9 +441,7 @@ def _create_test_message(
         if asset_path is None:
             raise ValueError(f"No test asset configured for modality '{modality}'.")
         if not os.path.isfile(asset_path):
-            raise FileNotFoundError(
-                f"Test asset for modality '{modality}' not found at: {asset_path}"
-            )
+            raise FileNotFoundError(f"Test asset for modality '{modality}' not found at: {asset_path}")
 
         pieces.append(
             MessagePiece(

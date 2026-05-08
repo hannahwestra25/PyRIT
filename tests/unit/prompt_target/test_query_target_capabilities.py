@@ -21,7 +21,6 @@ from pyrit.prompt_target.common.target_capabilities import (
     TargetCapabilities,
 )
 from pyrit.prompt_target.common.target_configuration import TargetConfiguration
-
 from tests.unit.mocks import MockPromptTarget
 
 
@@ -251,9 +250,7 @@ class TestQueryTargetCapabilitiesIsolatedTarget:
 
     async def test_with_minimal_target_subclass(self) -> None:
         class _MinimalTarget(PromptTarget):
-            async def _send_prompt_to_target_async(
-                self, *, normalized_conversation: list[Message]
-            ) -> list[Message]:
+            async def _send_prompt_to_target_async(self, *, normalized_conversation: list[Message]) -> list[Message]:
                 return _ok_response()
 
         target = _MinimalTarget()

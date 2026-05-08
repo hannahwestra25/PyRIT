@@ -299,9 +299,7 @@ def _ok_response():
     ]
 
 
-probe_target = OpenAIChatTarget(
-    model_name="gpt-4o", endpoint="https://example.invalid/", api_key="sk-not-a-real-key"
-)
+probe_target = OpenAIChatTarget(model_name="gpt-4o", endpoint="https://example.invalid/", api_key="sk-not-a-real-key")
 probe_target.send_prompt_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
 
 verified = await query_target_capabilities_async(target=probe_target)  # type: ignore
