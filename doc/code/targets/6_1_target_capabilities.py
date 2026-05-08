@@ -245,4 +245,80 @@ try:
     no_editable_history.ensure_can_handle(capability=CapabilityName.EDITABLE_HISTORY)
 except ValueError as exc:
     print(exc)
-# ---
+
+# %% [markdown]
+# ## 7. Querying live target capabilities
+#
+# Declared capabilities describe what a target *should* support. For deployments where the actual
+# behavior is uncertain — custom OpenAI-compatible endpoints, gateways that strip features, models
+# whose support drifts over time — you can probe what the target *actually* accepts at runtime with
+# `query_target_capabilities_async` and `verify_target_modalities_async`.
+#
+# `query_target_capabilities_async` walks each capability that has a registered probe (currently
+# `SYSTEM_PROMPT`, `MULTI_MESSAGE_PIECES`, `MULTI_TURN`, `JSON_OUTPUT`, `JSON_SCHEMA`), sends a
+# minimal request, and includes the capability in the returned set only if the call succeeds.
+# During probing the target's configuration is temporarily replaced with a permissive one so
+# `ensure_can_handle` does not short-circuit a probe for a capability the target declares as
+# unsupported. The original configuration is restored before the function returns.
+#
+# `verify_target_modalities_async` does the same for input modality combinations declared in
+# `capabilities.input_modalities`, sending a small payload built from optional `test_assets`.
+#
+# Typical usage against a real endpoint:
+#
+# ```python
+# from pyrit.prompt_target import query_target_capabilities_async
+#
+# verified = await query_target_capabilities_async(target=target)
+# print(verified)
+# ```
+#
+# Below we mock `send_prompt_async` so the notebook stays self-contained — the result shape is
+# the same as a live run.
+
+# %%
+from unittest.mock import AsyncMock
+
+from pyrit.models import MessagePiece
+from pyrit.prompt_target import query_target_capabilities_async
+
+
+def _ok_response():
+    return [
+        Message(
+            [
+                MessagePiece(
+                    role="assistant",
+                    original_value="ok",
+                    original_value_data_type="text",
+                    conversation_id="probe",
+                    response_error="none",
+                )
+            ]
+        )
+    ]
+
+
+probe_target = OpenAIChatTarget(model_name="gpt-4o", endpoint="https://example.invalid/", api_key="sk-not-a-real-key")
+probe_target.send_prompt_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
+
+verified = await query_target_capabilities_async(target=probe_target)  # type: ignore
+print("verified capabilities:")
+for capability in sorted(verified, key=lambda c: c.value):
+    print(f"  - {capability.value}")
+
+# %% [markdown]
+# To narrow the probe to specific capabilities (faster, fewer calls), pass `capabilities=`:
+#
+# ```python
+# from pyrit.prompt_target.common.target_capabilities import CapabilityName
+#
+# verified = await query_target_capabilities_async(
+#     target=target,
+#     capabilities=[CapabilityName.JSON_SCHEMA, CapabilityName.SYSTEM_PROMPT],
+# )
+# ```
+#
+# A common workflow is to probe the live target and then construct a `TargetConfiguration` from the
+# verified set, so the rest of PyRIT (attacks, scorers, the normalization pipeline) operates on
+# capabilities that have been observed to work end-to-end.
