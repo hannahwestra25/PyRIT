@@ -1,9 +1,10 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
+import asyncio
 import json
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -14,6 +15,7 @@ from pyrit.prompt_target.common.query_target_capabilities import (
     _create_test_message,
     _permissive_configuration,
     query_target_capabilities_async,
+    verify_target_async,
     verify_target_modalities_async,
 )
 from pyrit.prompt_target.common.target_capabilities import (
@@ -503,3 +505,116 @@ class TestVerifyTargetModalitiesAsync:
 
         assert send_mock.await_count == 1
         assert frozenset({"text", "image_path"}) in result
+
+
+@pytest.mark.usefixtures("patch_central_database")
+class TestSendAndCheckTimeout:
+    async def test_timeout_returns_false_after_retries(self) -> None:
+        """
+        When ``send_prompt_async`` exceeds ``per_probe_timeout_s``, the probe
+        is treated as failed. ``_send_and_check_async`` retries once on
+        timeout, so the underlying mock is awaited twice and the capability
+        is excluded from the verified set.
+        """
+        target = MockPromptTarget()
+
+        async def _hang(**_kwargs: object) -> list[Message]:
+            await asyncio.sleep(10)
+            return _ok_response()
+
+        target._send_prompt_to_target_async = AsyncMock(side_effect=_hang)  # type: ignore[method-assign]
+
+        result = await query_target_capabilities_async(
+            target=target,
+            capabilities={CapabilityName.JSON_OUTPUT},
+            per_probe_timeout_s=0.01,
+        )
+
+        assert result == set()
+        # One initial attempt plus one retry.
+        assert target._send_prompt_to_target_async.await_count == 2
+
+
+@pytest.mark.usefixtures("patch_central_database")
+class TestSystemPromptProbeMemoryFailure:
+    async def test_returns_false_when_memory_seed_raises(self) -> None:
+        """
+        If seeding the system message into memory raises (e.g. backend
+        offline), the system-prompt probe returns False without attempting
+        the user send.
+        """
+        target = MockPromptTarget()
+        target._memory.add_message_to_memory = MagicMock(side_effect=RuntimeError("memory offline"))  # type: ignore[method-assign]
+        send_mock = AsyncMock(return_value=_ok_response())
+        target._send_prompt_to_target_async = send_mock  # type: ignore[method-assign]
+
+        result = await query_target_capabilities_async(
+            target=target,
+            capabilities={CapabilityName.SYSTEM_PROMPT},
+        )
+
+        assert result == set()
+        # The user send is never attempted because seeding failed.
+        send_mock.assert_not_awaited()
+
+
+@pytest.mark.usefixtures("patch_central_database")
+class TestVerifyTargetAsync:
+    async def test_returns_target_capabilities_assembled_from_probes(self) -> None:
+        """
+        ``verify_target_async`` runs both the capability and modality probes
+        and assembles a :class:`TargetCapabilities` populated from the
+        verified results, copying ``supports_editable_history`` and
+        ``output_modalities`` from the target's declared capabilities.
+        """
+        declared = TargetCapabilities(
+            supports_editable_history=True,
+            input_modalities=frozenset({frozenset({"text"})}),
+            output_modalities=frozenset({frozenset({"text"})}),
+        )
+        target = MockPromptTarget()
+        target._configuration = TargetConfiguration(capabilities=declared)
+        target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
+
+        result = await verify_target_async(target=target, per_probe_timeout_s=5.0)
+
+        assert isinstance(result, TargetCapabilities)
+        # Single-piece probes that don't touch memory always succeed when
+        # the underlying send returns a clean response.
+        assert result.supports_multi_message_pieces is True
+        assert result.supports_json_schema is True
+        assert result.supports_json_output is True
+        # Non-probed flags are copied from target.capabilities.
+        assert result.supports_editable_history is True
+        # Modalities returned from the modality probe (text combination).
+        assert frozenset({"text"}) in result.input_modalities
+        # Output modalities copied through (not probed).
+        assert result.output_modalities == declared.output_modalities
+
+    async def test_excludes_capabilities_when_probe_send_fails(self) -> None:
+        """
+        When the underlying send raises, no capability or modality is
+        verified, but ``supports_editable_history`` and ``output_modalities``
+        are still copied from the declared capabilities.
+        """
+        declared = TargetCapabilities(
+            supports_editable_history=True,
+            output_modalities=frozenset({frozenset({"text"})}),
+        )
+        target = MockPromptTarget()
+        target._configuration = TargetConfiguration(capabilities=declared)
+        target._send_prompt_to_target_async = AsyncMock(side_effect=RuntimeError("boom"))  # type: ignore[method-assign]
+
+        result = await verify_target_async(target=target, per_probe_timeout_s=0.5)
+
+        assert result.supports_multi_turn is False
+        assert result.supports_system_prompt is False
+        assert result.supports_json_output is False
+        assert result.supports_json_schema is False
+        assert result.supports_multi_message_pieces is False
+        # Non-probed flag preserved.
+        assert result.supports_editable_history is True
+        # No modalities verified because send always fails.
+        assert result.input_modalities == frozenset()
+        # Output modalities still copied.
+        assert result.output_modalities == declared.output_modalities
