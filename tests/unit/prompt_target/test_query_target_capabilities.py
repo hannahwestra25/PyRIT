@@ -645,3 +645,65 @@ class TestVerifyTargetAsync:
         assert result.input_modalities == frozenset()
         # Output modalities still copied.
         assert result.output_modalities == declared.output_modalities
+
+    async def test_empty_response_treated_as_failure(self) -> None:
+        """A target returning an empty response list must NOT be reported as supporting probes."""
+        target = MockPromptTarget()
+        target._send_prompt_to_target_async = AsyncMock(return_value=[])  # type: ignore[method-assign]
+
+        result = await query_target_capabilities_async(
+            target=target,
+            capabilities={CapabilityName.JSON_OUTPUT, CapabilityName.MULTI_MESSAGE_PIECES},
+        )
+
+        assert result == set()
+
+    async def test_response_with_no_pieces_treated_as_failure(self) -> None:
+        """Responses whose Messages have no pieces must also be rejected."""
+        target = MockPromptTarget()
+        target._send_prompt_to_target_async = AsyncMock(  # type: ignore[method-assign]
+            return_value=[Message.__new__(Message)]
+        )
+        # Bypass __init__ to construct a Message with no pieces (Message.__init__ rejects empty).
+        empty_msg = target._send_prompt_to_target_async.return_value[0]
+        empty_msg.message_pieces = []
+
+        result = await query_target_capabilities_async(
+            target=target,
+            capabilities={CapabilityName.JSON_OUTPUT},
+        )
+
+        assert result == set()
+
+    async def test_verify_target_async_forwards_test_modalities(self, image_asset: str) -> None:
+        declared = TargetCapabilities(input_modalities=frozenset({frozenset({"text"})}))
+        target = MockPromptTarget()
+        target._configuration = TargetConfiguration(capabilities=declared)
+        target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())
+
+        extra_combo = frozenset({"text", "image_path"})
+        result = await verify_target_async(
+            target=target,
+            test_modalities={extra_combo},
+            test_assets={"image_path": image_asset},
+            per_probe_timeout_s=2.0,
+        )
+
+        # The undeclared combination is in the result only if test_modalities was forwarded.
+        assert extra_combo in result.input_modalities
+
+    async def test_verify_target_async_forwards_capabilities(self) -> None:
+        """``verify_target_async`` must forward ``capabilities`` to narrow the probe set."""
+        target = MockPromptTarget()
+        target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
+
+        await verify_target_async(
+            target=target,
+            capabilities={CapabilityName.JSON_OUTPUT},
+            per_probe_timeout_s=2.0,
+        )
+
+        # Only the JSON_OUTPUT probe (1 send) and the modality probe(s) should run;
+        # if `capabilities` were ignored, all 5 capability probes would fire (>= 6 sends
+        # because multi-turn issues 2 sends).
+        assert target._send_prompt_to_target_async.await_count <= 3

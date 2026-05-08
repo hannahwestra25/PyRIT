@@ -209,6 +209,8 @@ async def _send_and_check_async(
     Returns:
         bool: ``True`` iff the call returned without raising and every response
         piece reported ``response_error == "none"``; ``False`` otherwise.
+        An empty response list (or responses with no message pieces) is treated
+        as a failure rather than a success.
     """
     attempts = max(1, retries + 1)
     last_exc: Exception | None = None
@@ -224,6 +226,9 @@ async def _send_and_check_async(
             logger.info("%s failed (attempt %d/%d): %s", label, attempt + 1, attempts, exc)
             continue
 
+        if not responses or not any(r.message_pieces for r in responses):
+            logger.info("%s returned an empty response; treating as failure", label)
+            return False
         for response in responses:
             for piece in response.message_pieces:
                 if piece.response_error != "none":
@@ -612,7 +617,9 @@ async def verify_target_async(
     *,
     target: PromptTarget,
     per_probe_timeout_s: float = DEFAULT_PROBE_TIMEOUT_SECONDS,
+    test_modalities: set[frozenset[PromptDataType]] | None = None,
     test_assets: dict[PromptDataType, str] | None = None,
+    capabilities: Iterable[CapabilityName] | None = None,
     retries: int = 1,
 ) -> TargetCapabilities:
     """
@@ -627,12 +634,27 @@ async def verify_target_async(
     :data:`_CAPABILITY_PROBES` (e.g. ``supports_editable_history``) are
     copied from ``target.capabilities`` (the target's declared native flags).
 
+    .. warning::
+       By default ``test_modalities`` is sourced from
+       ``target.capabilities.input_modalities`` (the target's *declared*
+       modalities). This means the modality probe cannot discover modalities
+       the target does not already declare. Pass ``test_modalities=`` (and
+       matching ``test_assets=``) explicitly to probe combinations beyond
+       the declared baseline.
+
     Args:
         target (PromptTarget): The target to probe.
         per_probe_timeout_s (float): Per-attempt timeout (seconds) applied to
             each probe request.
+        test_modalities (set[frozenset[PromptDataType]] | None): Specific
+            modality combinations to probe. See
+            :func:`verify_target_modalities_async`. Defaults to the
+            target's declared ``input_modalities``.
         test_assets (dict[PromptDataType, str] | None): Mapping from non-text
             modality to a file path. See :func:`verify_target_modalities_async`.
+        capabilities (Iterable[CapabilityName] | None): Capabilities to probe.
+            See :func:`query_target_capabilities_async`. Defaults to every
+            member of :class:`CapabilityName`.
         retries (int): Number of additional attempts after the first failure
             for each probe. Only exceptions/timeouts are retried; an explicit
             error response is final. Set to ``0`` to disable retries.
@@ -645,10 +667,17 @@ async def verify_target_async(
         verified by sending a request.
     """
     verified_caps = await query_target_capabilities_async(
-        target=target, per_probe_timeout_s=per_probe_timeout_s, retries=retries
+        target=target,
+        capabilities=capabilities,
+        per_probe_timeout_s=per_probe_timeout_s,
+        retries=retries,
     )
     verified_modalities = await verify_target_modalities_async(
-        target=target, test_assets=test_assets, per_probe_timeout_s=per_probe_timeout_s, retries=retries
+        target=target,
+        test_modalities=test_modalities,
+        test_assets=test_assets,
+        per_probe_timeout_s=per_probe_timeout_s,
+        retries=retries,
     )
 
     declared = target.capabilities
@@ -696,6 +725,7 @@ def _create_test_message(
                     original_value="test",
                     original_value_data_type="text",
                     conversation_id=conversation_id,
+                    prompt_metadata=_probe_metadata(),
                 )
             )
             continue
@@ -712,6 +742,7 @@ def _create_test_message(
                 original_value=asset_path,
                 original_value_data_type=modality,
                 conversation_id=conversation_id,
+                prompt_metadata=_probe_metadata(),
             )
         )
 
