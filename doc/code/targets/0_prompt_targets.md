@@ -107,6 +107,27 @@ target = MyHTTPTarget(custom_configuration=config, ...)
 
 The full implementation lives in [`pyrit/prompt_target/common/target_capabilities.py`](https://github.com/microsoft/PyRIT/blob/main/pyrit/prompt_target/common/target_capabilities.py) and [`pyrit/prompt_target/common/target_configuration.py`](https://github.com/microsoft/PyRIT/blob/main/pyrit/prompt_target/common/target_configuration.py). For runnable examples — inspecting capabilities on a real target, comparing known model profiles, and `ADAPT` vs `RAISE` in action — see [Target Capabilities](./6_1_target_capabilities.ipynb).
 
+### Querying live target capabilities
+
+Declared capabilities describe what a target *should* support. For deployments where actual behavior is uncertain — custom OpenAI-compatible endpoints, gateways that strip features, models whose support drifts — you can probe what the target *actually* accepts at runtime:
+
+```python
+from pyrit.prompt_target import (
+    query_target_capabilities_async,
+    verify_target_async,
+    verify_target_modalities_async,
+)
+
+# Probe a single dimension:
+verified_caps = await query_target_capabilities_async(target=target)
+verified_modalities = await verify_target_modalities_async(target=target)
+
+# Or do both at once and get a populated TargetCapabilities back:
+verified = await verify_target_async(target=target)
+```
+
+Each probe sends a minimal request (bounded by `per_probe_timeout_s`, default 30s, with one retry on transient errors) and only marks a capability or modality as supported if the call returns cleanly. "Supported" here means *the request was accepted* — a target that silently ignores a system prompt or `response_format` directive is still reported as supporting it, so validate response content out of band when the distinction matters. These functions are not safe to call concurrently with other operations on the same target instance: they temporarily mutate `target._configuration` and write probe rows to memory (rows are tagged with `prompt_metadata["capability_probe"] == "1"` for filtering). See [Target Capabilities](./6_1_target_capabilities.ipynb) for runnable examples.
+
 ## Multi-Modal Targets
 
 Like most of PyRIT, targets can be multi-modal.
