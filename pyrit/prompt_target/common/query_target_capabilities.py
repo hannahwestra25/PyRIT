@@ -71,7 +71,7 @@ DEFAULT_PROBE_TIMEOUT_SECONDS: float = 30.0
 PROBE_METADATA_KEY: str = "capability_probe"
 PROBE_METADATA_VALUE: str = "1"
 
-_CapabilityProbe = Callable[[PromptTarget, float], Awaitable[bool]]
+_CapabilityProbe = Callable[[PromptTarget, float, int], Awaitable[bool]]
 
 
 _PROBE_POLICY = CapabilityHandlingPolicy(
@@ -235,7 +235,7 @@ async def _send_and_check_async(
     return False
 
 
-async def _probe_system_prompt_async(target: PromptTarget, timeout_s: float) -> bool:
+async def _probe_system_prompt_async(target: PromptTarget, timeout_s: float, retries: int = 1) -> bool:
     """
     Probe whether ``target`` accepts a system prompt followed by a user message.
 
@@ -272,11 +272,12 @@ async def _probe_system_prompt_async(target: PromptTarget, timeout_s: float) -> 
         target=target,
         message=Message([user_piece]),
         timeout_s=timeout_s,
+        retries=retries,
         label="System-prompt probe",
     )
 
 
-async def _probe_multi_message_pieces_async(target: PromptTarget, timeout_s: float) -> bool:
+async def _probe_multi_message_pieces_async(target: PromptTarget, timeout_s: float, retries: int = 1) -> bool:
     """
     Probe whether ``target`` accepts a single message containing multiple pieces.
 
@@ -296,11 +297,12 @@ async def _probe_multi_message_pieces_async(target: PromptTarget, timeout_s: flo
         target=target,
         message=Message(pieces),
         timeout_s=timeout_s,
+        retries=retries,
         label="Multi-message-pieces probe",
     )
 
 
-async def _probe_multi_turn_async(target: PromptTarget, timeout_s: float) -> bool:
+async def _probe_multi_turn_async(target: PromptTarget, timeout_s: float, retries: int = 1) -> bool:
     """
     Probe whether ``target`` accepts a request that includes prior conversation history.
 
@@ -329,7 +331,7 @@ async def _probe_multi_turn_async(target: PromptTarget, timeout_s: float) -> boo
     conversation_id = _new_conversation_id()
     first = _user_text_piece(value="My favorite color is blue.", conversation_id=conversation_id)
     if not await _send_and_check_async(
-        target=target, message=Message([first]), timeout_s=timeout_s, label="Multi-turn probe (turn 1)"
+        target=target, message=Message([first]), timeout_s=timeout_s, retries=retries, label="Multi-turn probe (turn 1)"
     ):
         return False
 
@@ -346,11 +348,11 @@ async def _probe_multi_turn_async(target: PromptTarget, timeout_s: float) -> boo
 
     second = _user_text_piece(value="What did I just tell you?", conversation_id=conversation_id)
     return await _send_and_check_async(
-        target=target, message=Message([second]), timeout_s=timeout_s, label="Multi-turn probe (turn 2)"
+        target=target, message=Message([second]), timeout_s=timeout_s, retries=retries, label="Multi-turn probe (turn 2)"
     )
 
 
-async def _probe_json_output_async(target: PromptTarget, timeout_s: float) -> bool:
+async def _probe_json_output_async(target: PromptTarget, timeout_s: float, retries: int = 1) -> bool:
     """
     Probe whether ``target`` accepts a request asking for JSON-mode output.
 
@@ -370,11 +372,11 @@ async def _probe_json_output_async(target: PromptTarget, timeout_s: float) -> bo
         prompt_metadata=_probe_metadata({"response_format": "json"}),
     )
     return await _send_and_check_async(
-        target=target, message=Message([piece]), timeout_s=timeout_s, label="JSON-output probe"
+        target=target, message=Message([piece]), timeout_s=timeout_s, retries=retries, label="JSON-output probe"
     )
 
 
-async def _probe_json_schema_async(target: PromptTarget, timeout_s: float) -> bool:
+async def _probe_json_schema_async(target: PromptTarget, timeout_s: float, retries: int = 1) -> bool:
     """
     Probe whether ``target`` accepts a request constrained by a JSON schema.
 
@@ -405,7 +407,7 @@ async def _probe_json_schema_async(target: PromptTarget, timeout_s: float) -> bo
         ),
     )
     return await _send_and_check_async(
-        target=target, message=Message([piece]), timeout_s=timeout_s, label="JSON-schema probe"
+        target=target, message=Message([piece]), timeout_s=timeout_s, retries=retries, label="JSON-schema probe"
     )
 
 
@@ -425,6 +427,7 @@ async def query_target_capabilities_async(
     target: PromptTarget,
     capabilities: Iterable[CapabilityName] | None = None,
     per_probe_timeout_s: float = DEFAULT_PROBE_TIMEOUT_SECONDS,
+    retries: int = 1,
 ) -> set[CapabilityName]:
     """
     Probe ``target`` to determine which capabilities it actually supports.
@@ -471,11 +474,17 @@ async def query_target_capabilities_async(
         per_probe_timeout_s (float): Per-attempt timeout (seconds) applied to
             each probe request. Defaults to
             :data:`DEFAULT_PROBE_TIMEOUT_SECONDS`.
+        retries (int): Number of additional attempts after the first failure
+            for each probe. Only exceptions/timeouts are retried; an explicit
+            error response is final. Set to ``0`` to disable retries.
+            Defaults to 1.
 
     Returns:
         set[CapabilityName]: The capabilities verified to work against the target.
     """
-    capabilities_to_check: Iterable[CapabilityName] = capabilities if capabilities is not None else CapabilityName
+    capabilities_to_check: list[CapabilityName] = (
+        list(capabilities) if capabilities is not None else list(CapabilityName)
+    )
 
     verified: set[CapabilityName] = set()
     with _permissive_configuration(target=target):
@@ -487,7 +496,7 @@ async def query_target_capabilities_async(
                 continue
 
             try:
-                if await probe(target, per_probe_timeout_s):
+                if await probe(target, per_probe_timeout_s, retries):
                     verified.add(capability)
             except Exception as exc:
                 logger.info("Probe for %s raised: %s", capability.value, exc)
@@ -522,6 +531,7 @@ async def verify_target_modalities_async(
     test_modalities: set[frozenset[PromptDataType]] | None = None,
     test_assets: dict[PromptDataType, str] | None = None,
     per_probe_timeout_s: float = DEFAULT_PROBE_TIMEOUT_SECONDS,
+    retries: int = 1,
 ) -> set[frozenset[PromptDataType]]:
     """
     Probe ``target`` to determine which input modality combinations it supports.
@@ -559,6 +569,10 @@ async def verify_target_modalities_async(
         per_probe_timeout_s (float): Per-attempt timeout (seconds) applied to
             each probe request. Defaults to
             :data:`DEFAULT_PROBE_TIMEOUT_SECONDS`.
+        retries (int): Number of additional attempts after the first failure
+            for each probe. Only exceptions/timeouts are retried; an explicit
+            error response is final. Set to ``0`` to disable retries.
+            Defaults to 1.
 
     Returns:
         set[frozenset[PromptDataType]]: The modality combinations verified
@@ -586,6 +600,7 @@ async def verify_target_modalities_async(
                 target=target,
                 message=message,
                 timeout_s=per_probe_timeout_s,
+                retries=retries,
                 label=f"Modality probe {sorted(combination)}",
             ):
                 verified.add(combination)
@@ -598,6 +613,7 @@ async def verify_target_async(
     target: PromptTarget,
     per_probe_timeout_s: float = DEFAULT_PROBE_TIMEOUT_SECONDS,
     test_assets: dict[PromptDataType, str] | None = None,
+    retries: int = 1,
 ) -> TargetCapabilities:
     """
     Probe both capabilities and modalities and return a combined result.
@@ -617,6 +633,10 @@ async def verify_target_async(
             each probe request.
         test_assets (dict[PromptDataType, str] | None): Mapping from non-text
             modality to a file path. See :func:`verify_target_modalities_async`.
+        retries (int): Number of additional attempts after the first failure
+            for each probe. Only exceptions/timeouts are retried; an explicit
+            error response is final. Set to ``0`` to disable retries.
+            Defaults to 1.
 
     Returns:
         TargetCapabilities: A dataclass reflecting verified capabilities and
@@ -624,9 +644,11 @@ async def verify_target_async(
         ``target.capabilities.output_modalities`` because outputs cannot be
         verified by sending a request.
     """
-    verified_caps = await query_target_capabilities_async(target=target, per_probe_timeout_s=per_probe_timeout_s)
+    verified_caps = await query_target_capabilities_async(
+        target=target, per_probe_timeout_s=per_probe_timeout_s, retries=retries
+    )
     verified_modalities = await verify_target_modalities_async(
-        target=target, test_assets=test_assets, per_probe_timeout_s=per_probe_timeout_s
+        target=target, test_assets=test_assets, per_probe_timeout_s=per_probe_timeout_s, retries=retries
     )
 
     declared = target.capabilities

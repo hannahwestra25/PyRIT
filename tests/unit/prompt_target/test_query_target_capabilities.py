@@ -203,6 +203,33 @@ class TestQueryTargetCapabilitiesAsync:
 
         assert result == set()
 
+    async def test_accepts_single_pass_iterable(self) -> None:
+        """Passing a generator must not silently drop fallback (non-probed) capabilities."""
+        target = MockPromptTarget()
+        target._configuration = TargetConfiguration(
+            capabilities=TargetCapabilities(supports_editable_history=True),
+        )
+        target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
+
+        gen = (c for c in [CapabilityName.SYSTEM_PROMPT, CapabilityName.EDITABLE_HISTORY])
+        result = await query_target_capabilities_async(target=target, capabilities=gen)
+
+        assert CapabilityName.SYSTEM_PROMPT in result
+        assert CapabilityName.EDITABLE_HISTORY in result
+
+    async def test_retries_zero_disables_retry(self) -> None:
+        target = MockPromptTarget()
+        target._send_prompt_to_target_async = AsyncMock(side_effect=Exception("boom"))  # type: ignore[method-assign]
+
+        result = await query_target_capabilities_async(
+            target=target,
+            capabilities={CapabilityName.JSON_OUTPUT},
+            retries=0,
+        )
+
+        assert result == set()
+        assert target._send_prompt_to_target_async.await_count == 1
+
     async def test_restores_configuration_after_probing(self) -> None:
         target = MockPromptTarget()
         original = target.configuration
