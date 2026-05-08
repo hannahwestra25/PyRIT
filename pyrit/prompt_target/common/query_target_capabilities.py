@@ -209,8 +209,9 @@ async def _send_and_check_async(
     Returns:
         bool: ``True`` iff the call returned without raising and every response
         piece reported ``response_error == "none"``; ``False`` otherwise.
-        An empty response list (or responses with no message pieces) is treated
-        as a failure rather than a success.
+        Any other ``response_error`` value (``"blocked"``, ``"processing"``,
+        ``"empty"``, ``"unknown"``) is treated as failure. An empty response
+        list (or responses with no message pieces) is also treated as a failure.
     """
     attempts = max(1, retries + 1)
     last_exc: Exception | None = None
@@ -219,20 +220,20 @@ async def _send_and_check_async(
             responses = await asyncio.wait_for(target.send_prompt_async(message=message), timeout=timeout_s)
         except asyncio.TimeoutError:
             last_exc = TimeoutError(f"timed out after {timeout_s}s")
-            logger.info("%s timed out (attempt %d/%d)", label, attempt + 1, attempts)
+            logger.debug("%s timed out (attempt %d/%d)", label, attempt + 1, attempts)
             continue
         except Exception as exc:
             last_exc = exc
-            logger.info("%s failed (attempt %d/%d): %s", label, attempt + 1, attempts, exc)
+            logger.debug("%s failed (attempt %d/%d): %s", label, attempt + 1, attempts, exc)
             continue
 
         if not responses or not any(r.message_pieces for r in responses):
-            logger.info("%s returned an empty response; treating as failure", label)
+            logger.debug("%s returned an empty response; treating as failure", label)
             return False
         for response in responses:
             for piece in response.message_pieces:
                 if piece.response_error != "none":
-                    logger.info("%s returned error response: %s", label, piece.converted_value)
+                    logger.debug("%s returned error response: %s", label, piece.converted_value)
                     return False
         return True
 
@@ -270,7 +271,7 @@ async def _probe_system_prompt_async(target: PromptTarget, timeout_s: float, ret
     try:
         target._memory.add_message_to_memory(request=Message([system_piece]))
     except Exception as exc:
-        logger.info("System-prompt probe could not seed system message: %s", exc)
+        logger.debug("System-prompt probe could not seed system message: %s", exc)
         return False
     user_piece = _user_text_piece(value="hi", conversation_id=conversation_id)
     return await _send_and_check_async(
@@ -341,15 +342,19 @@ async def _probe_multi_turn_async(target: PromptTarget, timeout_s: float, retrie
         return False
 
     # Seed memory so the second send sees real prior history.
-    target._memory.add_message_to_memory(request=Message([first]))
-    assistant_reply = MessagePiece(
-        role="assistant",
-        original_value="Got it.",
-        original_value_data_type="text",
-        conversation_id=conversation_id,
-        prompt_metadata=_probe_metadata(),
-    ).to_message()
-    target._memory.add_message_to_memory(request=assistant_reply)
+    try:
+        target._memory.add_message_to_memory(request=Message([first]))
+        assistant_reply = MessagePiece(
+            role="assistant",
+            original_value="Got it.",
+            original_value_data_type="text",
+            conversation_id=conversation_id,
+            prompt_metadata=_probe_metadata(),
+        ).to_message()
+        target._memory.add_message_to_memory(request=assistant_reply)
+    except Exception as exc:
+        logger.debug("Multi-turn probe could not seed conversation history: %s", exc)
+        return False
 
     second = _user_text_piece(value="What did I just tell you?", conversation_id=conversation_id)
     return await _send_and_check_async(
@@ -504,7 +509,7 @@ async def query_target_capabilities_async(
                 if await probe(target, per_probe_timeout_s, retries):
                     verified.add(capability)
             except Exception as exc:
-                logger.info("Probe for %s raised: %s", capability.value, exc)
+                logger.debug("Probe for %s raised: %s", capability.value, exc)
 
     # Add capabilities without a probe based on the original (now-restored) NATIVE
     # support. Using target.capabilities.includes (native flags) rather than
@@ -633,6 +638,10 @@ async def verify_target_async(
     Boolean capability flags not covered by
     :data:`_CAPABILITY_PROBES` (e.g. ``supports_editable_history``) are
     copied from ``target.capabilities`` (the target's declared native flags).
+    When ``capabilities`` narrows the probe set, capabilities not in the
+    narrowed set are also copied from declared values rather than reset to
+    ``False`` — narrowing controls *what is re-verified*, not what the
+    returned dataclass reports.
 
     .. warning::
        By default ``test_modalities`` is sourced from
@@ -681,13 +690,23 @@ async def verify_target_async(
     )
 
     declared = target.capabilities
+    # When ``capabilities`` narrows the probe set, capabilities NOT in the
+    # narrowed set were never probed and must fall back to declared values
+    # rather than being silently reset to False.
+    probed: set[CapabilityName] = set(capabilities) if capabilities is not None else set(CapabilityName)
+
+    def _resolve(name: CapabilityName) -> bool:
+        if name in probed:
+            return name in verified_caps
+        return bool(getattr(declared, name.value))
+
     return TargetCapabilities(
-        supports_multi_turn=CapabilityName.MULTI_TURN in verified_caps,
-        supports_multi_message_pieces=CapabilityName.MULTI_MESSAGE_PIECES in verified_caps,
-        supports_json_schema=CapabilityName.JSON_SCHEMA in verified_caps,
-        supports_json_output=CapabilityName.JSON_OUTPUT in verified_caps,
+        supports_multi_turn=_resolve(CapabilityName.MULTI_TURN),
+        supports_multi_message_pieces=_resolve(CapabilityName.MULTI_MESSAGE_PIECES),
+        supports_json_schema=_resolve(CapabilityName.JSON_SCHEMA),
+        supports_json_output=_resolve(CapabilityName.JSON_OUTPUT),
         supports_editable_history=declared.supports_editable_history,
-        supports_system_prompt=CapabilityName.SYSTEM_PROMPT in verified_caps,
+        supports_system_prompt=_resolve(CapabilityName.SYSTEM_PROMPT),
         input_modalities=frozenset(verified_modalities),
         output_modalities=declared.output_modalities,
     )

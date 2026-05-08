@@ -707,3 +707,57 @@ class TestVerifyTargetAsync:
         # if `capabilities` were ignored, all 5 capability probes would fire (>= 6 sends
         # because multi-turn issues 2 sends).
         assert target._send_prompt_to_target_async.await_count <= 3
+
+    async def test_verify_target_async_preserves_declared_when_capabilities_narrowed(self) -> None:
+        """
+        When ``capabilities`` narrows the probe set, capabilities NOT in the
+        narrowed set must fall back to the target's declared values rather
+        than being silently reset to False.
+        """
+        declared = TargetCapabilities(
+            supports_multi_turn=True,
+            supports_system_prompt=True,
+            supports_json_schema=True,
+            supports_editable_history=True,
+        )
+        target = MockPromptTarget()
+        target._configuration = TargetConfiguration(capabilities=declared)
+        target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
+
+        result = await verify_target_async(
+            target=target,
+            capabilities={CapabilityName.JSON_OUTPUT},
+            per_probe_timeout_s=2.0,
+        )
+
+        # The probed capability reflects the verified result.
+        assert result.supports_json_output is True
+        # Non-probed capabilities fall back to declared values.
+        assert result.supports_multi_turn is True
+        assert result.supports_system_prompt is True
+        assert result.supports_json_schema is True
+        assert result.supports_editable_history is True
+
+
+@pytest.mark.usefixtures("patch_central_database")
+class TestMultiTurnProbeMemoryFailure:
+    async def test_returns_false_when_history_seed_raises(self) -> None:
+        """
+        If seeding conversation history into memory raises, the multi-turn
+        probe returns False rather than proceeding with a half-seeded
+        conversation that would produce a false positive.
+        """
+        target = MockPromptTarget()
+        send_mock = AsyncMock(return_value=_ok_response())
+        target._send_prompt_to_target_async = send_mock  # type: ignore[method-assign]
+        target._memory.add_message_to_memory = MagicMock(side_effect=RuntimeError("memory offline"))  # type: ignore[method-assign]
+
+        result = await query_target_capabilities_async(
+            target=target,
+            capabilities={CapabilityName.MULTI_TURN},
+        )
+
+        assert result == set()
+        # The first turn ran (1 send); the second turn must NOT run because
+        # seeding failed, otherwise the probe would falsely succeed.
+        assert send_mock.await_count == 1

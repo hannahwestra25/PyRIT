@@ -351,3 +351,32 @@ print(f"  supports_multi_message_pieces: {verified_caps.supports_multi_message_p
 print(f"  supports_json_output:          {verified_caps.supports_json_output}")
 print(f"  supports_json_schema:          {verified_caps.supports_json_schema}")
 print(f"  input_modalities:              {sorted(sorted(m) for m in verified_caps.input_modalities)}")
+
+# %% [markdown]
+# ### Discovering undeclared modalities
+#
+# By default `verify_target_async` only probes modality combinations the target already
+# **declares** in `capabilities.input_modalities`. For an OpenAI-compatible endpoint that
+# claims text-only but might actually accept images, pass `test_modalities=` (and matching
+# `test_assets=`) explicitly to probe combinations beyond the declared baseline:
+#
+# ```python
+# verified = await verify_target_async(
+#     target=target,
+#     test_modalities={frozenset({"text"}), frozenset({"text", "image_path"})},
+#     test_assets={"image_path": "/path/to/test_image.png"},
+# )
+# ```
+#
+# Similarly, when narrowing the probe set with `capabilities=`, capabilities NOT in the
+# narrowed set are copied from the target's declared values rather than being reset to
+# `False` — narrowing controls *what is re-verified*, not what the returned dataclass
+# reports. This makes incremental probing safe:
+#
+# ```python
+# # Re-verify only JSON support; other declared flags pass through unchanged.
+# verified = await verify_target_async(
+#     target=target,
+#     capabilities={CapabilityName.JSON_OUTPUT, CapabilityName.JSON_SCHEMA},
+# )
+# ```
