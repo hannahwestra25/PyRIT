@@ -252,7 +252,8 @@ except ValueError as exc:
 # Declared capabilities describe what a target *should* support. For deployments where the actual
 # behavior is uncertain — custom OpenAI-compatible endpoints, gateways that strip features, models
 # whose support drifts over time — you can probe what the target *actually* accepts at runtime with
-# `query_target_capabilities_async` and `verify_target_modalities_async`.
+# `query_target_capabilities_async`, `verify_target_modalities_async`, or the convenience wrapper
+# `verify_target_async` that runs both and returns a populated `TargetCapabilities`.
 #
 # `query_target_capabilities_async` walks each capability that has a registered probe (currently
 # `SYSTEM_PROMPT`, `MULTI_MESSAGE_PIECES`, `MULTI_TURN`, `JSON_OUTPUT`, `JSON_SCHEMA`), sends a
@@ -264,23 +265,38 @@ except ValueError as exc:
 # `verify_target_modalities_async` does the same for input modality combinations declared in
 # `capabilities.input_modalities`, sending a small payload built from optional `test_assets`.
 #
+# Each probe call is bounded by `per_probe_timeout_s` (default 30s) and is retried once on
+# transient errors before being declared failed. "Supported" here means *the request was
+# accepted* — a target that silently ignores a system prompt or `response_format` directive will
+# still be reported as supporting that capability.
+#
+# These functions are **not safe to call concurrently** with other operations on the same target
+# instance: they temporarily mutate `target._configuration` and write probe rows to
+# `target._memory`. Probe-written memory rows are tagged with
+# `prompt_metadata["capability_probe"] == "1"` so consumers can filter them.
+#
 # Typical usage against a real endpoint:
 #
 # ```python
-# from pyrit.prompt_target import query_target_capabilities_async
+# from pyrit.prompt_target import verify_target_async
 #
-# verified = await query_target_capabilities_async(target=target)
+# verified = await verify_target_async(target=target)
 # print(verified)
 # ```
 #
-# Below we mock `send_prompt_async` so the notebook stays self-contained — the result shape is
-# the same as a live run.
+# Below we mock the target's underlying transport (`_send_prompt_to_target_async`) so the notebook
+# stays self-contained — the result shape is the same as a live run. We mock the protected method
+# rather than `send_prompt_async` so the probe still exercises the real validation and memory
+# pipeline.
 
 # %%
 from unittest.mock import AsyncMock
 
 from pyrit.models import MessagePiece
-from pyrit.prompt_target import query_target_capabilities_async
+from pyrit.prompt_target import (
+    query_target_capabilities_async,
+    verify_target_async,
+)
 
 
 def _ok_response():
@@ -300,9 +316,9 @@ def _ok_response():
 
 
 probe_target = OpenAIChatTarget(model_name="gpt-4o", endpoint="https://example.invalid/", api_key="sk-not-a-real-key")
-probe_target.send_prompt_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
+probe_target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
 
-verified = await query_target_capabilities_async(target=probe_target)  # type: ignore
+verified = await query_target_capabilities_async(target=probe_target, per_probe_timeout_s=5.0)  # type: ignore
 print("verified capabilities:")
 for capability in sorted(verified, key=lambda c: c.value):
     print(f"  - {capability.value}")
@@ -319,6 +335,19 @@ for capability in sorted(verified, key=lambda c: c.value):
 # )
 # ```
 #
-# A common workflow is to probe the live target and then construct a `TargetConfiguration` from the
-# verified set, so the rest of PyRIT (attacks, scorers, the normalization pipeline) operates on
-# capabilities that have been observed to work end-to-end.
+# `verify_target_async` is the most common entry point: it runs both the capability and modality
+# probes and assembles a `TargetCapabilities` you can drop straight into a `TargetConfiguration`,
+# so the rest of PyRIT (attacks, scorers, the normalization pipeline) operates on capabilities
+# that have been observed to work end-to-end.
+
+# %%
+probe_target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
+
+verified_caps = await verify_target_async(target=probe_target, per_probe_timeout_s=5.0)  # type: ignore
+print("verify_target_async result:")
+print(f"  supports_multi_turn:           {verified_caps.supports_multi_turn}")
+print(f"  supports_system_prompt:        {verified_caps.supports_system_prompt}")
+print(f"  supports_multi_message_pieces: {verified_caps.supports_multi_message_pieces}")
+print(f"  supports_json_output:          {verified_caps.supports_json_output}")
+print(f"  supports_json_schema:          {verified_caps.supports_json_schema}")
+print(f"  input_modalities:              {sorted(sorted(m) for m in verified_caps.input_modalities)}")

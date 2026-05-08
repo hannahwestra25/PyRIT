@@ -18,6 +18,7 @@ from pyrit.prompt_target.common.prompt_chat_target import PromptChatTarget
 from pyrit.prompt_target.common.prompt_target import PromptTarget
 from pyrit.prompt_target.common.query_target_capabilities import (
     query_target_capabilities_async,
+    verify_target_async,
     verify_target_modalities_async,
 )
 from pyrit.prompt_target.common.target_capabilities import (
@@ -108,6 +109,7 @@ __all__ = [
     "TargetRequirements",
     "UnsupportedCapabilityBehavior",
     "TextTarget",
+    "verify_target_async",
     "verify_target_modalities_async",
     "WebSocketCopilotTarget",
 ]

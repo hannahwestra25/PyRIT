@@ -24,6 +24,23 @@ from pyrit.prompt_target.common.target_configuration import TargetConfiguration
 from tests.unit.mocks import MockPromptTarget
 
 
+class _RealValidationTarget(PromptTarget):
+    """
+    Bare ``PromptTarget`` subclass that does NOT override ``_validate_request``.
+
+    Tests that need to verify ``_permissive_configuration`` actually bypasses
+    the validation guard use this instead of ``MockPromptTarget`` (which
+    no-ops ``_validate_request``).
+    """
+
+    _DEFAULT_CONFIGURATION: TargetConfiguration = TargetConfiguration(
+        capabilities=TargetCapabilities(),
+    )
+
+    async def _send_prompt_to_target_async(self, *, normalized_conversation: list[Message]) -> list[Message]:
+        return _ok_response()
+
+
 def _ok_response(*, conversation_id: str = "probe", text: str = "ok") -> list[Message]:
     return [
         Message(
@@ -85,7 +102,7 @@ class TestPermissiveConfiguration:
 class TestQueryTargetCapabilitiesAsync:
     async def test_returns_only_supported_when_all_probes_succeed(self) -> None:
         target = MockPromptTarget()
-        target.send_prompt_async = AsyncMock(return_value=_ok_response())
+        target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
 
         result = await query_target_capabilities_async(target=target)
 
@@ -95,7 +112,7 @@ class TestQueryTargetCapabilitiesAsync:
 
     async def test_excludes_capabilities_when_probe_fails(self) -> None:
         target = MockPromptTarget()
-        target.send_prompt_async = AsyncMock(side_effect=Exception("nope"))
+        target._send_prompt_to_target_async = AsyncMock(side_effect=Exception("nope"))  # type: ignore[method-assign]
 
         result = await query_target_capabilities_async(target=target)
 
@@ -104,7 +121,7 @@ class TestQueryTargetCapabilitiesAsync:
 
     async def test_excludes_capabilities_when_response_has_error(self) -> None:
         target = MockPromptTarget()
-        target.send_prompt_async = AsyncMock(return_value=_error_response())
+        target._send_prompt_to_target_async = AsyncMock(return_value=_error_response())  # type: ignore[method-assign]
 
         result = await query_target_capabilities_async(target=target)
 
@@ -113,7 +130,7 @@ class TestQueryTargetCapabilitiesAsync:
 
     async def test_filters_by_requested_capabilities(self) -> None:
         target = MockPromptTarget()
-        target.send_prompt_async = AsyncMock(return_value=_ok_response())
+        target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
 
         requested = {CapabilityName.SYSTEM_PROMPT, CapabilityName.MULTI_TURN}
         result = await query_target_capabilities_async(target=target, capabilities=requested)
@@ -126,7 +143,7 @@ class TestQueryTargetCapabilitiesAsync:
         target._configuration = TargetConfiguration(
             capabilities=TargetCapabilities(supports_editable_history=True),
         )
-        target.send_prompt_async = AsyncMock(return_value=_ok_response())
+        target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
 
         result = await query_target_capabilities_async(
             target=target,
@@ -137,7 +154,9 @@ class TestQueryTargetCapabilitiesAsync:
 
     async def test_capability_without_probe_excluded_when_not_declared(self) -> None:
         target = MockPromptTarget()
-        target.send_prompt_async = AsyncMock(return_value=_ok_response())
+        # Override to a configuration that does NOT declare editable_history.
+        target._configuration = TargetConfiguration(capabilities=TargetCapabilities())
+        target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
 
         result = await query_target_capabilities_async(
             target=target,
@@ -146,34 +165,82 @@ class TestQueryTargetCapabilitiesAsync:
 
         assert result == set()
 
+    async def test_capability_without_probe_excluded_when_only_adapted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """
+        ADAPT in the policy must NOT count as native support for the fallback.
+
+        Today every adaptable capability also has a probe, so this scenario only
+        arises if a future capability is declared adaptable without a probe.
+        We simulate that by removing SYSTEM_PROMPT from the registry and
+        configuring the target with ``ADAPT`` for it but no native support.
+        """
+        from pyrit.prompt_target.common import query_target_capabilities as qtc
+        from pyrit.prompt_target.common.target_capabilities import (
+            CapabilityHandlingPolicy,
+            UnsupportedCapabilityBehavior,
+        )
+
+        patched_probes = {k: v for k, v in qtc._CAPABILITY_PROBES.items() if k is not CapabilityName.SYSTEM_PROMPT}
+        monkeypatch.setattr(qtc, "_CAPABILITY_PROBES", patched_probes)
+
+        target = MockPromptTarget()
+        target._configuration = TargetConfiguration(
+            capabilities=TargetCapabilities(),  # no native SYSTEM_PROMPT
+            policy=CapabilityHandlingPolicy(
+                behaviors={
+                    CapabilityName.SYSTEM_PROMPT: UnsupportedCapabilityBehavior.ADAPT,
+                    CapabilityName.MULTI_TURN: UnsupportedCapabilityBehavior.RAISE,
+                }
+            ),
+        )
+
+        result = await query_target_capabilities_async(
+            target=target,
+            capabilities={CapabilityName.SYSTEM_PROMPT},
+        )
+
+        assert result == set()
+
     async def test_restores_configuration_after_probing(self) -> None:
         target = MockPromptTarget()
         original = target.configuration
-        target.send_prompt_async = AsyncMock(return_value=_ok_response())
+        target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
 
         await query_target_capabilities_async(target=target)
 
         assert target.configuration is original
 
-    async def test_multi_turn_probe_makes_two_calls_with_same_conversation_id(self) -> None:
+    async def test_multi_turn_probe_sends_history_on_second_call(self) -> None:
         target = MockPromptTarget()
-        target.send_prompt_async = AsyncMock(return_value=_ok_response())
+        target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
 
         await query_target_capabilities_async(
             target=target,
             capabilities={CapabilityName.MULTI_TURN},
         )
 
-        # Multi-turn probe sends two messages on the same conversation_id.
-        calls = target.send_prompt_async.await_args_list
+        # Multi-turn probe sends two requests on the same conversation_id, and
+        # seeds memory between them so the second call carries real history.
+        calls = target._send_prompt_to_target_async.await_args_list
         assert len(calls) == 2
-        first_conv_id = calls[0].kwargs["message"].message_pieces[0].conversation_id
-        second_conv_id = calls[1].kwargs["message"].message_pieces[0].conversation_id
+
+        first_conv = calls[0].kwargs["normalized_conversation"]
+        second_conv = calls[1].kwargs["normalized_conversation"]
+
+        first_conv_id = first_conv[-1].message_pieces[0].conversation_id
+        second_conv_id = second_conv[-1].message_pieces[0].conversation_id
         assert first_conv_id == second_conv_id
+
+        # First call is a single-turn user message; the second call must include
+        # the seeded user + assistant history followed by the new user turn.
+        assert len(first_conv) == 1
+        assert len(second_conv) >= 3
+        roles = [msg.message_pieces[0]._role for msg in second_conv]
+        assert roles[-3:] == ["user", "assistant", "user"]
 
     async def test_multi_turn_probe_short_circuits_on_first_failure(self) -> None:
         target = MockPromptTarget()
-        target.send_prompt_async = AsyncMock(side_effect=Exception("first call fails"))
+        target._send_prompt_to_target_async = AsyncMock(side_effect=Exception("first call fails"))  # type: ignore[method-assign]
 
         result = await query_target_capabilities_async(
             target=target,
@@ -181,66 +248,82 @@ class TestQueryTargetCapabilitiesAsync:
         )
 
         assert result == set()
-        assert target.send_prompt_async.await_count == 1
+        # _send_and_check_async retries once on exception, so the failing
+        # first turn is attempted twice; the second turn is never reached.
+        assert target._send_prompt_to_target_async.await_count == 2
 
     async def test_json_schema_probe_sends_schema_in_metadata(self) -> None:
         target = MockPromptTarget()
-        target.send_prompt_async = AsyncMock(return_value=_ok_response())
+        target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
 
         await query_target_capabilities_async(
             target=target,
             capabilities={CapabilityName.JSON_SCHEMA},
         )
 
-        message: Message = target.send_prompt_async.await_args.kwargs["message"]
-        metadata = message.message_pieces[0].prompt_metadata
+        normalized: list[Message] = target._send_prompt_to_target_async.await_args.kwargs["normalized_conversation"]
+        metadata = normalized[-1].message_pieces[0].prompt_metadata
         assert metadata is not None
         assert metadata["response_format"] == "json"
         # Schema is JSON-encoded into a string for prompt_metadata's value type.
         schema = json.loads(metadata["json_schema"])
         assert schema["type"] == "object"
 
-    async def test_system_prompt_probe_sends_system_role(self) -> None:
+    async def test_system_prompt_probe_installs_system_message_and_sends_user(self) -> None:
         target = MockPromptTarget()
-        target.send_prompt_async = AsyncMock(return_value=_ok_response())
+        target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
 
         await query_target_capabilities_async(
             target=target,
             capabilities={CapabilityName.SYSTEM_PROMPT},
         )
 
-        message: Message = target.send_prompt_async.await_args.kwargs["message"]
-        roles = [piece.role for piece in message.message_pieces]
-        assert "system" in roles
+        # The probe writes a system message directly to memory (bypassing
+        # PromptTarget.set_system_prompt, which subclasses can override) and
+        # then sends a user-role message. Message.validate forbids mixed
+        # roles in a single Message, so the system and user turns are
+        # separate. Verify the system message is in memory and the wire
+        # payload contains the system + user history.
+        normalized: list[Message] = target._send_prompt_to_target_async.await_args.kwargs["normalized_conversation"]
+        roles_sent = [piece._role for msg in normalized for piece in msg.message_pieces]
+        assert "system" in roles_sent
+        assert roles_sent[-1] == "user"
+        # The last sent Message itself should be user-only.
+        assert [piece._role for piece in normalized[-1].message_pieces] == ["user"]
 
     async def test_multi_message_pieces_probe_sends_two_pieces(self) -> None:
         target = MockPromptTarget()
-        target.send_prompt_async = AsyncMock(return_value=_ok_response())
+        target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
 
         await query_target_capabilities_async(
             target=target,
             capabilities={CapabilityName.MULTI_MESSAGE_PIECES},
         )
 
-        message: Message = target.send_prompt_async.await_args.kwargs["message"]
-        assert len(message.message_pieces) == 2
+        normalized: list[Message] = target._send_prompt_to_target_async.await_args.kwargs["normalized_conversation"]
+        assert len(normalized[-1].message_pieces) == 2
 
     async def test_probes_run_under_permissive_configuration(self) -> None:
         """
         Even when the target declares no boolean capabilities, the probe should
         still execute because the configuration is temporarily permissive.
+
+        Uses ``_RealValidationTarget`` so that ``_validate_request`` actually
+        runs and would reject the multi-piece probe were the override absent.
         """
-        target = MockPromptTarget()
-        target._configuration = TargetConfiguration(capabilities=TargetCapabilities())
-        target.send_prompt_async = AsyncMock(return_value=_ok_response())
+        target = _RealValidationTarget()
+        send_mock = AsyncMock(return_value=_ok_response())
+        target._send_prompt_to_target_async = send_mock  # type: ignore[method-assign]
 
         result = await query_target_capabilities_async(
             target=target,
             capabilities={CapabilityName.MULTI_MESSAGE_PIECES},
         )
 
-        # Probe was actually invoked.
-        assert target.send_prompt_async.await_count >= 1
+        # Probe was actually invoked through the full send_prompt_async pipeline,
+        # which means _validate_request ran and was satisfied by the permissive
+        # override (the bare target declares no capabilities natively).
+        assert send_mock.await_count >= 1
         assert CapabilityName.MULTI_MESSAGE_PIECES in result
 
 
@@ -254,7 +337,7 @@ class TestQueryTargetCapabilitiesIsolatedTarget:
                 return _ok_response()
 
         target = _MinimalTarget()
-        target.send_prompt_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
+        target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
 
         result = await query_target_capabilities_async(target=target)
 
@@ -327,7 +410,7 @@ class TestVerifyTargetModalitiesAsync:
     async def test_all_combinations_supported(self) -> None:
         target = MockPromptTarget()
         _set_input_modalities(target=target, modalities={frozenset({"text"})})
-        target.send_prompt_async = AsyncMock(return_value=_ok_response())
+        target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
 
         result = await verify_target_modalities_async(target=target)
 
@@ -336,7 +419,7 @@ class TestVerifyTargetModalitiesAsync:
     async def test_exception_excludes_combination(self) -> None:
         target = MockPromptTarget()
         _set_input_modalities(target=target, modalities={frozenset({"text"})})
-        target.send_prompt_async = AsyncMock(side_effect=Exception("nope"))
+        target._send_prompt_to_target_async = AsyncMock(side_effect=Exception("nope"))  # type: ignore[method-assign]
 
         result = await verify_target_modalities_async(target=target)
 
@@ -345,7 +428,7 @@ class TestVerifyTargetModalitiesAsync:
     async def test_error_response_excludes_combination(self) -> None:
         target = MockPromptTarget()
         _set_input_modalities(target=target, modalities={frozenset({"text"})})
-        target.send_prompt_async = AsyncMock(return_value=_error_response())
+        target._send_prompt_to_target_async = AsyncMock(return_value=_error_response())  # type: ignore[method-assign]
 
         result = await verify_target_modalities_async(target=target)
 
@@ -358,13 +441,14 @@ class TestVerifyTargetModalitiesAsync:
             modalities={frozenset({"text"}), frozenset({"text", "image_path"})},
         )
 
-        async def selective_send(*, message: Message) -> list[Message]:
+        async def selective_send(*, normalized_conversation: list[Message]) -> list[Message]:
+            message = normalized_conversation[-1]
             types = {p.original_value_data_type for p in message.message_pieces}
             if "image_path" in types:
                 raise Exception("image not supported")
             return _ok_response()
 
-        target.send_prompt_async = selective_send  # type: ignore[method-assign]
+        target._send_prompt_to_target_async = selective_send  # type: ignore[method-assign]
 
         result = await verify_target_modalities_async(
             target=target,
@@ -378,7 +462,7 @@ class TestVerifyTargetModalitiesAsync:
         target = MockPromptTarget()
         # Declared as text-only, but caller asks us to probe text+image too.
         _set_input_modalities(target=target, modalities={frozenset({"text"})})
-        target.send_prompt_async = AsyncMock(return_value=_ok_response())
+        target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
 
         result = await verify_target_modalities_async(
             target=target,
@@ -392,10 +476,30 @@ class TestVerifyTargetModalitiesAsync:
     async def test_combination_skipped_when_asset_missing(self, tmp_path: Path) -> None:
         target = MockPromptTarget()
         _set_input_modalities(target=target, modalities={frozenset({"text", "image_path"})})
-        target.send_prompt_async = AsyncMock(return_value=_ok_response())
+        target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
 
         # No assets provided — image_path combinations are skipped, not probed.
         result = await verify_target_modalities_async(target=target)
 
         assert result == set()
-        assert target.send_prompt_async.await_count == 0
+        assert target._send_prompt_to_target_async.await_count == 0
+
+    async def test_explicit_test_modalities_runs_under_permissive_configuration(self, image_asset: str) -> None:
+        """
+        Probing a modality combination the target does NOT declare must still
+        succeed. Uses ``_RealValidationTarget`` so ``_validate_request`` runs
+        and would reject the multi-piece, non-text payload were the
+        permissive override absent.
+        """
+        target = _RealValidationTarget()
+        send_mock = AsyncMock(return_value=_ok_response())
+        target._send_prompt_to_target_async = send_mock  # type: ignore[method-assign]
+
+        result = await verify_target_modalities_async(
+            target=target,
+            test_modalities={frozenset({"text", "image_path"})},
+            test_assets={"image_path": image_asset},
+        )
+
+        assert send_mock.await_count == 1
+        assert frozenset({"text", "image_path"}) in result
