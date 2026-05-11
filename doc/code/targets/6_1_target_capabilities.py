@@ -297,6 +297,7 @@ from pyrit.models import MessagePiece
 from pyrit.prompt_target import (
     query_target_async,
     query_target_capabilities_async,
+    query_target_modalities_async,
 )
 
 
@@ -336,10 +337,29 @@ for capability in sorted(queried, key=lambda c: c.value):
 # )
 # ```
 #
+# If you only care about accepted input combinations, call
+# `query_target_modalities_async` directly. The example below uses the
+# packaged default probe assets for the non-text modalities PyRIT ships.
+# Pass `test_assets=` only when you want to override those defaults or probe
+# a modality without a packaged asset.
+#
 # `query_target_async` is the most common entry point: it runs both the capability and modality
 # probes and assembles a best-effort `TargetCapabilities` you can drop into a
 # `TargetConfiguration`, so the rest of PyRIT operates on probed values where available and
 # declared values otherwise.
+
+# %%
+probe_target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
+
+queried_modalities = await query_target_modalities_async(
+    target=probe_target,
+    test_modalities={frozenset({"text"}), frozenset({"text", "image_path"})},
+    per_probe_timeout_s=5.0,
+)  # type: ignore
+
+print("query_target_modalities_async result:")
+for combination in sorted(sorted(m) for m in queried_modalities):
+    print(f"  - {combination}")
 
 # %%
 probe_target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
@@ -358,8 +378,9 @@ print(f"  input_modalities:              {sorted(sorted(m) for m in queried_caps
 #
 # By default `query_target_async` only probes modality combinations the target already
 # **declares** in `capabilities.input_modalities`. For an OpenAI-compatible endpoint that
-# claims text-only but might actually accept images, pass `test_modalities=` (and matching
-# `test_assets=`) explicitly to probe combinations beyond the declared baseline:
+# claims text-only but might actually accept images, pass `test_modalities=` explicitly to
+# probe combinations beyond the declared baseline. Provide `test_assets=` as well if you need
+# to override the packaged defaults or probe a modality without one:
 #
 # ```python
 # queried = await query_target_async(

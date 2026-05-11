@@ -28,15 +28,11 @@ This module exposes two complementary probes:
    filters. Trust ``target.capabilities.output_modalities`` as declared.
 
 .. warning::
-   These probes only verify that a request was *accepted* (the call returned
-   without raising and the response had no error). They cannot detect a
-   target that silently ignores a feature. For example, an endpoint that
-   accepts a ``system`` role but discards it, or that accepts a
-   ``response_format="json"`` hint but returns prose, will be reported as
-   supporting those capabilities. Treat the returned sets as an upper bound
-   on actual support and validate response content out of band when the
-   distinction matters (e.g. parse JSON responses, assert that the model
-   honored the system prompt).
+    These probes only verify that a request was *accepted*. They do not prove
+    that the endpoint enforced the feature, and the JSON probes are only
+    meaningful for targets that translate ``prompt_metadata`` JSON hints into
+    provider request fields. Treat the results as an upper bound on support and
+    validate response content separately when that distinction matters.
 """
 
 import asyncio
@@ -48,6 +44,7 @@ from collections.abc import Awaitable, Callable, Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import replace
 
+from pyrit.common.path import DATASETS_PATH
 from pyrit.models import Message, MessagePiece, PromptDataType
 from pyrit.prompt_target.common.prompt_target import PromptTarget
 from pyrit.prompt_target.common.target_capabilities import (
@@ -76,6 +73,9 @@ _CapabilityProbe = Callable[[PromptTarget, float, int], Awaitable[bool]]
 # always include this combination so that ``_validate_request``'s per-piece
 # data-type check does not reject text probes against text-less targets.
 _TEXT_MODALITY: frozenset[frozenset[PromptDataType]] = frozenset({frozenset({"text"})})
+
+# Packaged fallback assets for non-text modality probes.
+_TARGET_CAPABILITIES_DATASET_PATH = DATASETS_PATH / "prompt_target" / "target_capabilities"
 
 
 @contextmanager
@@ -388,6 +388,8 @@ async def _probe_json_output_async(target: PromptTarget, timeout_s: float, retri
         original_value='Respond with a JSON object: {"ok": true}.',
         original_value_data_type="text",
         conversation_id=conversation_id,
+        # This only becomes a real JSON-mode request on targets that honor
+        # PyRIT's JSON metadata contract when building the provider payload.
         prompt_metadata=_probe_metadata({"response_format": "json"}),
     )
     return await _send_and_check_async(
@@ -421,6 +423,8 @@ async def _probe_json_schema_async(target: PromptTarget, timeout_s: float, retri
         original_value='Respond with a JSON object matching the schema: {"ok": true}.',
         original_value_data_type="text",
         conversation_id=conversation_id,
+        # As above, this probe is only strong for targets that map these
+        # metadata keys to native JSON-schema request parameters.
         prompt_metadata=_probe_metadata(
             {
                 "response_format": "json",
@@ -508,11 +512,14 @@ async def query_target_capabilities_async(
 # ---------------------------------------------------------------------------
 
 
-# Default mapping of non-text modalities to test asset paths. Callers can
+# Default mapping of non-text modalities to packaged probe assets. Callers can
 # override via the ``test_assets`` parameter of
-# :func:`query_target_modalities_async`. Modalities whose assets do not
-# exist on disk are skipped (logged and excluded from the result).
-DEFAULT_TEST_ASSETS: dict[PromptDataType, str] = {}
+# :func:`query_target_modalities_async`. Modalities whose assets do not exist
+# on disk are skipped (logged and excluded from the result).
+DEFAULT_TEST_ASSETS: dict[PromptDataType, str] = {
+    "audio_path": str(_TARGET_CAPABILITIES_DATASET_PATH / "probe_audio.wav"),
+    "image_path": str(_TARGET_CAPABILITIES_DATASET_PATH / "probe_image.png"),
+}
 
 
 async def query_target_modalities_async(

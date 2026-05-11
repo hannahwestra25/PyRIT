@@ -12,6 +12,7 @@ from pyrit.models import Message, MessagePiece, PromptDataType
 from pyrit.prompt_target.common.prompt_target import PromptTarget
 from pyrit.prompt_target.common.query_target_capabilities import (
     _CAPABILITY_PROBES,
+    DEFAULT_TEST_ASSETS,
     _create_test_message,
     _permissive_configuration,
     query_target_async,
@@ -430,6 +431,15 @@ def image_asset(tmp_path: Path) -> str:
 
 @pytest.mark.usefixtures("patch_central_database")
 class TestCreateTestMessage:
+    def test_default_assets_exist_for_packaged_modalities(self) -> None:
+        msg = _create_test_message(
+            modalities=frozenset({"audio_path", "image_path"}),
+            test_assets=DEFAULT_TEST_ASSETS,
+        )
+
+        types = {piece.original_value_data_type for piece in msg.message_pieces}
+        assert types == {"audio_path", "image_path"}
+
     def test_text_only(self) -> None:
         msg = _create_test_message(modalities=frozenset({"text"}), test_assets={})
         assert len(msg.message_pieces) == 1
@@ -536,8 +546,9 @@ class TestVerifyTargetModalitiesAsync:
         _set_input_modalities(target=target, modalities={frozenset({"text", "image_path"})})
         target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
 
-        # No assets provided — image_path combinations are skipped, not probed.
-        result = await query_target_modalities_async(target=target)
+        # An explicit empty mapping disables the packaged defaults, so
+        # image_path combinations are skipped instead of probed.
+        result = await query_target_modalities_async(target=target, test_assets={})
 
         assert result == set()
         assert target._send_prompt_to_target_async.await_count == 0
