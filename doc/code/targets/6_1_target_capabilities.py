@@ -253,7 +253,7 @@ except ValueError as exc:
 # behavior is uncertain — custom OpenAI-compatible endpoints, gateways that strip features, models
 # whose support drifts over time — you can probe what the target *actually* accepts at runtime with
 # `query_target_capabilities_async`, `query_target_modalities_async`, or the convenience wrapper
-# `query_target_async` that runs both and returns a populated `TargetCapabilities`.
+# `query_target_async` that runs both and returns a best-effort `TargetCapabilities`.
 #
 # `query_target_capabilities_async` walks each capability that has a registered probe (currently
 # `SYSTEM_PROMPT`, `MULTI_MESSAGE_PIECES`, `MULTI_TURN`, `JSON_OUTPUT`, `JSON_SCHEMA`), sends a
@@ -266,9 +266,10 @@ except ValueError as exc:
 # `capabilities.input_modalities`, sending a small payload built from optional `test_assets`.
 #
 # Each probe call is bounded by `per_probe_timeout_s` (default 30s) and is retried once on
-# transient errors before being declared failed. "Supported" here means *the request was
-# accepted* — a target that silently ignores a system prompt or `response_format` directive will
-# still be reported as supporting that capability.
+# transient errors before being declared failed. `query_target_async` returns a merged view:
+# probed where possible, declared where probing is unavailable or out of scope. "Supported" here
+# means *the request was accepted* — a target that silently ignores a system prompt or
+# `response_format` directive will still be reported as supporting that capability.
 #
 # These functions are **not safe to call concurrently** with other operations on the same target
 # instance: they temporarily mutate `target._configuration` and write probe rows to
@@ -336,9 +337,9 @@ for capability in sorted(queried, key=lambda c: c.value):
 # ```
 #
 # `query_target_async` is the most common entry point: it runs both the capability and modality
-# probes and assembles a `TargetCapabilities` you can drop straight into a `TargetConfiguration`,
-# so the rest of PyRIT (attacks, scorers, the normalization pipeline) operates on capabilities
-# that have been observed to work end-to-end.
+# probes and assembles a best-effort `TargetCapabilities` you can drop into a
+# `TargetConfiguration`, so the rest of PyRIT operates on probed values where available and
+# declared values otherwise.
 
 # %%
 probe_target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]

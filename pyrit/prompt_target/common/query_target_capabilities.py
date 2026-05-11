@@ -10,9 +10,9 @@ This module exposes two complementary probes:
   defined on :class:`TargetCapabilities` (e.g. ``supports_system_prompt``,
   ``supports_multi_message_pieces``). For each capability that has a probe
   defined, a minimal request is sent to the target. If the request succeeds,
-  the capability is included in the returned set. Capabilities without a
-  registered probe fall back to whatever the target declares via its
-  :class:`TargetConfiguration`.
+    the capability is included in the returned set. Capabilities without a
+    registered probe fall back to the target's declared native support from
+    ``target.capabilities``.
 * :func:`query_target_modalities_async` probes which input modality
   combinations a target actually supports by sending a minimal test request
   for each combination declared in ``TargetCapabilities.input_modalities``.
@@ -51,10 +51,8 @@ from dataclasses import replace
 from pyrit.models import Message, MessagePiece, PromptDataType
 from pyrit.prompt_target.common.prompt_target import PromptTarget
 from pyrit.prompt_target.common.target_capabilities import (
-    CapabilityHandlingPolicy,
     CapabilityName,
     TargetCapabilities,
-    UnsupportedCapabilityBehavior,
 )
 from pyrit.prompt_target.common.target_configuration import TargetConfiguration
 
@@ -72,14 +70,6 @@ PROBE_METADATA_KEY: str = "capability_probe"
 PROBE_METADATA_VALUE: str = "1"
 
 _CapabilityProbe = Callable[[PromptTarget, float, int], Awaitable[bool]]
-
-
-_PROBE_POLICY = CapabilityHandlingPolicy(
-    behaviors={
-        CapabilityName.MULTI_TURN: UnsupportedCapabilityBehavior.RAISE,
-        CapabilityName.SYSTEM_PROMPT: UnsupportedCapabilityBehavior.RAISE,
-    }
-)
 
 
 # Every text probe sends a text-only payload. Permissive overrides therefore
@@ -129,10 +119,13 @@ def _permissive_configuration(
         supports_system_prompt=True,
         input_modalities=merged_modalities,
     )
-    target._configuration = TargetConfiguration(
-        capabilities=permissive_caps,
-        policy=_PROBE_POLICY,
-    )
+    probe_configuration = object.__new__(TargetConfiguration)
+    probe_configuration._capabilities = permissive_caps
+    probe_configuration._policy = original.policy
+    # Keep the original normalization pipeline intact so probing exercises the
+    # target's real request shaping, including custom normalizer overrides.
+    probe_configuration._pipeline = original.pipeline
+    target._configuration = probe_configuration
     try:
         yield
     finally:
@@ -459,42 +452,10 @@ async def query_target_capabilities_async(
     retries: int = 1,
 ) -> set[CapabilityName]:
     """
-    Probe ``target`` to determine which capabilities it actually supports.
+     Probe which capabilities ``target`` accepts.
 
-    For each requested capability that has a registered probe, a minimal
-    request is sent to the target. The capability is treated as supported
-    only if the call returns successfully with no error response. For
-    capabilities without a registered probe, the target's declared
-    **native** support (``target.capabilities.includes(...)``) is used as
-    a fallback. We deliberately do *not* consult
-    ``target.configuration.includes(...)`` here, because that would also
-    return ``True`` for capabilities the target lacks but PyRIT
-    ``ADAPT``s via the :class:`CapabilityHandlingPolicy` — and adaptation
-    is an emulation by PyRIT, not evidence that the target itself supports
-    the capability.
-
-    .. warning::
-       "Supported" here means "the request was accepted", not "the feature
-       was actually applied". A target that silently ignores a system
-       prompt, ``response_format``, or schema directive will still be
-       reported as supporting that capability. Validate response content
-       out of band when correctness matters.
-
-    .. warning::
-       This function is **not safe to call concurrently** with other
-       operations on the same ``target`` instance. It temporarily mutates
-       ``target._configuration`` and writes probe rows to ``target._memory``;
-       concurrent callers may observe the permissive configuration or
-       interleaved memory rows. Probe-written memory rows are tagged with
-       ``prompt_metadata["capability_probe"] == "1"`` so consumers can
-       filter them; memory does not currently expose a delete-by-conversation
-       API, so probe rows persist for the lifetime of the memory backend.
-
-    During probing, the target's configuration is temporarily replaced with
-    one that declares every boolean capability as supported, so that
-    :meth:`PromptTarget._validate_request` does not short-circuit probes for
-    capabilities the target declares as unsupported. The original
-    configuration is restored before this function returns.
+     Registered capabilities are checked with live requests. Capabilities
+     without a live probe fall back to declared native support.
 
     Args:
         target (PromptTarget): The target to probe.
@@ -520,21 +481,21 @@ async def query_target_capabilities_async(
         for capability in capabilities_to_check:
             probe = _CAPABILITY_PROBES.get(capability)
             if probe is None:
-                # No live probe; fall back to whatever the (original) configuration declared.
-                # We're inside the permissive override, so consult the saved configuration directly.
+                # Capabilities without a probe are handled after the permissive
+                # override is removed so we can read the target's native flags.
                 continue
 
             try:
+                # "Supported" means the request was accepted. A target can
+                # still ignore the feature semantics after accepting the call.
                 if await probe(target, per_probe_timeout_s, retries):
                     queried.add(capability)
             except Exception as exc:
                 logger.debug("Probe for %s raised: %s", capability.value, exc)
 
-    # Add capabilities without a probe based on the original (now-restored) NATIVE
-    # support. Using target.capabilities.includes (native flags) rather than
-    # target.configuration.includes (which also returns True for ADAPT'd capabilities)
-    # keeps this function's contract honest: we report only what the target itself
-    # supports, never what PyRIT emulates on top of it.
+    # Read unprobed capabilities from target.capabilities, not
+    # target.configuration, so ADAPTed behavior is not reported as native
+    # support.
     for capability in capabilities_to_check:
         if capability not in _CAPABILITY_PROBES and target.capabilities.includes(capability=capability):
             queried.add(capability)
@@ -563,34 +524,10 @@ async def query_target_modalities_async(
     retries: int = 1,
 ) -> set[frozenset[PromptDataType]]:
     """
-    Probe ``target`` to determine which input modality combinations it supports.
+    Probe which input modality combinations ``target`` accepts.
 
-    Each combination is exercised with a minimal request built by
-    :func:`_create_test_message`. A combination is considered supported only
-    if the request returns successfully with no error response.
-
-    During probing the target's configuration is temporarily replaced with
-    one that declares every boolean capability as natively supported and
-    that includes every probed modality combination in ``input_modalities``,
-    so :meth:`PromptTarget._validate_request` does not short-circuit a probe
-    before any API call is made. The original configuration is restored
-    before this function returns.
-
-    .. warning::
-       "Supported" here means the target accepted the request. A target
-       that accepts e.g. an ``image_path`` piece but ignores its content
-       will still be reported as supporting that modality.
-
-    .. warning::
-       This function is **not safe to call concurrently** with other
-       operations on the same ``target`` instance. It temporarily mutates
-       ``target._configuration`` and writes probe rows to
-       ``target._memory``; concurrent callers may observe the permissive
-       configuration or interleaved memory rows. Probe-written memory rows
-       are tagged with ``prompt_metadata["capability_probe"] == "1"`` so
-       consumers can filter them; memory does not currently expose a
-       delete-by-conversation API, so probe rows persist for the lifetime
-       of the memory backend.
+    Each modality combination is checked with a minimal request built from the
+    supplied test assets.
 
     Args:
         target (PromptTarget): The target to probe.
@@ -625,12 +562,15 @@ async def query_target_modalities_async(
             try:
                 message = _create_test_message(modalities=combination, test_assets=assets)
             except FileNotFoundError as exc:
+                # Skip combinations we cannot construct a valid probe payload for.
                 logger.info("Skipping modality %s: %s", combination, exc)
                 continue
             except ValueError as exc:
                 logger.info("Skipping modality %s: %s", combination, exc)
                 continue
 
+            # "Supported" means the request was accepted. A target may still
+            # ignore the non-text payload after accepting it.
             if await _send_and_check_async(
                 target=target,
                 message=message,
@@ -653,37 +593,11 @@ async def query_target_async(
     retries: int = 1,
 ) -> TargetCapabilities:
     """
-    Probe both capabilities and modalities and return a combined result.
+    Probe capabilities and modalities and return a merged result.
 
-    Calls :func:`query_target_capabilities_async` and
-    :func:`query_target_modalities_async` and returns a
-    :class:`TargetCapabilities` populated from the queried results, so
-    callers don't need to assemble the dataclass themselves.
-
-    Boolean capability flags not covered by
-    :data:`_CAPABILITY_PROBES` (e.g. ``supports_editable_history``) are
-    copied from ``target.capabilities`` (the target's declared native flags).
-    When ``capabilities`` narrows the probe set, capabilities not in the
-    narrowed set are also copied from declared values rather than reset to
-    ``False`` — narrowing controls *what is re-queried*, not what the
-    returned dataclass reports.
-
-    .. warning::
-       By default ``test_modalities`` is sourced from
-       ``target.capabilities.input_modalities`` (the target's *declared*
-       modalities). This means the modality probe cannot discover modalities
-       the target does not already declare. Pass ``test_modalities=`` (and
-       matching ``test_assets=``) explicitly to probe combinations beyond
-       the declared baseline.
-
-    .. warning::
-       This function is **not safe to call concurrently** with other
-       operations on the same ``target`` instance. It temporarily mutates
-       ``target._configuration`` and writes probe rows to
-       ``target._memory``. Probe-written memory rows are tagged with
-       ``prompt_metadata["capability_probe"] == "1"`` so consumers can
-       filter them; memory does not currently expose a delete-by-conversation
-       API, so probe rows persist for the lifetime of the memory backend.
+    This wraps :func:`query_target_capabilities_async` and
+    :func:`query_target_modalities_async` and returns a best-effort
+    :class:`TargetCapabilities`.
 
     Args:
         target (PromptTarget): The target to probe.
@@ -704,14 +618,14 @@ async def query_target_async(
             Defaults to 1.
 
     Returns:
-        TargetCapabilities: A dataclass reflecting queried capabilities and
-        modalities. ``output_modalities`` is copied from
-        ``target.capabilities.output_modalities`` because outputs cannot be
-        queried by sending a request.
+        TargetCapabilities: A merged capability view: probed where possible,
+        declared where probing is unavailable or out of scope.
     """
+    capabilities_to_probe = list(capabilities) if capabilities is not None else None
+
     queried_caps = await query_target_capabilities_async(
         target=target,
-        capabilities=capabilities,
+        capabilities=capabilities_to_probe,
         per_probe_timeout_s=per_probe_timeout_s,
         retries=retries,
     )
@@ -724,24 +638,32 @@ async def query_target_async(
     )
 
     declared = target.capabilities
-    # When ``capabilities`` narrows the probe set, capabilities NOT in the
-    # narrowed set were never probed and must fall back to declared values
-    # rather than being silently reset to False.
-    probed: set[CapabilityName] = set(capabilities) if capabilities is not None else set(CapabilityName)
+    # If the caller narrows the capability set, leave the rest at their
+    # declared values instead of silently forcing them to False.
+    probed: set[CapabilityName] = (
+        set(capabilities_to_probe) if capabilities_to_probe is not None else set(CapabilityName)
+    )
 
     def _resolve(name: CapabilityName) -> bool:
         if name in probed:
             return name in queried_caps
         return bool(getattr(declared, name.value))
 
+    resolved_multi_turn = _resolve(CapabilityName.MULTI_TURN)
+    # Editable history is only meaningful if multi-turn probing/declaration
+    # also resolved to True.
+    resolved_editable_history = declared.supports_editable_history and resolved_multi_turn
+
     return TargetCapabilities(
-        supports_multi_turn=_resolve(CapabilityName.MULTI_TURN),
+        supports_multi_turn=resolved_multi_turn,
         supports_multi_message_pieces=_resolve(CapabilityName.MULTI_MESSAGE_PIECES),
         supports_json_schema=_resolve(CapabilityName.JSON_SCHEMA),
         supports_json_output=_resolve(CapabilityName.JSON_OUTPUT),
-        supports_editable_history=declared.supports_editable_history,
+        supports_editable_history=resolved_editable_history,
         supports_system_prompt=_resolve(CapabilityName.SYSTEM_PROMPT),
         input_modalities=frozenset(queried_modalities),
+        # Output modalities are still declarative because probing them would
+        # require target-specific response inspection.
         output_modalities=declared.output_modalities,
     )
 

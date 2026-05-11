@@ -19,8 +19,10 @@ from pyrit.prompt_target.common.query_target_capabilities import (
     query_target_modalities_async,
 )
 from pyrit.prompt_target.common.target_capabilities import (
+    CapabilityHandlingPolicy,
     CapabilityName,
     TargetCapabilities,
+    UnsupportedCapabilityBehavior,
 )
 from pyrit.prompt_target.common.target_configuration import TargetConfiguration
 from tests.unit.mocks import MockPromptTarget
@@ -355,6 +357,33 @@ class TestQueryTargetCapabilitiesAsync:
         assert send_mock.await_count >= 1
         assert CapabilityName.MULTI_MESSAGE_PIECES in result
 
+    async def test_probed_capability_excluded_when_only_adapted(self) -> None:
+        target = MockPromptTarget()
+        target._configuration = TargetConfiguration(
+            capabilities=TargetCapabilities(supports_system_prompt=False),
+            policy=CapabilityHandlingPolicy(
+                behaviors={
+                    CapabilityName.SYSTEM_PROMPT: UnsupportedCapabilityBehavior.ADAPT,
+                    CapabilityName.MULTI_TURN: UnsupportedCapabilityBehavior.RAISE,
+                }
+            ),
+        )
+
+        async def reject_system_roles(*, normalized_conversation: list[Message]) -> list[Message]:
+            roles = [piece.role for message in normalized_conversation for piece in message.message_pieces]
+            if "system" in roles:
+                raise RuntimeError("system messages are not natively supported")
+            return _ok_response()
+
+        target._send_prompt_to_target_async = AsyncMock(side_effect=reject_system_roles)  # type: ignore[method-assign]
+
+        result = await query_target_capabilities_async(
+            target=target,
+            capabilities={CapabilityName.SYSTEM_PROMPT},
+        )
+
+        assert result == set()
+
 
 @pytest.mark.usefixtures("patch_central_database")
 class TestQueryTargetCapabilitiesIsolatedTarget:
@@ -591,8 +620,8 @@ class TestVerifyTargetAsync:
         """
         ``query_target_async`` runs both the capability and modality probes
         and assembles a :class:`TargetCapabilities` populated from the
-        queried results, copying ``supports_editable_history`` and
-        ``output_modalities`` from the target's declared capabilities.
+        queried results, copying ``output_modalities`` from the target's
+        declared capabilities and deriving editable history conservatively.
         """
         declared = TargetCapabilities(
             supports_editable_history=True,
@@ -611,8 +640,9 @@ class TestVerifyTargetAsync:
         assert result.supports_multi_message_pieces is True
         assert result.supports_json_schema is True
         assert result.supports_json_output is True
-        # Non-probed flags are copied from target.capabilities.
-        assert result.supports_editable_history is True
+        # Editable history is conservative and therefore cannot remain true
+        # when multi-turn support was not confirmed by probing.
+        assert result.supports_editable_history is False
         # Modalities returned from the modality probe (text combination).
         assert frozenset({"text"}) in result.input_modalities
         # Output modalities copied through (not probed).
@@ -622,7 +652,7 @@ class TestVerifyTargetAsync:
         """
         When the underlying send raises, no capability or modality is
         queried, but ``supports_editable_history`` and ``output_modalities``
-        are still copied from the declared capabilities.
+        are still copied conservatively from the declared capabilities.
         """
         declared = TargetCapabilities(
             supports_editable_history=True,
@@ -639,8 +669,9 @@ class TestVerifyTargetAsync:
         assert result.supports_json_output is False
         assert result.supports_json_schema is False
         assert result.supports_multi_message_pieces is False
-        # Non-probed flag preserved.
-        assert result.supports_editable_history is True
+        # Editable history is derived conservatively and must fall when
+        # multi-turn probing disproves the prerequisite capability.
+        assert result.supports_editable_history is False
         # No modalities queried because send always fails.
         assert result.input_modalities == frozenset()
         # Output modalities still copied.
@@ -736,6 +767,48 @@ class TestVerifyTargetAsync:
         assert result.supports_multi_turn is True
         assert result.supports_system_prompt is True
         assert result.supports_json_schema is True
+        assert result.supports_editable_history is True
+
+    async def test_query_target_async_drops_editable_history_when_multi_turn_probe_fails(self) -> None:
+        """Editable history must not remain true when probing disproves multi-turn support."""
+        declared = TargetCapabilities(
+            supports_multi_turn=True,
+            supports_editable_history=True,
+            output_modalities=frozenset({frozenset({"text"})}),
+        )
+        target = MockPromptTarget()
+        target._configuration = TargetConfiguration(capabilities=declared)
+
+        async def selective_send(*, normalized_conversation: list[Message]) -> list[Message]:
+            latest_text = normalized_conversation[-1].message_pieces[0].original_value
+            if latest_text == "My favorite color is blue." or latest_text == "What did I just tell you?":
+                raise RuntimeError("multi-turn unsupported")
+            return _ok_response()
+
+        target._send_prompt_to_target_async = AsyncMock(side_effect=selective_send)  # type: ignore[method-assign]
+
+        result = await query_target_async(target=target, per_probe_timeout_s=2.0)
+
+        assert result.supports_multi_turn is False
+        assert result.supports_editable_history is False
+
+    async def test_query_target_async_accepts_single_pass_iterable(self) -> None:
+        declared = TargetCapabilities(
+            supports_multi_turn=True,
+            supports_editable_history=True,
+        )
+        target = MockPromptTarget()
+        target._configuration = TargetConfiguration(capabilities=declared)
+        target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
+
+        gen = (c for c in [CapabilityName.JSON_OUTPUT, CapabilityName.EDITABLE_HISTORY])
+        result = await query_target_async(
+            target=target,
+            capabilities=gen,
+            per_probe_timeout_s=2.0,
+        )
+
+        assert result.supports_json_output is True
         assert result.supports_editable_history is True
 
 
