@@ -256,6 +256,9 @@ async def _probe_system_prompt_async(target: PromptTarget, timeout_s: float, ret
     Args:
         target (PromptTarget): The target to probe.
         timeout_s (float): Per-attempt timeout in seconds.
+        retries (int): Number of additional attempts after the first failure.
+            Only exceptions/timeouts are retried; an explicit error response
+            is final. Defaults to 1.
 
     Returns:
         bool: ``True`` if the system + user request succeeded; ``False`` otherwise.
@@ -290,6 +293,9 @@ async def _probe_multi_message_pieces_async(target: PromptTarget, timeout_s: flo
     Args:
         target (PromptTarget): The target to probe.
         timeout_s (float): Per-attempt timeout in seconds.
+        retries (int): Number of additional attempts after the first failure.
+            Only exceptions/timeouts are retried; an explicit error response
+            is final. Defaults to 1.
 
     Returns:
         bool: ``True`` if the multi-piece request succeeded; ``False`` otherwise.
@@ -330,6 +336,9 @@ async def _probe_multi_turn_async(target: PromptTarget, timeout_s: float, retrie
     Args:
         target (PromptTarget): The target to probe.
         timeout_s (float): Per-attempt timeout in seconds.
+        retries (int): Number of additional attempts after the first failure.
+            Only exceptions/timeouts are retried; an explicit error response
+            is final. Defaults to 1.
 
     Returns:
         bool: ``True`` if both turns succeeded; ``False`` if either turn failed.
@@ -373,6 +382,9 @@ async def _probe_json_output_async(target: PromptTarget, timeout_s: float, retri
     Args:
         target (PromptTarget): The target to probe.
         timeout_s (float): Per-attempt timeout in seconds.
+        retries (int): Number of additional attempts after the first failure.
+            Only exceptions/timeouts are retried; an explicit error response
+            is final. Defaults to 1.
 
     Returns:
         bool: ``True`` if the JSON-mode request succeeded; ``False`` otherwise.
@@ -397,6 +409,9 @@ async def _probe_json_schema_async(target: PromptTarget, timeout_s: float, retri
     Args:
         target (PromptTarget): The target to probe.
         timeout_s (float): Per-attempt timeout in seconds.
+        retries (int): Number of additional attempts after the first failure.
+            Only exceptions/timeouts are retried; an explicit error response
+            is final. Defaults to 1.
 
     Returns:
         bool: ``True`` if the schema-constrained request succeeded; ``False`` otherwise.
