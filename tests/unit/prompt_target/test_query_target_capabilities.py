@@ -4,7 +4,7 @@
 import asyncio
 import json
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -12,9 +12,9 @@ from pyrit.models import Message, MessagePiece, PromptDataType
 from pyrit.prompt_target.common.prompt_target import PromptTarget
 from pyrit.prompt_target.common.query_target_capabilities import (
     _CAPABILITY_PROBES,
+    DEFAULT_TEST_ASSETS,
     _create_test_message,
     _permissive_configuration,
-    DEFAULT_TEST_ASSETS,
     query_target_async,
     query_target_capabilities_async,
     query_target_modalities_async,
