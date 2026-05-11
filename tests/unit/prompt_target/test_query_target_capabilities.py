@@ -4,7 +4,7 @@
 import asyncio
 import json
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -12,9 +12,9 @@ from pyrit.models import Message, MessagePiece, PromptDataType
 from pyrit.prompt_target.common.prompt_target import PromptTarget
 from pyrit.prompt_target.common.query_target_capabilities import (
     _CAPABILITY_PROBES,
-    DEFAULT_TEST_ASSETS,
     _create_test_message,
     _permissive_configuration,
+    DEFAULT_TEST_ASSETS,
     query_target_async,
     query_target_capabilities_async,
     query_target_modalities_async,
@@ -611,14 +611,14 @@ class TestSystemPromptProbeMemoryFailure:
         the user send.
         """
         target = MockPromptTarget()
-        target._memory.add_message_to_memory = MagicMock(side_effect=RuntimeError("memory offline"))  # type: ignore[method-assign]
         send_mock = AsyncMock(return_value=_ok_response())
         target._send_prompt_to_target_async = send_mock  # type: ignore[method-assign]
 
-        result = await query_target_capabilities_async(
-            target=target,
-            capabilities={CapabilityName.SYSTEM_PROMPT},
-        )
+        with patch.object(target._memory, "add_message_to_memory", side_effect=RuntimeError("memory offline")):
+            result = await query_target_capabilities_async(
+                target=target,
+                capabilities={CapabilityName.SYSTEM_PROMPT},
+            )
 
         assert result == set()
         # The user send is never attempted because seeding failed.
@@ -834,12 +834,12 @@ class TestMultiTurnProbeMemoryFailure:
         target = MockPromptTarget()
         send_mock = AsyncMock(return_value=_ok_response())
         target._send_prompt_to_target_async = send_mock  # type: ignore[method-assign]
-        target._memory.add_message_to_memory = MagicMock(side_effect=RuntimeError("memory offline"))  # type: ignore[method-assign]
 
-        result = await query_target_capabilities_async(
-            target=target,
-            capabilities={CapabilityName.MULTI_TURN},
-        )
+        with patch.object(target._memory, "add_message_to_memory", side_effect=RuntimeError("memory offline")):
+            result = await query_target_capabilities_async(
+                target=target,
+                capabilities={CapabilityName.MULTI_TURN},
+            )
 
         assert result == set()
         # The first turn ran (1 send); the second turn must NOT run because
