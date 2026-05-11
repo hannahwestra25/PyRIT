@@ -6,14 +6,14 @@ Runtime capability and modality discovery for prompt targets.
 
 This module exposes two complementary probes:
 
-* :func:`query_target_capabilities_async` probes the boolean capability flags
+* :func:`discover_target_capabilities_async` discovers the boolean capability flags
   defined on :class:`TargetCapabilities` (e.g. ``supports_system_prompt``,
   ``supports_multi_message_pieces``). For each capability that has a probe
   defined, a minimal request is sent to the target. If the request succeeds,
     the capability is included in the returned set. Capabilities without a
     registered probe fall back to the target's declared native support from
     ``target.capabilities``.
-* :func:`query_target_modalities_async` probes which input modality
+* :func:`discover_target_modalities_async` discovers which input modality
   combinations a target actually supports by sending a minimal test request
   for each combination declared in ``TargetCapabilities.input_modalities``.
 
@@ -55,7 +55,7 @@ from pyrit.prompt_target.common.target_configuration import TargetConfiguration
 
 logger = logging.getLogger(__name__)
 
-# Per-call timeout (seconds) applied to every probe request. Override per-call via
+# Per-call timeout (seconds) applied to every discovery request. Override per-call via
 # the ``per_probe_timeout_s`` parameter on the public functions.
 DEFAULT_PROBE_TIMEOUT_SECONDS: float = 30.0
 
@@ -74,7 +74,7 @@ _CapabilityProbe = Callable[[PromptTarget, float, int], Awaitable[bool]]
 # data-type check does not reject text probes against text-less targets.
 _TEXT_MODALITY: frozenset[frozenset[PromptDataType]] = frozenset({frozenset({"text"})})
 
-# Packaged fallback assets for non-text modality probes.
+# Packaged fallback assets for non-text modality discovery.
 _TARGET_CAPABILITIES_DATASET_PATH = DATASETS_PATH / "prompt_target" / "target_capabilities"
 
 
@@ -448,7 +448,7 @@ _CAPABILITY_PROBES: dict[CapabilityName, _CapabilityProbe] = {
 }
 
 
-async def query_target_capabilities_async(
+async def discover_target_capabilities_async(
     *,
     target: PromptTarget,
     capabilities: Iterable[CapabilityName] | None = None,
@@ -514,7 +514,7 @@ async def query_target_capabilities_async(
 
 # Default mapping of non-text modalities to packaged probe assets. Callers can
 # override via the ``test_assets`` parameter of
-# :func:`query_target_modalities_async`. Modalities whose assets do not exist
+# :func:`discover_target_modalities_async`. Modalities whose assets do not exist
 # on disk are skipped (logged and excluded from the result).
 DEFAULT_TEST_ASSETS: dict[PromptDataType, str] = {
     "audio_path": str(_TARGET_CAPABILITIES_DATASET_PATH / "probe_audio.wav"),
@@ -522,7 +522,7 @@ DEFAULT_TEST_ASSETS: dict[PromptDataType, str] = {
 }
 
 
-async def query_target_modalities_async(
+async def discover_target_modalities_async(
     *,
     target: PromptTarget,
     test_modalities: set[frozenset[PromptDataType]] | None = None,
@@ -590,7 +590,7 @@ async def query_target_modalities_async(
     return queried
 
 
-async def query_target_async(
+async def discover_target_async(
     *,
     target: PromptTarget,
     per_probe_timeout_s: float = DEFAULT_PROBE_TIMEOUT_SECONDS,
@@ -602,8 +602,8 @@ async def query_target_async(
     """
     Probe capabilities and modalities and return a merged result.
 
-    This wraps :func:`query_target_capabilities_async` and
-    :func:`query_target_modalities_async` and returns a best-effort
+    This wraps :func:`discover_target_capabilities_async` and
+    :func:`discover_target_modalities_async` and returns a best-effort
     :class:`TargetCapabilities`.
 
     Args:
@@ -612,12 +612,12 @@ async def query_target_async(
             each probe request.
         test_modalities (set[frozenset[PromptDataType]] | None): Specific
             modality combinations to probe. See
-            :func:`query_target_modalities_async`. Defaults to the
+            :func:`discover_target_modalities_async`. Defaults to the
             target's declared ``input_modalities``.
         test_assets (dict[PromptDataType, str] | None): Mapping from non-text
-            modality to a file path. See :func:`query_target_modalities_async`.
+            modality to a file path. See :func:`discover_target_modalities_async`.
         capabilities (Iterable[CapabilityName] | None): Capabilities to probe.
-            See :func:`query_target_capabilities_async`. Defaults to every
+            See :func:`discover_target_capabilities_async`. Defaults to every
             member of :class:`CapabilityName`.
         retries (int): Number of additional attempts after the first failure
             for each probe. Only exceptions/timeouts are retried; an explicit
@@ -630,13 +630,13 @@ async def query_target_async(
     """
     capabilities_to_probe = list(capabilities) if capabilities is not None else None
 
-    queried_caps = await query_target_capabilities_async(
+    queried_caps = await discover_target_capabilities_async(
         target=target,
         capabilities=capabilities_to_probe,
         per_probe_timeout_s=per_probe_timeout_s,
         retries=retries,
     )
-    queried_modalities = await query_target_modalities_async(
+    queried_modalities = await discover_target_modalities_async(
         target=target,
         test_modalities=test_modalities,
         test_assets=test_assets,

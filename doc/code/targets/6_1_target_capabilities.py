@@ -247,26 +247,26 @@ except ValueError as exc:
     print(exc)
 
 # %% [markdown]
-# ## 7. Querying live target capabilities
+# ## 7. Discovering live target capabilities
 #
 # Declared capabilities describe what a target *should* support. For deployments where the actual
 # behavior is uncertain — custom OpenAI-compatible endpoints, gateways that strip features, models
 # whose support drifts over time — you can probe what the target *actually* accepts at runtime with
-# `query_target_capabilities_async`, `query_target_modalities_async`, or the convenience wrapper
-# `query_target_async` that runs both and returns a best-effort `TargetCapabilities`.
+# `discover_target_capabilities_async`, `discover_target_modalities_async`, or the convenience wrapper
+# `discover_target_async` that runs both and returns a best-effort `TargetCapabilities`.
 #
-# `query_target_capabilities_async` walks each capability that has a registered probe (currently
+# `discover_target_capabilities_async` walks each capability that has a registered probe (currently
 # `SYSTEM_PROMPT`, `MULTI_MESSAGE_PIECES`, `MULTI_TURN`, `JSON_OUTPUT`, `JSON_SCHEMA`), sends a
 # minimal request, and includes the capability in the returned set only if the call succeeds.
 # During probing the target's configuration is temporarily replaced with a permissive one so
 # `ensure_can_handle` does not short-circuit a probe for a capability the target declares as
 # unsupported. The original configuration is restored before the function returns.
 #
-# `query_target_modalities_async` does the same for input modality combinations declared in
+# `discover_target_modalities_async` does the same for input modality combinations declared in
 # `capabilities.input_modalities`, sending a small payload built from optional `test_assets`.
 #
 # Each probe call is bounded by `per_probe_timeout_s` (default 30s) and is retried once on
-# transient errors before being declared failed. `query_target_async` returns a merged view:
+# transient errors before being declared failed. `discover_target_async` returns a merged view:
 # probed where possible, declared where probing is unavailable or out of scope. "Supported" here
 # means *the request was accepted* — a target that silently ignores a system prompt or
 # `response_format` directive will still be reported as supporting that capability.
@@ -279,9 +279,9 @@ except ValueError as exc:
 # Typical usage against a real endpoint:
 #
 # ```python
-# from pyrit.prompt_target import query_target_async
+# from pyrit.prompt_target import discover_target_async
 #
-# queried = await query_target_async(target=target)
+# queried = await discover_target_async(target=target)
 # print(queried)
 # ```
 #
@@ -295,9 +295,9 @@ from unittest.mock import AsyncMock
 
 from pyrit.models import MessagePiece
 from pyrit.prompt_target import (
-    query_target_async,
-    query_target_capabilities_async,
-    query_target_modalities_async,
+    discover_target_async,
+    discover_target_capabilities_async,
+    discover_target_modalities_async,
 )
 
 
@@ -320,7 +320,7 @@ def _ok_response():
 probe_target = OpenAIChatTarget(model_name="gpt-4o", endpoint="https://example.invalid/", api_key="sk-not-a-real-key")
 probe_target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
 
-queried = await query_target_capabilities_async(target=probe_target, per_probe_timeout_s=5.0)  # type: ignore
+queried = await discover_target_capabilities_async(target=probe_target, per_probe_timeout_s=5.0)  # type: ignore
 print("queried capabilities:")
 for capability in sorted(queried, key=lambda c: c.value):
     print(f"  - {capability.value}")
@@ -331,19 +331,19 @@ for capability in sorted(queried, key=lambda c: c.value):
 # ```python
 # from pyrit.prompt_target.common.target_capabilities import CapabilityName
 #
-# queried = await query_target_capabilities_async(
+# queried = await discover_target_capabilities_async(
 #     target=target,
 #     capabilities=[CapabilityName.JSON_SCHEMA, CapabilityName.SYSTEM_PROMPT],
 # )
 # ```
 #
 # If you only care about accepted input combinations, call
-# `query_target_modalities_async` directly. The example below uses the
+# `discover_target_modalities_async` directly. The example below uses the
 # packaged default probe assets for the non-text modalities PyRIT ships.
 # Pass `test_assets=` only when you want to override those defaults or probe
 # a modality without a packaged asset.
 #
-# `query_target_async` is the most common entry point: it runs both the capability and modality
+# `discover_target_async` is the most common entry point: it runs both the capability and modality
 # probes and assembles a best-effort `TargetCapabilities` you can drop into a
 # `TargetConfiguration`, so the rest of PyRIT operates on probed values where available and
 # declared values otherwise.
@@ -351,21 +351,21 @@ for capability in sorted(queried, key=lambda c: c.value):
 # %%
 probe_target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
 
-queried_modalities = await query_target_modalities_async(
+queried_modalities = await discover_target_modalities_async(
     target=probe_target,
     test_modalities={frozenset({"text"}), frozenset({"text", "image_path"})},
     per_probe_timeout_s=5.0,
 )  # type: ignore
 
-print("query_target_modalities_async result:")
+print("discover_target_modalities_async result:")
 for combination in sorted(sorted(m) for m in queried_modalities):
     print(f"  - {combination}")
 
 # %%
 probe_target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
 
-queried_caps = await query_target_async(target=probe_target, per_probe_timeout_s=5.0)  # type: ignore
-print("query_target_async result:")
+queried_caps = await discover_target_async(target=probe_target, per_probe_timeout_s=5.0)  # type: ignore
+print("discover_target_async result:")
 print(f"  supports_multi_turn:           {queried_caps.supports_multi_turn}")
 print(f"  supports_system_prompt:        {queried_caps.supports_system_prompt}")
 print(f"  supports_multi_message_pieces: {queried_caps.supports_multi_message_pieces}")
@@ -376,14 +376,14 @@ print(f"  input_modalities:              {sorted(sorted(m) for m in queried_caps
 # %% [markdown]
 # ### Discovering undeclared modalities
 #
-# By default `query_target_async` only probes modality combinations the target already
+# By default `discover_target_async` only probes modality combinations the target already
 # **declares** in `capabilities.input_modalities`. For an OpenAI-compatible endpoint that
 # claims text-only but might actually accept images, pass `test_modalities=` explicitly to
 # probe combinations beyond the declared baseline. Provide `test_assets=` as well if you need
 # to override the packaged defaults or probe a modality without one:
 #
 # ```python
-# queried = await query_target_async(
+# queried = await discover_target_async(
 #     target=target,
 #     test_modalities={frozenset({"text"}), frozenset({"text", "image_path"})},
 #     test_assets={"image_path": "/path/to/test_image.png"},
@@ -397,7 +397,7 @@ print(f"  input_modalities:              {sorted(sorted(m) for m in queried_caps
 #
 # ```python
 # # Re-query only JSON support; other declared flags pass through unchanged.
-# queried = await query_target_async(
+# queried = await discover_target_async(
 #     target=target,
 #     capabilities={CapabilityName.JSON_OUTPUT, CapabilityName.JSON_SCHEMA},
 # )

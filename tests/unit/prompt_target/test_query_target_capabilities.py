@@ -15,9 +15,9 @@ from pyrit.prompt_target.common.query_target_capabilities import (
     DEFAULT_TEST_ASSETS,
     _create_test_message,
     _permissive_configuration,
-    query_target_async,
-    query_target_capabilities_async,
-    query_target_modalities_async,
+    discover_target_async,
+    discover_target_capabilities_async,
+    discover_target_modalities_async,
 )
 from pyrit.prompt_target.common.target_capabilities import (
     CapabilityHandlingPolicy,
@@ -109,7 +109,7 @@ class TestQueryTargetCapabilitiesAsync:
         target = MockPromptTarget()
         target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
 
-        result = await query_target_capabilities_async(target=target)
+        result = await discover_target_capabilities_async(target=target)
 
         # Every capability with a probe should be in the result.
         for capability in _CAPABILITY_PROBES:
@@ -119,7 +119,7 @@ class TestQueryTargetCapabilitiesAsync:
         target = MockPromptTarget()
         target._send_prompt_to_target_async = AsyncMock(side_effect=Exception("nope"))  # type: ignore[method-assign]
 
-        result = await query_target_capabilities_async(target=target)
+        result = await discover_target_capabilities_async(target=target)
 
         for capability in _CAPABILITY_PROBES:
             assert capability not in result
@@ -128,7 +128,7 @@ class TestQueryTargetCapabilitiesAsync:
         target = MockPromptTarget()
         target._send_prompt_to_target_async = AsyncMock(return_value=_error_response())  # type: ignore[method-assign]
 
-        result = await query_target_capabilities_async(target=target)
+        result = await discover_target_capabilities_async(target=target)
 
         for capability in _CAPABILITY_PROBES:
             assert capability not in result
@@ -138,7 +138,7 @@ class TestQueryTargetCapabilitiesAsync:
         target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
 
         requested = {CapabilityName.SYSTEM_PROMPT, CapabilityName.MULTI_TURN}
-        result = await query_target_capabilities_async(target=target, capabilities=requested)
+        result = await discover_target_capabilities_async(target=target, capabilities=requested)
 
         assert result == requested
 
@@ -150,7 +150,7 @@ class TestQueryTargetCapabilitiesAsync:
         )
         target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
 
-        result = await query_target_capabilities_async(
+        result = await discover_target_capabilities_async(
             target=target,
             capabilities={CapabilityName.EDITABLE_HISTORY},
         )
@@ -163,7 +163,7 @@ class TestQueryTargetCapabilitiesAsync:
         target._configuration = TargetConfiguration(capabilities=TargetCapabilities())
         target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
 
-        result = await query_target_capabilities_async(
+        result = await discover_target_capabilities_async(
             target=target,
             capabilities={CapabilityName.EDITABLE_HISTORY},
         )
@@ -199,7 +199,7 @@ class TestQueryTargetCapabilitiesAsync:
             ),
         )
 
-        result = await query_target_capabilities_async(
+        result = await discover_target_capabilities_async(
             target=target,
             capabilities={CapabilityName.SYSTEM_PROMPT},
         )
@@ -215,7 +215,7 @@ class TestQueryTargetCapabilitiesAsync:
         target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
 
         gen = (c for c in [CapabilityName.SYSTEM_PROMPT, CapabilityName.EDITABLE_HISTORY])
-        result = await query_target_capabilities_async(target=target, capabilities=gen)
+        result = await discover_target_capabilities_async(target=target, capabilities=gen)
 
         assert CapabilityName.SYSTEM_PROMPT in result
         assert CapabilityName.EDITABLE_HISTORY in result
@@ -224,7 +224,7 @@ class TestQueryTargetCapabilitiesAsync:
         target = MockPromptTarget()
         target._send_prompt_to_target_async = AsyncMock(side_effect=Exception("boom"))  # type: ignore[method-assign]
 
-        result = await query_target_capabilities_async(
+        result = await discover_target_capabilities_async(
             target=target,
             capabilities={CapabilityName.JSON_OUTPUT},
             retries=0,
@@ -238,7 +238,7 @@ class TestQueryTargetCapabilitiesAsync:
         original = target.configuration
         target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
 
-        await query_target_capabilities_async(target=target)
+        await discover_target_capabilities_async(target=target)
 
         assert target.configuration is original
 
@@ -246,7 +246,7 @@ class TestQueryTargetCapabilitiesAsync:
         target = MockPromptTarget()
         target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
 
-        await query_target_capabilities_async(
+        await discover_target_capabilities_async(
             target=target,
             capabilities={CapabilityName.MULTI_TURN},
         )
@@ -274,7 +274,7 @@ class TestQueryTargetCapabilitiesAsync:
         target = MockPromptTarget()
         target._send_prompt_to_target_async = AsyncMock(side_effect=Exception("first call fails"))  # type: ignore[method-assign]
 
-        result = await query_target_capabilities_async(
+        result = await discover_target_capabilities_async(
             target=target,
             capabilities={CapabilityName.MULTI_TURN},
         )
@@ -288,7 +288,7 @@ class TestQueryTargetCapabilitiesAsync:
         target = MockPromptTarget()
         target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
 
-        await query_target_capabilities_async(
+        await discover_target_capabilities_async(
             target=target,
             capabilities={CapabilityName.JSON_SCHEMA},
         )
@@ -305,7 +305,7 @@ class TestQueryTargetCapabilitiesAsync:
         target = MockPromptTarget()
         target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
 
-        await query_target_capabilities_async(
+        await discover_target_capabilities_async(
             target=target,
             capabilities={CapabilityName.SYSTEM_PROMPT},
         )
@@ -327,7 +327,7 @@ class TestQueryTargetCapabilitiesAsync:
         target = MockPromptTarget()
         target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
 
-        await query_target_capabilities_async(
+        await discover_target_capabilities_async(
             target=target,
             capabilities={CapabilityName.MULTI_MESSAGE_PIECES},
         )
@@ -347,7 +347,7 @@ class TestQueryTargetCapabilitiesAsync:
         send_mock = AsyncMock(return_value=_ok_response())
         target._send_prompt_to_target_async = send_mock  # type: ignore[method-assign]
 
-        result = await query_target_capabilities_async(
+        result = await discover_target_capabilities_async(
             target=target,
             capabilities={CapabilityName.MULTI_MESSAGE_PIECES},
         )
@@ -378,7 +378,7 @@ class TestQueryTargetCapabilitiesAsync:
 
         target._send_prompt_to_target_async = AsyncMock(side_effect=reject_system_roles)  # type: ignore[method-assign]
 
-        result = await query_target_capabilities_async(
+        result = await discover_target_capabilities_async(
             target=target,
             capabilities={CapabilityName.SYSTEM_PROMPT},
         )
@@ -398,7 +398,7 @@ class TestQueryTargetCapabilitiesIsolatedTarget:
         target = _MinimalTarget()
         target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
 
-        result = await query_target_capabilities_async(target=target)
+        result = await discover_target_capabilities_async(target=target)
 
         for capability in _CAPABILITY_PROBES:
             assert capability in result
@@ -480,7 +480,7 @@ class TestVerifyTargetModalitiesAsync:
         _set_input_modalities(target=target, modalities={frozenset({"text"})})
         target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
 
-        result = await query_target_modalities_async(target=target)
+        result = await discover_target_modalities_async(target=target)
 
         assert frozenset({"text"}) in result
 
@@ -489,7 +489,7 @@ class TestVerifyTargetModalitiesAsync:
         _set_input_modalities(target=target, modalities={frozenset({"text"})})
         target._send_prompt_to_target_async = AsyncMock(side_effect=Exception("nope"))  # type: ignore[method-assign]
 
-        result = await query_target_modalities_async(target=target)
+        result = await discover_target_modalities_async(target=target)
 
         assert result == set()
 
@@ -498,7 +498,7 @@ class TestVerifyTargetModalitiesAsync:
         _set_input_modalities(target=target, modalities={frozenset({"text"})})
         target._send_prompt_to_target_async = AsyncMock(return_value=_error_response())  # type: ignore[method-assign]
 
-        result = await query_target_modalities_async(target=target)
+        result = await discover_target_modalities_async(target=target)
 
         assert result == set()
 
@@ -518,7 +518,7 @@ class TestVerifyTargetModalitiesAsync:
 
         target._send_prompt_to_target_async = selective_send  # type: ignore[method-assign]
 
-        result = await query_target_modalities_async(
+        result = await discover_target_modalities_async(
             target=target,
             test_assets={"image_path": image_asset},
         )
@@ -532,7 +532,7 @@ class TestVerifyTargetModalitiesAsync:
         _set_input_modalities(target=target, modalities={frozenset({"text"})})
         target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
 
-        result = await query_target_modalities_async(
+        result = await discover_target_modalities_async(
             target=target,
             test_modalities={frozenset({"text"}), frozenset({"text", "image_path"})},
             test_assets={"image_path": image_asset},
@@ -548,7 +548,7 @@ class TestVerifyTargetModalitiesAsync:
 
         # An explicit empty mapping disables the packaged defaults, so
         # image_path combinations are skipped instead of probed.
-        result = await query_target_modalities_async(target=target, test_assets={})
+        result = await discover_target_modalities_async(target=target, test_assets={})
 
         assert result == set()
         assert target._send_prompt_to_target_async.await_count == 0
@@ -564,7 +564,7 @@ class TestVerifyTargetModalitiesAsync:
         send_mock = AsyncMock(return_value=_ok_response())
         target._send_prompt_to_target_async = send_mock  # type: ignore[method-assign]
 
-        result = await query_target_modalities_async(
+        result = await discover_target_modalities_async(
             target=target,
             test_modalities={frozenset({"text", "image_path"})},
             test_assets={"image_path": image_asset},
@@ -591,7 +591,7 @@ class TestSendAndCheckTimeout:
 
         target._send_prompt_to_target_async = AsyncMock(side_effect=_hang)  # type: ignore[method-assign]
 
-        result = await query_target_capabilities_async(
+        result = await discover_target_capabilities_async(
             target=target,
             capabilities={CapabilityName.JSON_OUTPUT},
             per_probe_timeout_s=0.01,
@@ -615,7 +615,7 @@ class TestSystemPromptProbeMemoryFailure:
         target._send_prompt_to_target_async = send_mock  # type: ignore[method-assign]
 
         with patch.object(target._memory, "add_message_to_memory", side_effect=RuntimeError("memory offline")):
-            result = await query_target_capabilities_async(
+            result = await discover_target_capabilities_async(
                 target=target,
                 capabilities={CapabilityName.SYSTEM_PROMPT},
             )
@@ -629,7 +629,7 @@ class TestSystemPromptProbeMemoryFailure:
 class TestVerifyTargetAsync:
     async def test_returns_target_capabilities_assembled_from_probes(self) -> None:
         """
-        ``query_target_async`` runs both the capability and modality probes
+        ``discover_target_async`` runs both the capability and modality probes
         and assembles a :class:`TargetCapabilities` populated from the
         queried results, copying ``output_modalities`` from the target's
         declared capabilities and deriving editable history conservatively.
@@ -642,7 +642,7 @@ class TestVerifyTargetAsync:
         target._configuration = TargetConfiguration(capabilities=declared)
         target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
 
-        result = await query_target_async(target=target, per_probe_timeout_s=5.0)
+        result = await discover_target_async(target=target, per_probe_timeout_s=5.0)
 
         assert isinstance(result, TargetCapabilities)
         # Single-piece probes that don't touch memory always succeed when
@@ -672,7 +672,7 @@ class TestVerifyTargetAsync:
         target._configuration = TargetConfiguration(capabilities=declared)
         target._send_prompt_to_target_async = AsyncMock(side_effect=RuntimeError("boom"))  # type: ignore[method-assign]
 
-        result = await query_target_async(target=target, per_probe_timeout_s=0.5)
+        result = await discover_target_async(target=target, per_probe_timeout_s=0.5)
 
         assert result.supports_multi_turn is False
         assert result.supports_system_prompt is False
@@ -692,7 +692,7 @@ class TestVerifyTargetAsync:
         target = MockPromptTarget()
         target._send_prompt_to_target_async = AsyncMock(return_value=[])  # type: ignore[method-assign]
 
-        result = await query_target_capabilities_async(
+        result = await discover_target_capabilities_async(
             target=target,
             capabilities={CapabilityName.JSON_OUTPUT, CapabilityName.MULTI_MESSAGE_PIECES},
         )
@@ -709,21 +709,21 @@ class TestVerifyTargetAsync:
         empty_msg = target._send_prompt_to_target_async.return_value[0]
         empty_msg.message_pieces = []
 
-        result = await query_target_capabilities_async(
+        result = await discover_target_capabilities_async(
             target=target,
             capabilities={CapabilityName.JSON_OUTPUT},
         )
 
         assert result == set()
 
-    async def test_query_target_async_forwards_test_modalities(self, image_asset: str) -> None:
+    async def test_discover_target_async_forwards_test_modalities(self, image_asset: str) -> None:
         declared = TargetCapabilities(input_modalities=frozenset({frozenset({"text"})}))
         target = MockPromptTarget()
         target._configuration = TargetConfiguration(capabilities=declared)
         target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())
 
         extra_combo = frozenset({"text", "image_path"})
-        result = await query_target_async(
+        result = await discover_target_async(
             target=target,
             test_modalities={extra_combo},
             test_assets={"image_path": image_asset},
@@ -733,12 +733,12 @@ class TestVerifyTargetAsync:
         # The undeclared combination is in the result only if test_modalities was forwarded.
         assert extra_combo in result.input_modalities
 
-    async def test_query_target_async_forwards_capabilities(self) -> None:
-        """``query_target_async`` must forward ``capabilities`` to narrow the probe set."""
+    async def test_discover_target_async_forwards_capabilities(self) -> None:
+        """``discover_target_async`` must forward ``capabilities`` to narrow the probe set."""
         target = MockPromptTarget()
         target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
 
-        await query_target_async(
+        await discover_target_async(
             target=target,
             capabilities={CapabilityName.JSON_OUTPUT},
             per_probe_timeout_s=2.0,
@@ -749,7 +749,7 @@ class TestVerifyTargetAsync:
         # because multi-turn issues 2 sends).
         assert target._send_prompt_to_target_async.await_count <= 3
 
-    async def test_query_target_async_preserves_declared_when_capabilities_narrowed(self) -> None:
+    async def test_discover_target_async_preserves_declared_when_capabilities_narrowed(self) -> None:
         """
         When ``capabilities`` narrows the probe set, capabilities NOT in the
         narrowed set must fall back to the target's declared values rather
@@ -765,7 +765,7 @@ class TestVerifyTargetAsync:
         target._configuration = TargetConfiguration(capabilities=declared)
         target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
 
-        result = await query_target_async(
+        result = await discover_target_async(
             target=target,
             capabilities={CapabilityName.JSON_OUTPUT},
             per_probe_timeout_s=2.0,
@@ -779,7 +779,7 @@ class TestVerifyTargetAsync:
         assert result.supports_json_schema is True
         assert result.supports_editable_history is True
 
-    async def test_query_target_async_drops_editable_history_when_multi_turn_probe_fails(self) -> None:
+    async def test_discover_target_async_drops_editable_history_when_multi_turn_probe_fails(self) -> None:
         """Editable history must not remain true when probing disproves multi-turn support."""
         declared = TargetCapabilities(
             supports_multi_turn=True,
@@ -797,12 +797,12 @@ class TestVerifyTargetAsync:
 
         target._send_prompt_to_target_async = AsyncMock(side_effect=selective_send)  # type: ignore[method-assign]
 
-        result = await query_target_async(target=target, per_probe_timeout_s=2.0)
+        result = await discover_target_async(target=target, per_probe_timeout_s=2.0)
 
         assert result.supports_multi_turn is False
         assert result.supports_editable_history is False
 
-    async def test_query_target_async_accepts_single_pass_iterable(self) -> None:
+    async def test_discover_target_async_accepts_single_pass_iterable(self) -> None:
         declared = TargetCapabilities(
             supports_multi_turn=True,
             supports_editable_history=True,
@@ -812,7 +812,7 @@ class TestVerifyTargetAsync:
         target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
 
         gen = (c for c in [CapabilityName.JSON_OUTPUT, CapabilityName.EDITABLE_HISTORY])
-        result = await query_target_async(
+        result = await discover_target_async(
             target=target,
             capabilities=gen,
             per_probe_timeout_s=2.0,
@@ -835,7 +835,7 @@ class TestMultiTurnProbeMemoryFailure:
         target._send_prompt_to_target_async = send_mock  # type: ignore[method-assign]
 
         with patch.object(target._memory, "add_message_to_memory", side_effect=RuntimeError("memory offline")):
-            result = await query_target_capabilities_async(
+            result = await discover_target_capabilities_async(
                 target=target,
                 capabilities={CapabilityName.MULTI_TURN},
             )
