@@ -635,7 +635,6 @@ class TestVerifyTargetAsync:
         declared capabilities and deriving editable history conservatively.
         """
         declared = TargetCapabilities(
-            supports_editable_history=True,
             input_modalities=frozenset({frozenset({"text"})}),
             output_modalities=frozenset({frozenset({"text"})}),
         )
