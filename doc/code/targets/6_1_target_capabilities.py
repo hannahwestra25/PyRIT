@@ -252,8 +252,8 @@ except ValueError as exc:
 # Declared capabilities describe what a target *should* support. For deployments where the actual
 # behavior is uncertain — custom OpenAI-compatible endpoints, gateways that strip features, models
 # whose support drifts over time — you can probe what the target *actually* accepts at runtime with
-# `query_target_capabilities_async`, `verify_target_modalities_async`, or the convenience wrapper
-# `verify_target_async` that runs both and returns a populated `TargetCapabilities`.
+# `query_target_capabilities_async`, `query_target_modalities_async`, or the convenience wrapper
+# `query_target_async` that runs both and returns a populated `TargetCapabilities`.
 #
 # `query_target_capabilities_async` walks each capability that has a registered probe (currently
 # `SYSTEM_PROMPT`, `MULTI_MESSAGE_PIECES`, `MULTI_TURN`, `JSON_OUTPUT`, `JSON_SCHEMA`), sends a
@@ -262,7 +262,7 @@ except ValueError as exc:
 # `ensure_can_handle` does not short-circuit a probe for a capability the target declares as
 # unsupported. The original configuration is restored before the function returns.
 #
-# `verify_target_modalities_async` does the same for input modality combinations declared in
+# `query_target_modalities_async` does the same for input modality combinations declared in
 # `capabilities.input_modalities`, sending a small payload built from optional `test_assets`.
 #
 # Each probe call is bounded by `per_probe_timeout_s` (default 30s) and is retried once on
@@ -278,10 +278,10 @@ except ValueError as exc:
 # Typical usage against a real endpoint:
 #
 # ```python
-# from pyrit.prompt_target import verify_target_async
+# from pyrit.prompt_target import query_target_async
 #
-# verified = await verify_target_async(target=target)
-# print(verified)
+# queried = await query_target_async(target=target)
+# print(queried)
 # ```
 #
 # Below we mock the target's underlying transport (`_send_prompt_to_target_async`) so the notebook
@@ -294,8 +294,8 @@ from unittest.mock import AsyncMock
 
 from pyrit.models import MessagePiece
 from pyrit.prompt_target import (
+    query_target_async,
     query_target_capabilities_async,
-    verify_target_async,
 )
 
 
@@ -318,9 +318,9 @@ def _ok_response():
 probe_target = OpenAIChatTarget(model_name="gpt-4o", endpoint="https://example.invalid/", api_key="sk-not-a-real-key")
 probe_target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
 
-verified = await query_target_capabilities_async(target=probe_target, per_probe_timeout_s=5.0)  # type: ignore
-print("verified capabilities:")
-for capability in sorted(verified, key=lambda c: c.value):
+queried = await query_target_capabilities_async(target=probe_target, per_probe_timeout_s=5.0)  # type: ignore
+print("queried capabilities:")
+for capability in sorted(queried, key=lambda c: c.value):
     print(f"  - {capability.value}")
 
 # %% [markdown]
@@ -329,13 +329,13 @@ for capability in sorted(verified, key=lambda c: c.value):
 # ```python
 # from pyrit.prompt_target.common.target_capabilities import CapabilityName
 #
-# verified = await query_target_capabilities_async(
+# queried = await query_target_capabilities_async(
 #     target=target,
 #     capabilities=[CapabilityName.JSON_SCHEMA, CapabilityName.SYSTEM_PROMPT],
 # )
 # ```
 #
-# `verify_target_async` is the most common entry point: it runs both the capability and modality
+# `query_target_async` is the most common entry point: it runs both the capability and modality
 # probes and assembles a `TargetCapabilities` you can drop straight into a `TargetConfiguration`,
 # so the rest of PyRIT (attacks, scorers, the normalization pipeline) operates on capabilities
 # that have been observed to work end-to-end.
@@ -343,25 +343,25 @@ for capability in sorted(verified, key=lambda c: c.value):
 # %%
 probe_target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
 
-verified_caps = await verify_target_async(target=probe_target, per_probe_timeout_s=5.0)  # type: ignore
-print("verify_target_async result:")
-print(f"  supports_multi_turn:           {verified_caps.supports_multi_turn}")
-print(f"  supports_system_prompt:        {verified_caps.supports_system_prompt}")
-print(f"  supports_multi_message_pieces: {verified_caps.supports_multi_message_pieces}")
-print(f"  supports_json_output:          {verified_caps.supports_json_output}")
-print(f"  supports_json_schema:          {verified_caps.supports_json_schema}")
-print(f"  input_modalities:              {sorted(sorted(m) for m in verified_caps.input_modalities)}")
+queried_caps = await query_target_async(target=probe_target, per_probe_timeout_s=5.0)  # type: ignore
+print("query_target_async result:")
+print(f"  supports_multi_turn:           {queried_caps.supports_multi_turn}")
+print(f"  supports_system_prompt:        {queried_caps.supports_system_prompt}")
+print(f"  supports_multi_message_pieces: {queried_caps.supports_multi_message_pieces}")
+print(f"  supports_json_output:          {queried_caps.supports_json_output}")
+print(f"  supports_json_schema:          {queried_caps.supports_json_schema}")
+print(f"  input_modalities:              {sorted(sorted(m) for m in queried_caps.input_modalities)}")
 
 # %% [markdown]
 # ### Discovering undeclared modalities
 #
-# By default `verify_target_async` only probes modality combinations the target already
+# By default `query_target_async` only probes modality combinations the target already
 # **declares** in `capabilities.input_modalities`. For an OpenAI-compatible endpoint that
 # claims text-only but might actually accept images, pass `test_modalities=` (and matching
 # `test_assets=`) explicitly to probe combinations beyond the declared baseline:
 #
 # ```python
-# verified = await verify_target_async(
+# queried = await query_target_async(
 #     target=target,
 #     test_modalities={frozenset({"text"}), frozenset({"text", "image_path"})},
 #     test_assets={"image_path": "/path/to/test_image.png"},
@@ -370,12 +370,12 @@ print(f"  input_modalities:              {sorted(sorted(m) for m in verified_cap
 #
 # Similarly, when narrowing the probe set with `capabilities=`, capabilities NOT in the
 # narrowed set are copied from the target's declared values rather than being reset to
-# `False` — narrowing controls *what is re-verified*, not what the returned dataclass
+# `False` — narrowing controls *what is re-queried*, not what the returned dataclass
 # reports. This makes incremental probing safe:
 #
 # ```python
-# # Re-verify only JSON support; other declared flags pass through unchanged.
-# verified = await verify_target_async(
+# # Re-query only JSON support; other declared flags pass through unchanged.
+# queried = await query_target_async(
 #     target=target,
 #     capabilities={CapabilityName.JSON_OUTPUT, CapabilityName.JSON_SCHEMA},
 # )

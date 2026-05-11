@@ -13,7 +13,7 @@ This module exposes two complementary probes:
   the capability is included in the returned set. Capabilities without a
   registered probe fall back to whatever the target declares via its
   :class:`TargetConfiguration`.
-* :func:`verify_target_modalities_async` probes which input modality
+* :func:`query_target_modalities_async` probes which input modality
   combinations a target actually supports by sending a minimal test request
   for each combination declared in ``TargetCapabilities.input_modalities``.
 
@@ -425,7 +425,7 @@ async def _probe_json_schema_async(target: PromptTarget, timeout_s: float, retri
     )
 
 
-# Registry of capabilities that can be verified via a live API call.
+# Registry of capabilities that can be queried via a live API call.
 # Capabilities not present here fall back to the target's declared support.
 _CAPABILITY_PROBES: dict[CapabilityName, _CapabilityProbe] = {
     CapabilityName.SYSTEM_PROMPT: _probe_system_prompt_async,
@@ -494,13 +494,13 @@ async def query_target_capabilities_async(
             Defaults to 1.
 
     Returns:
-        set[CapabilityName]: The capabilities verified to work against the target.
+        set[CapabilityName]: The capabilities confirmed to work against the target.
     """
     capabilities_to_check: list[CapabilityName] = (
         list(capabilities) if capabilities is not None else list(CapabilityName)
     )
 
-    verified: set[CapabilityName] = set()
+    queried: set[CapabilityName] = set()
     with _permissive_configuration(target=target):
         for capability in capabilities_to_check:
             probe = _CAPABILITY_PROBES.get(capability)
@@ -511,7 +511,7 @@ async def query_target_capabilities_async(
 
             try:
                 if await probe(target, per_probe_timeout_s, retries):
-                    verified.add(capability)
+                    queried.add(capability)
             except Exception as exc:
                 logger.debug("Probe for %s raised: %s", capability.value, exc)
 
@@ -522,24 +522,24 @@ async def query_target_capabilities_async(
     # supports, never what PyRIT emulates on top of it.
     for capability in capabilities_to_check:
         if capability not in _CAPABILITY_PROBES and target.capabilities.includes(capability=capability):
-            verified.add(capability)
+            queried.add(capability)
 
-    return verified
+    return queried
 
 
 # ---------------------------------------------------------------------------
-# Modality verification
+# Modality query
 # ---------------------------------------------------------------------------
 
 
 # Default mapping of non-text modalities to test asset paths. Callers can
 # override via the ``test_assets`` parameter of
-# :func:`verify_target_modalities_async`. Modalities whose assets do not
+# :func:`query_target_modalities_async`. Modalities whose assets do not
 # exist on disk are skipped (logged and excluded from the result).
 DEFAULT_TEST_ASSETS: dict[PromptDataType, str] = {}
 
 
-async def verify_target_modalities_async(
+async def query_target_modalities_async(
     *,
     target: PromptTarget,
     test_modalities: set[frozenset[PromptDataType]] | None = None,
@@ -569,7 +569,13 @@ async def verify_target_modalities_async(
     .. warning::
        This function is **not safe to call concurrently** with other
        operations on the same ``target`` instance. It temporarily mutates
-       ``target._configuration``.
+       ``target._configuration`` and writes probe rows to
+       ``target._memory``; concurrent callers may observe the permissive
+       configuration or interleaved memory rows. Probe-written memory rows
+       are tagged with ``prompt_metadata["capability_probe"] == "1"`` so
+       consumers can filter them; memory does not currently expose a
+       delete-by-conversation API, so probe rows persist for the lifetime
+       of the memory backend.
 
     Args:
         target (PromptTarget): The target to probe.
@@ -589,7 +595,7 @@ async def verify_target_modalities_async(
             Defaults to 1.
 
     Returns:
-        set[frozenset[PromptDataType]]: The modality combinations verified
+        set[frozenset[PromptDataType]]: The modality combinations confirmed
         to work against the target.
     """
     if test_modalities is None:
@@ -598,7 +604,7 @@ async def verify_target_modalities_async(
 
     assets = test_assets if test_assets is not None else DEFAULT_TEST_ASSETS
 
-    verified: set[frozenset[PromptDataType]] = set()
+    queried: set[frozenset[PromptDataType]] = set()
     with _permissive_configuration(target=target, extra_input_modalities=test_modalities):
         for combination in test_modalities:
             try:
@@ -617,12 +623,12 @@ async def verify_target_modalities_async(
                 retries=retries,
                 label=f"Modality probe {sorted(combination)}",
             ):
-                verified.add(combination)
+                queried.add(combination)
 
-    return verified
+    return queried
 
 
-async def verify_target_async(
+async def query_target_async(
     *,
     target: PromptTarget,
     per_probe_timeout_s: float = DEFAULT_PROBE_TIMEOUT_SECONDS,
@@ -635,8 +641,8 @@ async def verify_target_async(
     Probe both capabilities and modalities and return a combined result.
 
     Calls :func:`query_target_capabilities_async` and
-    :func:`verify_target_modalities_async` and returns a
-    :class:`TargetCapabilities` populated from the verified results, so
+    :func:`query_target_modalities_async` and returns a
+    :class:`TargetCapabilities` populated from the queried results, so
     callers don't need to assemble the dataclass themselves.
 
     Boolean capability flags not covered by
@@ -644,7 +650,7 @@ async def verify_target_async(
     copied from ``target.capabilities`` (the target's declared native flags).
     When ``capabilities`` narrows the probe set, capabilities not in the
     narrowed set are also copied from declared values rather than reset to
-    ``False`` — narrowing controls *what is re-verified*, not what the
+    ``False`` — narrowing controls *what is re-queried*, not what the
     returned dataclass reports.
 
     .. warning::
@@ -655,16 +661,25 @@ async def verify_target_async(
        matching ``test_assets=``) explicitly to probe combinations beyond
        the declared baseline.
 
+    .. warning::
+       This function is **not safe to call concurrently** with other
+       operations on the same ``target`` instance. It temporarily mutates
+       ``target._configuration`` and writes probe rows to
+       ``target._memory``. Probe-written memory rows are tagged with
+       ``prompt_metadata["capability_probe"] == "1"`` so consumers can
+       filter them; memory does not currently expose a delete-by-conversation
+       API, so probe rows persist for the lifetime of the memory backend.
+
     Args:
         target (PromptTarget): The target to probe.
         per_probe_timeout_s (float): Per-attempt timeout (seconds) applied to
             each probe request.
         test_modalities (set[frozenset[PromptDataType]] | None): Specific
             modality combinations to probe. See
-            :func:`verify_target_modalities_async`. Defaults to the
+            :func:`query_target_modalities_async`. Defaults to the
             target's declared ``input_modalities``.
         test_assets (dict[PromptDataType, str] | None): Mapping from non-text
-            modality to a file path. See :func:`verify_target_modalities_async`.
+            modality to a file path. See :func:`query_target_modalities_async`.
         capabilities (Iterable[CapabilityName] | None): Capabilities to probe.
             See :func:`query_target_capabilities_async`. Defaults to every
             member of :class:`CapabilityName`.
@@ -674,18 +689,18 @@ async def verify_target_async(
             Defaults to 1.
 
     Returns:
-        TargetCapabilities: A dataclass reflecting verified capabilities and
+        TargetCapabilities: A dataclass reflecting queried capabilities and
         modalities. ``output_modalities`` is copied from
         ``target.capabilities.output_modalities`` because outputs cannot be
-        verified by sending a request.
+        queried by sending a request.
     """
-    verified_caps = await query_target_capabilities_async(
+    queried_caps = await query_target_capabilities_async(
         target=target,
         capabilities=capabilities,
         per_probe_timeout_s=per_probe_timeout_s,
         retries=retries,
     )
-    verified_modalities = await verify_target_modalities_async(
+    queried_modalities = await query_target_modalities_async(
         target=target,
         test_modalities=test_modalities,
         test_assets=test_assets,
@@ -701,7 +716,7 @@ async def verify_target_async(
 
     def _resolve(name: CapabilityName) -> bool:
         if name in probed:
-            return name in verified_caps
+            return name in queried_caps
         return bool(getattr(declared, name.value))
 
     return TargetCapabilities(
@@ -711,7 +726,7 @@ async def verify_target_async(
         supports_json_output=_resolve(CapabilityName.JSON_OUTPUT),
         supports_editable_history=declared.supports_editable_history,
         supports_system_prompt=_resolve(CapabilityName.SYSTEM_PROMPT),
-        input_modalities=frozenset(verified_modalities),
+        input_modalities=frozenset(queried_modalities),
         output_modalities=declared.output_modalities,
     )
 

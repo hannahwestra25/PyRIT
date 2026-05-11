@@ -14,9 +14,9 @@ from pyrit.prompt_target.common.query_target_capabilities import (
     _CAPABILITY_PROBES,
     _create_test_message,
     _permissive_configuration,
+    query_target_async,
     query_target_capabilities_async,
-    verify_target_async,
-    verify_target_modalities_async,
+    query_target_modalities_async,
 )
 from pyrit.prompt_target.common.target_capabilities import (
     CapabilityName,
@@ -375,7 +375,7 @@ class TestQueryTargetCapabilitiesIsolatedTarget:
 
 
 # ---------------------------------------------------------------------------
-# Modality verification tests
+# Modality query tests
 # ---------------------------------------------------------------------------
 
 
@@ -441,7 +441,7 @@ class TestVerifyTargetModalitiesAsync:
         _set_input_modalities(target=target, modalities={frozenset({"text"})})
         target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
 
-        result = await verify_target_modalities_async(target=target)
+        result = await query_target_modalities_async(target=target)
 
         assert frozenset({"text"}) in result
 
@@ -450,7 +450,7 @@ class TestVerifyTargetModalitiesAsync:
         _set_input_modalities(target=target, modalities={frozenset({"text"})})
         target._send_prompt_to_target_async = AsyncMock(side_effect=Exception("nope"))  # type: ignore[method-assign]
 
-        result = await verify_target_modalities_async(target=target)
+        result = await query_target_modalities_async(target=target)
 
         assert result == set()
 
@@ -459,7 +459,7 @@ class TestVerifyTargetModalitiesAsync:
         _set_input_modalities(target=target, modalities={frozenset({"text"})})
         target._send_prompt_to_target_async = AsyncMock(return_value=_error_response())  # type: ignore[method-assign]
 
-        result = await verify_target_modalities_async(target=target)
+        result = await query_target_modalities_async(target=target)
 
         assert result == set()
 
@@ -479,7 +479,7 @@ class TestVerifyTargetModalitiesAsync:
 
         target._send_prompt_to_target_async = selective_send  # type: ignore[method-assign]
 
-        result = await verify_target_modalities_async(
+        result = await query_target_modalities_async(
             target=target,
             test_assets={"image_path": image_asset},
         )
@@ -493,7 +493,7 @@ class TestVerifyTargetModalitiesAsync:
         _set_input_modalities(target=target, modalities={frozenset({"text"})})
         target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
 
-        result = await verify_target_modalities_async(
+        result = await query_target_modalities_async(
             target=target,
             test_modalities={frozenset({"text"}), frozenset({"text", "image_path"})},
             test_assets={"image_path": image_asset},
@@ -508,7 +508,7 @@ class TestVerifyTargetModalitiesAsync:
         target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
 
         # No assets provided — image_path combinations are skipped, not probed.
-        result = await verify_target_modalities_async(target=target)
+        result = await query_target_modalities_async(target=target)
 
         assert result == set()
         assert target._send_prompt_to_target_async.await_count == 0
@@ -524,7 +524,7 @@ class TestVerifyTargetModalitiesAsync:
         send_mock = AsyncMock(return_value=_ok_response())
         target._send_prompt_to_target_async = send_mock  # type: ignore[method-assign]
 
-        result = await verify_target_modalities_async(
+        result = await query_target_modalities_async(
             target=target,
             test_modalities={frozenset({"text", "image_path"})},
             test_assets={"image_path": image_asset},
@@ -541,7 +541,7 @@ class TestSendAndCheckTimeout:
         When ``send_prompt_async`` exceeds ``per_probe_timeout_s``, the probe
         is treated as failed. ``_send_and_check_async`` retries once on
         timeout, so the underlying mock is awaited twice and the capability
-        is excluded from the verified set.
+        is excluded from the queried set.
         """
         target = MockPromptTarget()
 
@@ -589,9 +589,9 @@ class TestSystemPromptProbeMemoryFailure:
 class TestVerifyTargetAsync:
     async def test_returns_target_capabilities_assembled_from_probes(self) -> None:
         """
-        ``verify_target_async`` runs both the capability and modality probes
+        ``query_target_async`` runs both the capability and modality probes
         and assembles a :class:`TargetCapabilities` populated from the
-        verified results, copying ``supports_editable_history`` and
+        queried results, copying ``supports_editable_history`` and
         ``output_modalities`` from the target's declared capabilities.
         """
         declared = TargetCapabilities(
@@ -603,7 +603,7 @@ class TestVerifyTargetAsync:
         target._configuration = TargetConfiguration(capabilities=declared)
         target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
 
-        result = await verify_target_async(target=target, per_probe_timeout_s=5.0)
+        result = await query_target_async(target=target, per_probe_timeout_s=5.0)
 
         assert isinstance(result, TargetCapabilities)
         # Single-piece probes that don't touch memory always succeed when
@@ -621,7 +621,7 @@ class TestVerifyTargetAsync:
     async def test_excludes_capabilities_when_probe_send_fails(self) -> None:
         """
         When the underlying send raises, no capability or modality is
-        verified, but ``supports_editable_history`` and ``output_modalities``
+        queried, but ``supports_editable_history`` and ``output_modalities``
         are still copied from the declared capabilities.
         """
         declared = TargetCapabilities(
@@ -632,7 +632,7 @@ class TestVerifyTargetAsync:
         target._configuration = TargetConfiguration(capabilities=declared)
         target._send_prompt_to_target_async = AsyncMock(side_effect=RuntimeError("boom"))  # type: ignore[method-assign]
 
-        result = await verify_target_async(target=target, per_probe_timeout_s=0.5)
+        result = await query_target_async(target=target, per_probe_timeout_s=0.5)
 
         assert result.supports_multi_turn is False
         assert result.supports_system_prompt is False
@@ -641,7 +641,7 @@ class TestVerifyTargetAsync:
         assert result.supports_multi_message_pieces is False
         # Non-probed flag preserved.
         assert result.supports_editable_history is True
-        # No modalities verified because send always fails.
+        # No modalities queried because send always fails.
         assert result.input_modalities == frozenset()
         # Output modalities still copied.
         assert result.output_modalities == declared.output_modalities
@@ -675,14 +675,14 @@ class TestVerifyTargetAsync:
 
         assert result == set()
 
-    async def test_verify_target_async_forwards_test_modalities(self, image_asset: str) -> None:
+    async def test_query_target_async_forwards_test_modalities(self, image_asset: str) -> None:
         declared = TargetCapabilities(input_modalities=frozenset({frozenset({"text"})}))
         target = MockPromptTarget()
         target._configuration = TargetConfiguration(capabilities=declared)
         target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())
 
         extra_combo = frozenset({"text", "image_path"})
-        result = await verify_target_async(
+        result = await query_target_async(
             target=target,
             test_modalities={extra_combo},
             test_assets={"image_path": image_asset},
@@ -692,12 +692,12 @@ class TestVerifyTargetAsync:
         # The undeclared combination is in the result only if test_modalities was forwarded.
         assert extra_combo in result.input_modalities
 
-    async def test_verify_target_async_forwards_capabilities(self) -> None:
-        """``verify_target_async`` must forward ``capabilities`` to narrow the probe set."""
+    async def test_query_target_async_forwards_capabilities(self) -> None:
+        """``query_target_async`` must forward ``capabilities`` to narrow the probe set."""
         target = MockPromptTarget()
         target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
 
-        await verify_target_async(
+        await query_target_async(
             target=target,
             capabilities={CapabilityName.JSON_OUTPUT},
             per_probe_timeout_s=2.0,
@@ -708,7 +708,7 @@ class TestVerifyTargetAsync:
         # because multi-turn issues 2 sends).
         assert target._send_prompt_to_target_async.await_count <= 3
 
-    async def test_verify_target_async_preserves_declared_when_capabilities_narrowed(self) -> None:
+    async def test_query_target_async_preserves_declared_when_capabilities_narrowed(self) -> None:
         """
         When ``capabilities`` narrows the probe set, capabilities NOT in the
         narrowed set must fall back to the target's declared values rather
@@ -724,13 +724,13 @@ class TestVerifyTargetAsync:
         target._configuration = TargetConfiguration(capabilities=declared)
         target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
 
-        result = await verify_target_async(
+        result = await query_target_async(
             target=target,
             capabilities={CapabilityName.JSON_OUTPUT},
             per_probe_timeout_s=2.0,
         )
 
-        # The probed capability reflects the verified result.
+        # The probed capability reflects the queried result.
         assert result.supports_json_output is True
         # Non-probed capabilities fall back to declared values.
         assert result.supports_multi_turn is True
