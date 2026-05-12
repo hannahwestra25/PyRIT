@@ -61,6 +61,15 @@ DEFAULT_PROBE_TIMEOUT_SECONDS: float = 30.0
 DEFAULT_PROBE_RETRY_BACKOFF_SECONDS: float = 0.1
 MAX_PROBE_RETRY_BACKOFF_SECONDS: float = 1.0
 
+# Exceptions that are deterministic on the probe payload and will not become
+# valid on a retry (malformed Message, type errors, missing attributes, etc.).
+# These fail the probe immediately rather than wasting backoff time.
+_NON_RETRYABLE_PROBE_EXCEPTIONS: tuple[type[BaseException], ...] = (
+    ValueError,
+    TypeError,
+    AttributeError,
+)
+
 # Marker stamped onto every MessagePiece this module writes to memory. Consumers
 # that aggregate or display memory rows can filter probe-written rows by checking
 # ``piece.prompt_metadata.get("capability_probe") == "1"``. Memory does not yet
@@ -202,20 +211,23 @@ async def _send_and_check_async(
     """
     Send ``message`` and report whether the call succeeded cleanly.
 
-    Each attempt is bounded by ``timeout_s``. Exceptions (network errors,
-    timeouts, validation failures) trigger up to ``retries`` retries before
-    the probe is declared failed, with a short exponential backoff between
-    retry attempts; an explicit error response from the target is treated as
-    deterministic and never retried.
+    Each attempt is bounded by ``timeout_s``. Transient errors (timeouts,
+    connection/OS errors) trigger up to ``retries`` retries with a short
+    exponential backoff. Deterministic errors that will not become valid on
+    a retry (``ValueError``, ``TypeError``, ``AttributeError`` — typically
+    from message validation or programmer error in a probe payload) fail
+    the probe immediately. An explicit error response from the target is
+    treated as deterministic and never retried.
 
     Args:
         target (PromptTarget): The target to send the probe message to.
         message (Message): The probe message to send.
         timeout_s (float): Per-attempt timeout in seconds.
         retries (int): Number of additional attempts after the first failure.
-            Only exceptions are retried; a non-error response is final.
-            Retry attempts use exponential backoff starting at
-            :data:`DEFAULT_PROBE_RETRY_BACKOFF_SECONDS`. Defaults to 1.
+            Only transient errors are retried; non-retryable errors and
+            non-error responses are final. Retry attempts use exponential
+            backoff starting at :data:`DEFAULT_PROBE_RETRY_BACKOFF_SECONDS`.
+            Defaults to 1.
         label (str): Short label used in log messages. Defaults to
             ``"Capability probe"``.
 
@@ -237,6 +249,10 @@ async def _send_and_check_async(
             if attempt + 1 < attempts:
                 await _sleep_before_retry_async(attempt=attempt)
             continue
+        except _NON_RETRYABLE_PROBE_EXCEPTIONS as exc:
+            # Deterministic on the probe payload — retrying will not help.
+            logger.debug("%s failed with non-retryable error: %s", label, exc)
+            return False
         except Exception as exc:
             last_exc = exc
             logger.debug("%s failed (attempt %d/%d): %s", label, attempt + 1, attempts, exc)
@@ -244,7 +260,7 @@ async def _send_and_check_async(
                 await _sleep_before_retry_async(attempt=attempt)
             continue
 
-        if not responses or not any(r.message_pieces for r in responses):
+        if not responses or any(not r.message_pieces for r in responses):
             logger.debug("%s returned an empty response; treating as failure", label)
             return False
         for response in responses:
@@ -273,10 +289,13 @@ async def _probe_system_prompt_async(target: PromptTarget, timeout_s: float, ret
     Probe whether ``target`` accepts a system prompt followed by a user message.
 
     Writes a system-role :class:`MessagePiece` directly to ``target._memory``
-    rather than calling :meth:`PromptTarget.set_system_prompt`. ``set_system_prompt``
-    can be overridden by subclasses (e.g. mocks) to do nothing or to perform
-    extra work, which would mask whether the underlying API actually accepts a
-    system message. A direct memory write guarantees the probe sees the same
+    rather than calling :meth:`pyrit.prompt_target.PromptChatTarget.set_system_prompt`
+    (which is only defined on ``PromptChatTarget`` subclasses anyway).
+    ``set_system_prompt`` can be overridden by subclasses (e.g. mocks) to do
+    nothing or to perform extra work, which would mask whether the underlying
+    API actually accepts a system message. A direct memory write also works
+    uniformly for plain ``PromptTarget`` subclasses that have no
+    ``set_system_prompt`` method, and guarantees the probe sees the same
     multi-piece, system-then-user payload the target's wire layer would see
     via the standard pipeline.
 
@@ -617,6 +636,9 @@ async def discover_target_modalities_async(
     if test_modalities is None:
         declared = target.capabilities.input_modalities
         test_modalities = set(declared)
+    elif not test_modalities:
+        logger.info("discover_target_modalities_async called with an empty test_modalities set; nothing to probe.")
+        return set()
 
     assets = test_assets if test_assets is not None else DEFAULT_TEST_ASSETS
 
@@ -718,7 +740,10 @@ async def discover_target_async(
     # also resolved to True.
     resolved_editable_history = declared.supports_editable_history and resolved_multi_turn
     if test_modalities is None:
-        resolved_input_modalities = frozenset(queried_modalities)
+        # Mirror the boolean fallback: combinations the probe could not confirm
+        # fall back to the target's declared support rather than being silently
+        # dropped (e.g. on transient network failure).
+        resolved_input_modalities = frozenset(queried_modalities | declared.input_modalities)
     else:
         resolved_input_modalities = frozenset(
             queried_modalities | (declared.input_modalities - frozenset(test_modalities))
@@ -756,8 +781,7 @@ def _create_test_message(
 
     Raises:
         FileNotFoundError: If a configured asset path does not exist.
-        ValueError: If a non-text modality has no configured asset, or if
-            no pieces could be constructed.
+        ValueError: If a non-text modality has no configured asset.
     """
     conversation_id = f"modality-probe-{uuid.uuid4()}"
     pieces: list[MessagePiece] = []
@@ -790,8 +814,5 @@ def _create_test_message(
                 prompt_metadata=_probe_metadata(),
             )
         )
-
-    if not pieces:
-        raise ValueError(f"Could not create test message for modalities: {modalities}")
 
     return Message(pieces)

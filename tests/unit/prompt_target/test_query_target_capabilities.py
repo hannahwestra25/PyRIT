@@ -251,6 +251,32 @@ class TestQueryTargetCapabilitiesAsync:
         assert sleep_mock.await_args_list[0].args == (0.1,)
         assert sleep_mock.await_args_list[1].args == (0.2,)
 
+    async def test_non_retryable_validation_errors_fail_fast(self) -> None:
+        """
+        Deterministic errors (ValueError/TypeError/AttributeError) come from
+        malformed payloads or programmer error and will not become valid on
+        a retry. They must fail the probe immediately without consuming the
+        retry budget or sleeping for backoff.
+        """
+        target = MockPromptTarget()
+        target._send_prompt_to_target_async = AsyncMock(  # type: ignore[method-assign]
+            side_effect=ValueError("malformed payload")
+        )
+
+        with patch(
+            "pyrit.prompt_target.common.query_target_capabilities.asyncio.sleep", new_callable=AsyncMock
+        ) as sleep_mock:
+            result = await discover_target_capabilities_async(
+                target=target,
+                capabilities={CapabilityName.JSON_OUTPUT},
+                retries=3,
+            )
+
+        assert result == set()
+        # No retries consumed and no backoff sleeps issued.
+        assert target._send_prompt_to_target_async.await_count == 1
+        sleep_mock.assert_not_awaited()
+
     async def test_restores_configuration_after_probing(self) -> None:
         target = MockPromptTarget()
         original = target.configuration
@@ -686,6 +712,16 @@ class TestVerifyTargetModalitiesAsync:
         assert result == set()
         assert target._send_prompt_to_target_async.await_count == 0
 
+    async def test_empty_test_modalities_returns_empty_without_probing(self) -> None:
+        target = MockPromptTarget()
+        _set_input_modalities(target=target, modalities={frozenset({"text"})})
+        target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
+
+        result = await discover_target_modalities_async(target=target, test_modalities=set())
+
+        assert result == set()
+        assert target._send_prompt_to_target_async.await_count == 0
+
     async def test_explicit_test_modalities_runs_under_permissive_configuration(self, image_asset: str) -> None:
         """
         Probing a modality combination the target does NOT declare must still
@@ -794,8 +830,9 @@ class TestVerifyTargetAsync:
     async def test_excludes_capabilities_when_probe_send_fails(self) -> None:
         """
         When the underlying send raises, no capability or modality is
-        queried, but ``supports_editable_history`` and ``output_modalities``
-        are still copied conservatively from the declared capabilities.
+        queried, but ``supports_editable_history``, ``output_modalities``,
+        and declared ``input_modalities`` are still preserved conservatively
+        from the declared capabilities.
         """
         declared = TargetCapabilities(
             supports_editable_history=True,
@@ -815,8 +852,9 @@ class TestVerifyTargetAsync:
         # Editable history is derived conservatively and must fall when
         # multi-turn probing disproves the prerequisite capability.
         assert result.supports_editable_history is False
-        # No modalities queried because send always fails.
-        assert result.input_modalities == frozenset()
+        # When probing cannot confirm modalities, declared modalities are
+        # preserved (mirroring the boolean fallback semantics).
+        assert result.input_modalities == declared.input_modalities
         # Output modalities still copied.
         assert result.output_modalities == declared.output_modalities
 
@@ -841,6 +879,21 @@ class TestVerifyTargetAsync:
         # Bypass __init__ to construct a Message with no pieces (Message.__init__ rejects empty).
         empty_msg = target._send_prompt_to_target_async.return_value[0]
         empty_msg.message_pieces = []
+
+        result = await discover_target_capabilities_async(
+            target=target,
+            capabilities={CapabilityName.JSON_OUTPUT},
+        )
+
+        assert result == set()
+
+    async def test_mixed_empty_message_in_response_treated_as_failure(self) -> None:
+        """Any empty Message in a multi-message response must cause the probe to fail."""
+        target = MockPromptTarget()
+        ok = _ok_response()[0]
+        empty = Message.__new__(Message)
+        empty.message_pieces = []
+        target._send_prompt_to_target_async = AsyncMock(return_value=[ok, empty])  # type: ignore[method-assign]
 
         result = await discover_target_capabilities_async(
             target=target,
