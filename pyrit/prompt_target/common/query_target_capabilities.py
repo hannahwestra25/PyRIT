@@ -58,6 +58,8 @@ logger = logging.getLogger(__name__)
 # Per-call timeout (seconds) applied to every discovery request. Override per-call via
 # the ``per_probe_timeout_s`` parameter on the public functions.
 DEFAULT_PROBE_TIMEOUT_SECONDS: float = 30.0
+DEFAULT_PROBE_RETRY_BACKOFF_SECONDS: float = 0.1
+MAX_PROBE_RETRY_BACKOFF_SECONDS: float = 1.0
 
 # Marker stamped onto every MessagePiece this module writes to memory. Consumers
 # that aggregate or display memory rows can filter probe-written rows by checking
@@ -119,12 +121,10 @@ def _permissive_configuration(
         supports_system_prompt=True,
         input_modalities=merged_modalities,
     )
-    probe_configuration = object.__new__(TargetConfiguration)
-    probe_configuration._capabilities = permissive_caps
-    probe_configuration._policy = original.policy
-    # Keep the original normalization pipeline intact so probing exercises the
-    # target's real request shaping, including custom normalizer overrides.
-    probe_configuration._pipeline = original.pipeline
+    # Rebuild a fresh configuration from the instance's native capabilities so
+    # probes bypass preflight validation without inheriting ADAPT policy or
+    # custom normalizer overrides from the target's runtime configuration.
+    probe_configuration = TargetConfiguration(capabilities=permissive_caps)
     target._configuration = probe_configuration
     try:
         yield
@@ -186,8 +186,9 @@ async def _send_and_check_async(
 
     Each attempt is bounded by ``timeout_s``. Exceptions (network errors,
     timeouts, validation failures) trigger up to ``retries`` retries before
-    the probe is declared failed; an explicit error response from the target
-    is treated as deterministic and never retried.
+    the probe is declared failed, with a short exponential backoff between
+    retry attempts; an explicit error response from the target is treated as
+    deterministic and never retried.
 
     Args:
         target (PromptTarget): The target to send the probe message to.
@@ -195,7 +196,8 @@ async def _send_and_check_async(
         timeout_s (float): Per-attempt timeout in seconds.
         retries (int): Number of additional attempts after the first failure.
             Only exceptions are retried; a non-error response is final.
-            Defaults to 1.
+            Retry attempts use exponential backoff starting at
+            :data:`DEFAULT_PROBE_RETRY_BACKOFF_SECONDS`. Defaults to 1.
         label (str): Short label used in log messages. Defaults to
             ``"Capability probe"``.
 
@@ -214,10 +216,14 @@ async def _send_and_check_async(
         except asyncio.TimeoutError:
             last_exc = TimeoutError(f"timed out after {timeout_s}s")
             logger.debug("%s timed out (attempt %d/%d)", label, attempt + 1, attempts)
+            if attempt + 1 < attempts:
+                await _sleep_before_retry_async(attempt=attempt)
             continue
         except Exception as exc:
             last_exc = exc
             logger.debug("%s failed (attempt %d/%d): %s", label, attempt + 1, attempts, exc)
+            if attempt + 1 < attempts:
+                await _sleep_before_retry_async(attempt=attempt)
             continue
 
         if not responses or not any(r.message_pieces for r in responses):
@@ -232,6 +238,16 @@ async def _send_and_check_async(
 
     logger.info("%s exhausted %d attempt(s); last error: %s", label, attempts, last_exc)
     return False
+
+
+def _retry_backoff_seconds(*, attempt: int) -> float:
+    """Return the exponential backoff delay for a retry attempt."""
+    return min(DEFAULT_PROBE_RETRY_BACKOFF_SECONDS * (2**attempt), MAX_PROBE_RETRY_BACKOFF_SECONDS)
+
+
+async def _sleep_before_retry_async(*, attempt: int) -> None:
+    """Sleep for the retry backoff associated with ``attempt``."""
+    await asyncio.sleep(_retry_backoff_seconds(attempt=attempt))
 
 
 async def _probe_system_prompt_async(target: PromptTarget, timeout_s: float, retries: int = 1) -> bool:
@@ -372,6 +388,9 @@ async def _probe_json_output_async(target: PromptTarget, timeout_s: float, retri
     """
     Probe whether ``target`` accepts a request asking for JSON-mode output.
 
+    This probe is only meaningful for targets that translate PyRIT's JSON
+    metadata hints into native provider request fields.
+
     Args:
         target (PromptTarget): The target to probe.
         timeout_s (float): Per-attempt timeout in seconds.
@@ -400,6 +419,9 @@ async def _probe_json_output_async(target: PromptTarget, timeout_s: float, retri
 async def _probe_json_schema_async(target: PromptTarget, timeout_s: float, retries: int = 1) -> bool:
     """
     Probe whether ``target`` accepts a request constrained by a JSON schema.
+
+    This probe is only meaningful for targets that translate PyRIT's JSON
+    metadata hints into native provider request fields.
 
     Args:
         target (PromptTarget): The target to probe.
@@ -660,6 +682,12 @@ async def discover_target_async(
     # Editable history is only meaningful if multi-turn probing/declaration
     # also resolved to True.
     resolved_editable_history = declared.supports_editable_history and resolved_multi_turn
+    if test_modalities is None:
+        resolved_input_modalities = frozenset(queried_modalities)
+    else:
+        resolved_input_modalities = frozenset(
+            queried_modalities | (declared.input_modalities - frozenset(test_modalities))
+        )
 
     return TargetCapabilities(
         supports_multi_turn=resolved_multi_turn,
@@ -668,7 +696,7 @@ async def discover_target_async(
         supports_json_output=_resolve(CapabilityName.JSON_OUTPUT),
         supports_editable_history=resolved_editable_history,
         supports_system_prompt=_resolve(CapabilityName.SYSTEM_PROMPT),
-        input_modalities=frozenset(queried_modalities),
+        input_modalities=resolved_input_modalities,
         # Output modalities are still declarative because probing them would
         # require target-specific response inspection.
         output_modalities=declared.output_modalities,

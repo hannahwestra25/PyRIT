@@ -233,6 +233,23 @@ class TestQueryTargetCapabilitiesAsync:
         assert result == set()
         assert target._send_prompt_to_target_async.await_count == 1
 
+    async def test_retries_use_exponential_backoff(self) -> None:
+        target = MockPromptTarget()
+        target._send_prompt_to_target_async = AsyncMock(side_effect=Exception("boom"))  # type: ignore[method-assign]
+
+        with patch(
+            "pyrit.prompt_target.common.query_target_capabilities.asyncio.sleep", new_callable=AsyncMock
+        ) as sleep_mock:
+            result = await discover_target_capabilities_async(
+                target=target,
+                capabilities={CapabilityName.JSON_OUTPUT},
+                retries=2,
+            )
+
+        assert result == set()
+        assert sleep_mock.await_args_list[0].args == (0.1,)
+        assert sleep_mock.await_args_list[1].args == (0.2,)
+
     async def test_restores_configuration_after_probing(self) -> None:
         target = MockPromptTarget()
         original = target.configuration
@@ -371,7 +388,7 @@ class TestQueryTargetCapabilitiesAsync:
         )
 
         async def reject_system_roles(*, normalized_conversation: list[Message]) -> list[Message]:
-            roles = [piece.role for message in normalized_conversation for piece in message.message_pieces]
+            roles = [piece._role for message in normalized_conversation for piece in message.message_pieces]
             if "system" in roles:
                 raise RuntimeError("system messages are not natively supported")
             return _ok_response()
@@ -384,6 +401,33 @@ class TestQueryTargetCapabilitiesAsync:
         )
 
         assert result == set()
+
+    async def test_probe_configuration_does_not_reuse_adapted_pipeline(self) -> None:
+        target = MockPromptTarget()
+        target._configuration = TargetConfiguration(
+            capabilities=TargetCapabilities(supports_system_prompt=False),
+            policy=CapabilityHandlingPolicy(
+                behaviors={
+                    CapabilityName.SYSTEM_PROMPT: UnsupportedCapabilityBehavior.ADAPT,
+                    CapabilityName.MULTI_TURN: UnsupportedCapabilityBehavior.RAISE,
+                }
+            ),
+        )
+
+        async def require_native_system_role(*, normalized_conversation: list[Message]) -> list[Message]:
+            roles = [piece._role for message in normalized_conversation for piece in message.message_pieces]
+            if "system" not in roles:
+                raise RuntimeError("probe used adapted system-prompt shaping")
+            return _ok_response()
+
+        target._send_prompt_to_target_async = AsyncMock(side_effect=require_native_system_role)  # type: ignore[method-assign]
+
+        result = await discover_target_capabilities_async(
+            target=target,
+            capabilities={CapabilityName.SYSTEM_PROMPT},
+        )
+
+        assert result == {CapabilityName.SYSTEM_PROMPT}
 
 
 @pytest.mark.usefixtures("patch_central_database")
@@ -732,6 +776,25 @@ class TestVerifyTargetAsync:
 
         # The undeclared combination is in the result only if test_modalities was forwarded.
         assert extra_combo in result.input_modalities
+
+    async def test_discover_target_async_preserves_declared_modalities_when_test_modalities_narrowed(
+        self, image_asset: str
+    ) -> None:
+        declared_combo = frozenset({"text"})
+        probed_combo = frozenset({"text", "image_path"})
+        declared = TargetCapabilities(input_modalities=frozenset({declared_combo, probed_combo}))
+        target = MockPromptTarget()
+        target._configuration = TargetConfiguration(capabilities=declared)
+        target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())
+
+        result = await discover_target_async(
+            target=target,
+            test_modalities={probed_combo},
+            test_assets={"image_path": image_asset},
+            per_probe_timeout_s=2.0,
+        )
+
+        assert result.input_modalities == frozenset({declared_combo, probed_combo})
 
     async def test_discover_target_async_forwards_capabilities(self) -> None:
         """``discover_target_async`` must forward ``capabilities`` to narrow the probe set."""
