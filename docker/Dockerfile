@@ -51,6 +51,8 @@ COPY --chown=vscode:vscode doc/ /app/doc/
 RUN if [ "$PYRIT_SOURCE" = "pypi" ]; then \
         echo "Installing PyRIT from PyPI version: $PYRIT_VERSION"; \
         uv pip install --python /opt/venv/bin/python pyrit[speech,opencv,fairness_bias,fastapi,playwright]==$PYRIT_VERSION; \
+        echo "Installing alembic (required for DB migrations, may be missing from older PyPI releases)"; \
+        uv pip install --python /opt/venv/bin/python "alembic>=1.16.0"; \
     elif [ "$PYRIT_SOURCE" = "local" ]; then \
         echo "Installing PyRIT from local source"; \
         uv pip install --python /opt/venv/bin/python -e .[speech,opencv,fairness_bias,fastapi,playwright]; \
