@@ -3,6 +3,7 @@
 
 import asyncio
 import json
+import logging
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -317,6 +318,94 @@ class TestQueryTargetCapabilitiesAsync:
         # Schema is JSON-encoded into a string for prompt_metadata's value type.
         schema = json.loads(metadata["json_schema"])
         assert schema["type"] == "object"
+
+    @pytest.mark.parametrize("capability", [CapabilityName.JSON_OUTPUT, CapabilityName.JSON_SCHEMA])
+    async def test_logs_debug_for_unenforced_json_probe(
+        self, capability: CapabilityName, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        target = MockPromptTarget()
+        target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
+
+        with caplog.at_level(logging.DEBUG):
+            result = await discover_target_capabilities_async(target=target, capabilities={capability})
+
+        assert result == {capability}
+        matching = [r for r in caplog.records if r.message.startswith("JSON capability probes")]
+        assert len(matching) == 1
+        assert capability.value in matching[0].message
+
+    async def test_logs_unenforced_json_probe_summary_once_for_both_capabilities(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        target = MockPromptTarget()
+        target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
+
+        with caplog.at_level(logging.DEBUG):
+            await discover_target_capabilities_async(
+                target=target,
+                capabilities={CapabilityName.JSON_OUTPUT, CapabilityName.JSON_SCHEMA},
+            )
+
+        # A single summary line covers both probed JSON capabilities.
+        matching = [r for r in caplog.records if r.message.startswith("JSON capability probes")]
+        assert len(matching) == 1
+        assert CapabilityName.JSON_OUTPUT.value in matching[0].message
+        assert CapabilityName.JSON_SCHEMA.value in matching[0].message
+
+    async def test_does_not_log_unenforced_json_probe_when_probe_fails(self, caplog: pytest.LogCaptureFixture) -> None:
+        target = MockPromptTarget()
+        target._send_prompt_to_target_async = AsyncMock(side_effect=Exception("boom"))  # type: ignore[method-assign]
+
+        with caplog.at_level(logging.DEBUG):
+            result = await discover_target_capabilities_async(
+                target=target,
+                capabilities={CapabilityName.JSON_OUTPUT, CapabilityName.JSON_SCHEMA},
+                retries=0,
+            )
+
+        assert result == set()
+        assert not any(r.message.startswith("JSON capability probes") for r in caplog.records)
+
+    async def test_does_not_log_debug_for_enforced_json_probe(self, caplog: pytest.LogCaptureFixture) -> None:
+        target_type = type("FakeEnforcingTarget", (MockPromptTarget,), {})
+        target = target_type()
+        target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
+
+        with (
+            patch(
+                "pyrit.prompt_target.common.query_target_capabilities._json_enforcing_target_types",
+                return_value=(target_type,),
+            ),
+            caplog.at_level(logging.DEBUG),
+        ):
+            result = await discover_target_capabilities_async(
+                target=target,
+                capabilities={CapabilityName.JSON_OUTPUT},
+            )
+
+        assert result == {CapabilityName.JSON_OUTPUT}
+        assert not any(r.message.startswith("JSON capability probes") for r in caplog.records)
+
+    async def test_subclass_of_enforced_target_does_not_log(self, caplog: pytest.LogCaptureFixture) -> None:
+        # ``isinstance`` covers user-defined subclasses of enforcing targets.
+        base = type("EnforcingBase", (MockPromptTarget,), {})
+        sub = type("UserSubclass", (base,), {})
+        target = sub()
+        target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
+
+        with (
+            patch(
+                "pyrit.prompt_target.common.query_target_capabilities._json_enforcing_target_types",
+                return_value=(base,),
+            ),
+            caplog.at_level(logging.DEBUG),
+        ):
+            await discover_target_capabilities_async(
+                target=target,
+                capabilities={CapabilityName.JSON_OUTPUT},
+            )
+
+        assert not any(r.message.startswith("JSON capability probes") for r in caplog.records)
 
     async def test_system_prompt_probe_installs_system_message_and_sends_user(self) -> None:
         target = MockPromptTarget()

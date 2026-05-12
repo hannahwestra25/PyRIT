@@ -71,6 +71,24 @@ PROBE_METADATA_VALUE: str = "1"
 _CapabilityProbe = Callable[[PromptTarget, float, int], Awaitable[bool]]
 
 
+def _json_enforcing_target_types() -> tuple[type[PromptTarget], ...]:
+    """
+    Return the tuple of target classes that translate ``prompt_metadata`` JSON
+    hints (``response_format``, ``json_schema``) into native provider request
+    fields. Used to suppress the "JSON probe is upper-bound only" debug log for
+    these targets and their subclasses.
+
+    Imports are lazy to avoid a circular dependency at module load time and to
+    keep this concern entirely within the discovery module. Class objects (not
+    strings) are returned so renames are caught by import errors rather than
+    silently flipping the log behavior.
+    """
+    from pyrit.prompt_target.openai.openai_chat_target import OpenAIChatTarget
+    from pyrit.prompt_target.openai.openai_response_target import OpenAIResponseTarget
+
+    return (OpenAIChatTarget, OpenAIResponseTarget)
+
+
 # Every text probe sends a text-only payload. Permissive overrides therefore
 # always include this combination so that ``_validate_request``'s per-piece
 # data-type check does not reject text probes against text-less targets.
@@ -503,6 +521,8 @@ async def discover_target_capabilities_async(
     )
 
     queried: set[CapabilityName] = set()
+    json_capabilities = {CapabilityName.JSON_OUTPUT, CapabilityName.JSON_SCHEMA}
+    queried_json_capabilities: set[CapabilityName] = set()
     with _permissive_configuration(target=target):
         for capability in capabilities_to_check:
             probe = _CAPABILITY_PROBES.get(capability)
@@ -516,8 +536,23 @@ async def discover_target_capabilities_async(
                 # still ignore the feature semantics after accepting the call.
                 if await probe(target, per_probe_timeout_s, retries):
                     queried.add(capability)
+                    if capability in json_capabilities:
+                        queried_json_capabilities.add(capability)
             except Exception as exc:
                 logger.debug("Probe for %s raised: %s", capability.value, exc)
+
+    # JSON probes only verify the target accepted the request, not that the
+    # target translated the JSON metadata into provider request fields. Emit
+    # a single summary line when probes succeeded against a target that does
+    # not enforce JSON hints, so the result is treated as an upper bound.
+    # ``isinstance`` covers user-defined subclasses of enforcing targets.
+    if queried_json_capabilities and not isinstance(target, _json_enforcing_target_types()):
+        logger.debug(
+            "JSON capability probes %s succeeded for %s, but this target does not translate "
+            "prompt_metadata JSON hints into provider request fields; treat the result as upper-bound support only.",
+            sorted(c.value for c in queried_json_capabilities),
+            type(target).__name__,
+        )
 
     # Read unprobed capabilities from target.capabilities, not
     # target.configuration, so ADAPTed behavior is not reported as native
