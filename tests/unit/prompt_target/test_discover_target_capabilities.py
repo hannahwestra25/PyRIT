@@ -10,8 +10,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from pyrit.models import Message, MessagePiece, PromptDataType
-from pyrit.prompt_target.common.prompt_target import PromptTarget
-from pyrit.prompt_target.common.query_target_capabilities import (
+from pyrit.prompt_target.common.discover_target_capabilities import (
     _CAPABILITY_PROBES,
     DEFAULT_TEST_ASSETS,
     _create_test_message,
@@ -20,6 +19,7 @@ from pyrit.prompt_target.common.query_target_capabilities import (
     discover_target_capabilities_async,
     discover_target_modalities_async,
 )
+from pyrit.prompt_target.common.prompt_target import PromptTarget
 from pyrit.prompt_target.common.target_capabilities import (
     CapabilityHandlingPolicy,
     CapabilityName,
@@ -105,7 +105,7 @@ class TestPermissiveConfiguration:
 
 
 @pytest.mark.usefixtures("patch_central_database")
-class TestQueryTargetCapabilitiesAsync:
+class TestDiscoverTargetCapabilitiesAsync:
     async def test_returns_only_supported_when_all_probes_succeed(self) -> None:
         target = MockPromptTarget()
         target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
@@ -180,7 +180,7 @@ class TestQueryTargetCapabilitiesAsync:
         We simulate that by removing SYSTEM_PROMPT from the registry and
         configuring the target with ``ADAPT`` for it but no native support.
         """
-        from pyrit.prompt_target.common import query_target_capabilities as qtc
+        from pyrit.prompt_target.common import discover_target_capabilities as qtc
         from pyrit.prompt_target.common.target_capabilities import (
             CapabilityHandlingPolicy,
             UnsupportedCapabilityBehavior,
@@ -239,7 +239,7 @@ class TestQueryTargetCapabilitiesAsync:
         target._send_prompt_to_target_async = AsyncMock(side_effect=Exception("boom"))  # type: ignore[method-assign]
 
         with patch(
-            "pyrit.prompt_target.common.query_target_capabilities.asyncio.sleep", new_callable=AsyncMock
+            "pyrit.prompt_target.common.discover_target_capabilities.asyncio.sleep", new_callable=AsyncMock
         ) as sleep_mock:
             result = await discover_target_capabilities_async(
                 target=target,
@@ -264,7 +264,7 @@ class TestQueryTargetCapabilitiesAsync:
         )
 
         with patch(
-            "pyrit.prompt_target.common.query_target_capabilities.asyncio.sleep", new_callable=AsyncMock
+            "pyrit.prompt_target.common.discover_target_capabilities.asyncio.sleep", new_callable=AsyncMock
         ) as sleep_mock:
             result = await discover_target_capabilities_async(
                 target=target,
@@ -399,7 +399,7 @@ class TestQueryTargetCapabilitiesAsync:
 
         with (
             patch(
-                "pyrit.prompt_target.common.query_target_capabilities._json_enforcing_target_types",
+                "pyrit.prompt_target.common.discover_target_capabilities._json_enforcing_target_types",
                 return_value=(target_type,),
             ),
             caplog.at_level(logging.DEBUG),
@@ -421,7 +421,7 @@ class TestQueryTargetCapabilitiesAsync:
 
         with (
             patch(
-                "pyrit.prompt_target.common.query_target_capabilities._json_enforcing_target_types",
+                "pyrit.prompt_target.common.discover_target_capabilities._json_enforcing_target_types",
                 return_value=(base,),
             ),
             caplog.at_level(logging.DEBUG),
@@ -546,7 +546,7 @@ class TestQueryTargetCapabilitiesAsync:
 
 
 @pytest.mark.usefixtures("patch_central_database")
-class TestQueryTargetCapabilitiesIsolatedTarget:
+class TestDiscoverTargetCapabilitiesIsolatedTarget:
     """Tests using a bare PromptTarget subclass (no PromptChatTarget extras)."""
 
     async def test_with_minimal_target_subclass(self) -> None:
@@ -1025,6 +1025,33 @@ class TestVerifyTargetAsync:
 
         assert result.supports_json_output is True
         assert result.supports_editable_history is True
+
+    async def test_discover_target_async_apply_installs_capabilities_on_target(self) -> None:
+        """When ``apply=True``, the discovered capabilities are installed on the target."""
+        declared = TargetCapabilities(supports_multi_turn=False, supports_system_prompt=False)
+        target = MockPromptTarget()
+        target._configuration = TargetConfiguration(capabilities=declared)
+        target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
+
+        assert target.capabilities.supports_multi_turn is False
+
+        result = await discover_target_async(target=target, per_probe_timeout_s=2.0, apply=True)
+
+        assert target.capabilities == result
+        assert target.capabilities.supports_multi_turn is True
+
+    async def test_discover_target_async_apply_defaults_to_false(self) -> None:
+        """By default, ``discover_target_async`` must not mutate the target."""
+        declared = TargetCapabilities(supports_multi_turn=False, supports_system_prompt=False)
+        target = MockPromptTarget()
+        target._configuration = TargetConfiguration(capabilities=declared)
+        target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
+
+        result = await discover_target_async(target=target, per_probe_timeout_s=2.0)
+
+        # Result reflects probe; target capabilities remain at declared values.
+        assert result.supports_multi_turn is True
+        assert target.capabilities.supports_multi_turn is False
 
 
 @pytest.mark.usefixtures("patch_central_database")

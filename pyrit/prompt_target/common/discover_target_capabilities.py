@@ -704,11 +704,10 @@ async def discover_target_async(
             error response is final. Set to ``0`` to disable retries.
             Defaults to 1.
         apply (bool): If True, install the discovered capabilities on ``target``
-            via :meth:`PromptTarget.apply_capabilities` before returning. The
-            target's existing handling policy is preserved. Probe results are
-            an upper bound (the request was accepted, not necessarily honored),
-            so leave this False when you want to inspect or diff the result
-            before committing to it. Defaults to False.
+            via :meth:`PromptTarget.apply_capabilities` before returning.
+             Probe results are an upper bound (the request was accepted, not
+            necessarily honored), so leave this False when you want to inspect
+            or diff the result before committing to it. Defaults to False.
 
     Returns:
         TargetCapabilities: A merged capability view: probed where possible,
