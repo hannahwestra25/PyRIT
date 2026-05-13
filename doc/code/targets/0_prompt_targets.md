@@ -112,21 +112,14 @@ The full implementation lives in [`pyrit/prompt_target/common/target_capabilitie
 Declared capabilities describe what a target *should* support. For deployments where actual behavior is uncertain — custom OpenAI-compatible endpoints, gateways that strip features, models whose support drifts — you can probe what the target *actually* accepts at runtime:
 
 ```python
-from pyrit.prompt_target import (
-    discover_target_capabilities_async,
-    discover_target_async,
-    discover_target_modalities_async,
-)
+from pyrit.prompt_target import discover_target_capabilities_async
 
-# Probe a single dimension:
-queried_caps = await discover_target_capabilities_async(target=target)
-queried_modalities = await discover_target_modalities_async(target=target)
-
-# Or do both at once and get a best-effort TargetCapabilities back:
-queried = await discover_target_async(target=target)
+# Probe boolean capabilities and input modalities, returning a
+# best-effort TargetCapabilities:
+queried = await discover_target_capabilities_async(target=target)
 ```
 
-Each probe sends a minimal request (bounded by `per_probe_timeout_s`, default 30s, with one retry on transient errors) and only marks a capability or modality as supported if the call returns cleanly. `discover_target_async` returns a merged view: probed where possible, declared where probing is unavailable or out of scope. "Supported" here means *the request was accepted* — a target that silently ignores a system prompt or `response_format` directive is still reported as supporting it, so validate response content out of band when the distinction matters. These functions are not safe to call concurrently with other operations on the same target instance: they temporarily mutate `target._configuration` and write probe rows to memory (rows are tagged with `prompt_metadata["capability_probe"] == "1"` for filtering). See [Target Capabilities](./6_1_target_capabilities.ipynb) for runnable examples.
+Each probe sends a minimal request (bounded by `per_probe_timeout_s`, default 30s, with one retry on transient errors) and only marks a capability or modality as supported if the call returns cleanly. `discover_target_capabilities_async` returns a merged view: probed where possible, declared where probing is unavailable or out of scope. "Supported" here means *the request was accepted* — a target that silently ignores a system prompt or `response_format` directive is still reported as supporting it, so validate response content out of band when the distinction matters. This function is not safe to call concurrently with other operations on the same target instance: it temporarily mutates `target._configuration` and writes probe rows to memory (rows are tagged with `prompt_metadata["capability_probe"] == "1"` for filtering). See [Target Capabilities](./6_1_target_capabilities.ipynb) for runnable examples.
 
 ## Multi-Modal Targets
 

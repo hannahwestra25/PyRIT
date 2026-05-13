@@ -6,14 +6,14 @@ Runtime capability and modality discovery for prompt targets.
 
 This module exposes two complementary probes:
 
-* :func:`discover_target_capabilities_async` discovers the boolean capability flags
+* :func:`_discover_capability_flags_async` discovers the boolean capability flags
   defined on :class:`TargetCapabilities` (e.g. ``supports_system_prompt``,
   ``supports_multi_message_pieces``). For each capability that has a probe
   defined, a minimal request is sent to the target. If the request succeeds,
     the capability is included in the returned set. Capabilities without a
     registered probe fall back to the target's declared native support from
     ``target.capabilities``.
-* :func:`discover_target_modalities_async` discovers which input modality
+* :func:`_discover_input_modalities_async` discovers which input modality
   combinations a target actually supports by sending a minimal test request
   for each combination declared in ``TargetCapabilities.input_modalities``.
 
@@ -91,6 +91,9 @@ def _json_enforcing_target_types() -> tuple[type[PromptTarget], ...]:
     keep this concern entirely within the discovery module. Class objects (not
     strings) are returned so renames are caught by import errors rather than
     silently flipping the log behavior.
+
+    Returns:
+        tuple[type[PromptTarget], ...]: The target classes that enforce JSON hints.
     """
     from pyrit.prompt_target.openai.openai_chat_target import OpenAIChatTarget
     from pyrit.prompt_target.openai.openai_response_target import OpenAIResponseTarget
@@ -507,7 +510,7 @@ _CAPABILITY_PROBES: dict[CapabilityName, _CapabilityProbe] = {
 }
 
 
-async def discover_target_capabilities_async(
+async def _discover_capability_flags_async(
     *,
     target: PromptTarget,
     capabilities: Iterable[CapabilityName] | None = None,
@@ -590,7 +593,7 @@ async def discover_target_capabilities_async(
 
 # Default mapping of non-text modalities to packaged probe assets. Callers can
 # override via the ``test_assets`` parameter of
-# :func:`discover_target_modalities_async`. Modalities whose assets do not exist
+# :func:`_discover_input_modalities_async`. Modalities whose assets do not exist
 # on disk are skipped (logged and excluded from the result).
 DEFAULT_TEST_ASSETS: dict[PromptDataType, str] = {
     "audio_path": str(_TARGET_CAPABILITIES_DATASET_PATH / "probe_audio.wav"),
@@ -598,7 +601,7 @@ DEFAULT_TEST_ASSETS: dict[PromptDataType, str] = {
 }
 
 
-async def discover_target_modalities_async(
+async def _discover_input_modalities_async(
     *,
     target: PromptTarget,
     test_modalities: set[frozenset[PromptDataType]] | None = None,
@@ -637,7 +640,7 @@ async def discover_target_modalities_async(
         declared = target.capabilities.input_modalities
         test_modalities = set(declared)
     elif not test_modalities:
-        logger.info("discover_target_modalities_async called with an empty test_modalities set; nothing to probe.")
+        logger.info("_discover_input_modalities_async called with an empty test_modalities set; nothing to probe.")
         return set()
 
     assets = test_assets if test_assets is not None else DEFAULT_TEST_ASSETS
@@ -669,7 +672,7 @@ async def discover_target_modalities_async(
     return queried
 
 
-async def discover_target_async(
+async def discover_target_capabilities_async(
     *,
     target: PromptTarget,
     per_probe_timeout_s: float = DEFAULT_PROBE_TIMEOUT_SECONDS,
@@ -680,25 +683,32 @@ async def discover_target_async(
     apply: bool = False,
 ) -> TargetCapabilities:
     """
-    Probe capabilities and modalities and return a merged result.
-
-    This wraps :func:`discover_target_capabilities_async` and
-    :func:`discover_target_modalities_async` and returns a best-effort
+    Probe both the boolean capability flags and the input modality combinations
+    that ``target`` accepts, and return a merged best-effort
     :class:`TargetCapabilities`.
+
+    Boolean capabilities with a registered probe are checked with live
+    requests; capabilities without a probe fall back to the target's
+    declared native support. Each input modality combination is checked
+    with a minimal request built from the supplied test assets.
+    "Supported" means the request was accepted — a target that silently
+    ignores a feature is still reported as supporting it.
 
     Args:
         target (PromptTarget): The target to probe.
         per_probe_timeout_s (float): Per-attempt timeout (seconds) applied to
             each probe request.
         test_modalities (set[frozenset[PromptDataType]] | None): Specific
-            modality combinations to probe. See
-            :func:`discover_target_modalities_async`. Defaults to the
-            target's declared ``input_modalities``.
+            modality combinations to probe. Defaults to the target's declared
+            ``input_modalities``. Combinations not listed here fall back to
+            the target's declared support.
         test_assets (dict[PromptDataType, str] | None): Mapping from non-text
-            modality to a file path. See :func:`discover_target_modalities_async`.
+            modality to a file path used as the probe payload. Defaults to
+            :data:`DEFAULT_TEST_ASSETS`. Combinations whose non-text assets
+            are missing on disk are skipped.
         capabilities (Iterable[CapabilityName] | None): Capabilities to probe.
-            See :func:`discover_target_capabilities_async`. Defaults to every
-            member of :class:`CapabilityName`.
+            Defaults to every member of :class:`CapabilityName`. Capabilities
+            not listed here fall back to the target's declared support.
         retries (int): Number of additional attempts after the first failure
             for each probe. Only exceptions/timeouts are retried; an explicit
             error response is final. Set to ``0`` to disable retries.
@@ -715,13 +725,13 @@ async def discover_target_async(
     """
     capabilities_to_probe = list(capabilities) if capabilities is not None else None
 
-    queried_caps = await discover_target_capabilities_async(
+    queried_caps = await _discover_capability_flags_async(
         target=target,
         capabilities=capabilities_to_probe,
         per_probe_timeout_s=per_probe_timeout_s,
         retries=retries,
     )
-    queried_modalities = await discover_target_modalities_async(
+    queried_modalities = await _discover_input_modalities_async(
         target=target,
         test_modalities=test_modalities,
         test_assets=test_assets,
