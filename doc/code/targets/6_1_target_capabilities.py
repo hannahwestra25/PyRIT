@@ -402,3 +402,88 @@ print(f"  input_modalities:              {sorted(sorted(m) for m in queried_caps
 #     capabilities={CapabilityName.JSON_OUTPUT, CapabilityName.JSON_SCHEMA},
 # )
 # ```
+
+# %% [markdown]
+# ## 8. Applying probed capabilities back onto the target
+#
+# `discover_target_async` is intentionally pure: it returns a `TargetCapabilities` without
+# mutating the target. That lets you inspect (or diff against the declared view, log, gate on
+# the result) before committing. Once you're satisfied, call `target.apply_capabilities(...)`
+# to install the probed view on the instance. The target's existing
+# `CapabilityHandlingPolicy` is preserved — policy expresses user intent (ADAPT vs RAISE),
+# which is independent of what the probe found.
+#
+# Why a two-step pattern rather than auto-apply? Probe results are an upper bound
+# ("the request was accepted"); a target that silently ignores a feature still passes its
+# probe. Keeping discovery separate from application lets callers diff, log, persist, or
+# reject the result before it affects subsequent sends.
+#
+# Below is the end-to-end pattern: construct a target whose declared capabilities are
+# pessimistic, discover what the endpoint actually accepts, diff the two views, then apply.
+
+# %%
+# Start with an instance that declares fewer capabilities than the endpoint actually has,
+# e.g. a custom gateway whose support we're unsure about.
+pessimistic_config = TargetConfiguration(
+    capabilities=TargetCapabilities(
+        supports_multi_turn=False,
+        supports_system_prompt=False,
+        supports_multi_message_pieces=False,
+        supports_json_output=False,
+        supports_json_schema=False,
+        # Editable history has no live probe and falls back to the declared value.
+        # Declare it True here so the probed view inherits it.
+        supports_editable_history=True,
+    ),
+)
+endpoint_target = OpenAIChatTarget(
+    model_name="custom-model",
+    endpoint="https://example.invalid/",
+    api_key="sk-not-a-real-key",
+    custom_configuration=pessimistic_config,
+)
+endpoint_target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
+
+print("declared (before probing):")
+print(f"  supports_multi_turn:           {endpoint_target.capabilities.supports_multi_turn}")
+print(f"  supports_system_prompt:        {endpoint_target.capabilities.supports_system_prompt}")
+print(f"  supports_json_output:          {endpoint_target.capabilities.supports_json_output}")
+
+# Step 1: discover. No mutation yet — `endpoint_target.capabilities` is unchanged.
+probed_caps = await discover_target_async(target=endpoint_target, per_probe_timeout_s=5.0)  # type: ignore
+
+print("\nprobed (returned from discover_target_async, target NOT yet updated):")
+print(f"  supports_multi_turn:           {probed_caps.supports_multi_turn}")
+print(f"  supports_system_prompt:        {probed_caps.supports_system_prompt}")
+print(f"  supports_json_output:          {probed_caps.supports_json_output}")
+print(f"  target.capabilities.supports_multi_turn (still declared): {endpoint_target.capabilities.supports_multi_turn}")
+
+# Step 2: diff — see exactly what the probe upgraded.
+declared = pessimistic_config.capabilities
+upgraded = [
+    name
+    for name in (
+        "supports_multi_turn",
+        "supports_system_prompt",
+        "supports_multi_message_pieces",
+        "supports_json_output",
+        "supports_json_schema",
+    )
+    if getattr(probed_caps, name) and not getattr(declared, name)
+]
+print(f"\nflags probed True that were declared False: {upgraded}")
+
+# Step 3: apply. Policy is preserved; the normalization pipeline is rebuilt.
+original_policy = endpoint_target.configuration.policy
+endpoint_target.apply_capabilities(capabilities=probed_caps)
+
+print("\nafter apply_capabilities:")
+print(f"  supports_multi_turn:           {endpoint_target.capabilities.supports_multi_turn}")
+print(f"  supports_system_prompt:        {endpoint_target.capabilities.supports_system_prompt}")
+print(f"  supports_json_output:          {endpoint_target.capabilities.supports_json_output}")
+print(f"  policy preserved:              {endpoint_target.configuration.policy is original_policy}")
+
+# Subsequent consumer checks now reflect the probed reality — for example, a chat-style
+# requirement that would have failed against the pessimistic declaration now passes.
+CHAT_TARGET_REQUIREMENTS.validate(target=endpoint_target)
+print("\nCHAT_TARGET_REQUIREMENTS.validate now passes against the probed target")
