@@ -3,18 +3,18 @@
 
 """
 TextAdaptive scenario — picks attack techniques per-objective using an
-epsilon-greedy bandit informed by observed per-run success rates.
+epsilon-greedy selector informed by observed per-run success rates.
 
 Unlike static scenarios (which run every selected technique against every
 objective), TextAdaptive runs **up to** ``max_attempts_per_objective``
 techniques per objective and stops early when one succeeds. Which technique
-to try next is decided by an ``AdaptiveTechniqueSelector`` whose Q-values are
+to try next is decided by an ``AdaptiveTechniqueSelector`` whose estimates are
 updated after every attempt.
 
-The set of available "arms" comes from the selected scenario strategies, so
-``--strategies single_turn`` restricts the bandit to single-turn techniques,
+The set of available techniques comes from the selected scenario strategies, so
+``--strategies single_turn`` restricts the selector to single-turn techniques,
 etc. The default selector uses a single global context; pass a different
-``context_extractor`` (e.g., ``harm_category_context``) to partition Q-values
+``context_extractor`` (e.g., ``harm_category_context``) to partition estimates
 per category.
 """
 
@@ -32,7 +32,7 @@ from pyrit.scenario.core.dataset_configuration import DatasetConfiguration
 from pyrit.scenario.core.scenario import BaselinePolicy, Scenario
 from pyrit.scenario.core.scenario_strategy import ScenarioStrategy
 from pyrit.scenario.scenarios.adaptive.dispatcher import (
-    BANDIT_CONTEXT_LABEL,
+    ADAPTIVE_CONTEXT_LABEL,
     AdaptiveDispatchAttack,
 )
 from pyrit.scenario.scenarios.adaptive.selector import (
@@ -71,19 +71,19 @@ def _build_text_adaptive_strategy() -> type[ScenarioStrategy]:
 class TextAdaptive(Scenario):
     """
     Adaptive text-attack scenario that selects techniques per-objective using
-    an epsilon-greedy bandit over the set of selected strategies.
+    an epsilon-greedy selector over the set of selected strategies.
 
-    The bandit:
-        - Picks an arm uniformly at random with probability ``epsilon``.
-        - Otherwise exploits the highest observed success rate. Unseen arms
+    The selector:
+        - Picks a technique uniformly at random with probability ``epsilon``.
+        - Otherwise exploits the highest observed success rate. Unseen techniques
           have an optimistic prior so the first few objectives effectively
           round-robin through every available technique.
         - Pools across contexts when a context has fewer than
-          ``pool_threshold`` observations for an arm.
+          ``pool_threshold`` observations for a technique.
 
     A baseline ``PromptSendingAttack`` is **not** prepended — every objective
     runs through the dispatcher, and ``prompt_sending`` participates as one of
-    the bandit's arms.
+    the selector's techniques.
     """
 
     VERSION: int = 1
@@ -141,18 +141,18 @@ class TextAdaptive(Scenario):
         Args:
             objective_scorer (TrueFalseScorer | None): Scorer used to judge each
                 response. Defaults to the composite scorer built from the base class.
-            epsilon (float): Exploration probability for the bandit. Defaults to 0.2.
-            pool_threshold (int): Minimum per-(context, arm) attempts before the
+            epsilon (float): Exploration probability for the selector. Defaults to 0.2.
+            pool_threshold (int): Minimum per-(context, technique) attempts before the
                 local estimate overrides the pooled-global estimate. Set to 1 to
                 disable pooling. Defaults to 3.
             max_attempts_per_objective (int): Maximum techniques tried per
                 objective before giving up. Defaults to 3.
-            seed (int | None): RNG seed for deterministic bandit decisions.
+            seed (int | None): RNG seed for deterministic selection decisions.
                 Defaults to ``None`` (non-deterministic).
             context_extractor (ContextExtractor): Function mapping a
-                ``SeedAttackGroup`` to a bandit context key. Defaults to
-                ``global_context`` (one shared bandit table). Use
-                ``harm_category_context`` to partition Q-values by harm category.
+                ``SeedAttackGroup`` to a context key. Defaults to
+                ``global_context`` (one shared selection table). Use
+                ``harm_category_context`` to partition estimates by harm category.
             scenario_result_id (str | None): ID of an existing ``ScenarioResult``
                 to resume.
         """
@@ -182,22 +182,23 @@ class TextAdaptive(Scenario):
         ``AdaptiveDispatchAttack`` (and therefore a single
         ``AdaptiveTechniqueSelector``).
 
-        This is the bandit's "single working memory shared across objectives"
-        plumbing: each per-objective ``AtomicAttack`` consults and updates the
-        same selector via the same dispatcher instance.
+        Each per-objective ``AtomicAttack`` consults and updates the same
+        selector via the same dispatcher instance, so learning from one
+        objective immediately benefits the next.
         """
         if self._objective_target is None:
-            raise ValueError(
-                "Scenario not properly initialized. Call await scenario.initialize_async() before running."
-            )
+            raise ValueError("objective_target must be set before creating attacks")
 
-        selected_arms = sorted({s.value for s in self._scenario_strategies})
+        selected_techniques = sorted({s.value for s in self._scenario_strategies})
         factories = self._get_attack_technique_factories()
 
-        # Build each arm's inner attack once and reuse across all objectives.
+        # Build each technique's inner attack once and reuse across all objectives.
+        # Skip factories that require a seed_technique (e.g. crescendo_simulated)
+        # since the dispatcher cannot merge technique seeds into the objective's
+        # seed group at dispatch time.
         scoring_config = AttackScoringConfig(objective_scorer=cast("TrueFalseScorer", self._objective_scorer))
-        arms: dict[str, AttackStrategy] = {}
-        for technique_name in selected_arms:
+        techniques: dict[str, AttackStrategy] = {}
+        for technique_name in selected_techniques:
             factory = factories.get(technique_name)
             if factory is None:
                 logger.warning(f"No factory for technique '{technique_name}', skipping.")
@@ -206,9 +207,15 @@ class TextAdaptive(Scenario):
                 objective_target=self._objective_target,
                 attack_scoring_config=scoring_config,
             )
-            arms[technique_name] = technique.attack
+            if technique.seed_technique is not None:
+                logger.debug(
+                    "Skipping technique '%s': requires seed_technique which adaptive dispatch cannot handle.",
+                    technique_name,
+                )
+                continue
+            techniques[technique_name] = technique.attack
 
-        if not arms:
+        if not techniques:
             raise ValueError(
                 "TextAdaptive: no usable techniques after resolving strategies. Check the --strategies selection."
             )
@@ -220,13 +227,10 @@ class TextAdaptive(Scenario):
         )
         dispatcher = AdaptiveDispatchAttack(
             objective_target=self._objective_target,
-            arms=arms,
+            techniques=techniques,
             selector=selector,
             max_attempts_per_objective=self._max_attempts_per_objective,
         )
-        # Stash for tests / debugging; not part of the public API.
-        self._selector = selector
-        self._dispatcher = dispatcher
 
         seed_groups_by_dataset = self._dataset_config.get_seed_attack_groups()
         atomic_attacks: list[AtomicAttack] = []
@@ -260,7 +264,7 @@ class TextAdaptive(Scenario):
 
         memory_labels = {
             **self._memory_labels,
-            BANDIT_CONTEXT_LABEL: bandit_context,
+            ADAPTIVE_CONTEXT_LABEL: bandit_context,
         }
         return AtomicAttack(
             atomic_attack_name=atomic_attack_name,

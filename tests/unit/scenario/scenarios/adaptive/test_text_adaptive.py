@@ -16,12 +16,11 @@ from pyrit.registry.object_registries.attack_technique_registry import AttackTec
 from pyrit.scenario.core.dataset_configuration import DatasetConfiguration
 from pyrit.scenario.core.scenario import BaselinePolicy
 from pyrit.scenario.scenarios.adaptive.dispatcher import (
-    BANDIT_CONTEXT_LABEL,
+    ADAPTIVE_CONTEXT_LABEL,
     AdaptiveDispatchAttack,
 )
 from pyrit.scenario.scenarios.adaptive.selector import (
     GLOBAL_CONTEXT,
-    AdaptiveTechniqueSelector,
     harm_category_context,
 )
 from pyrit.scenario.scenarios.adaptive.text_adaptive import TextAdaptive
@@ -190,7 +189,6 @@ class TestTextAdaptiveAtomicAttacks:
         dispatchers = {atomic._attack_technique.attack for atomic in attacks}
         assert len(dispatchers) == 1
         assert isinstance(next(iter(dispatchers)), AdaptiveDispatchAttack)
-        assert isinstance(scenario._selector, AdaptiveTechniqueSelector)
 
     async def test_global_context_label_when_using_global_extractor(self, mock_objective_target, mock_objective_scorer):
         groups = {
@@ -203,7 +201,7 @@ class TestTextAdaptiveAtomicAttacks:
             seed_groups=groups,
         )
         for atomic in attacks:
-            assert atomic._memory_labels[BANDIT_CONTEXT_LABEL] == GLOBAL_CONTEXT
+            assert atomic._memory_labels[ADAPTIVE_CONTEXT_LABEL] == GLOBAL_CONTEXT
 
     async def test_harm_category_extractor_partitions_labels(self, mock_objective_target, mock_objective_scorer):
         groups = {
@@ -217,7 +215,7 @@ class TestTextAdaptiveAtomicAttacks:
             seed_groups=groups,
             context_extractor=harm_category_context,
         )
-        contexts = {atomic._memory_labels[BANDIT_CONTEXT_LABEL] for atomic in attacks}
+        contexts = {atomic._memory_labels[ADAPTIVE_CONTEXT_LABEL] for atomic in attacks}
         # Each objective gets its own context bucket from harm_category_context.
         assert contexts == {"violence", "hate", "_uncategorized"}
 

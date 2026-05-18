@@ -4,7 +4,7 @@
 """Adaptive scenario classes."""
 
 from pyrit.scenario.scenarios.adaptive.dispatcher import (
-    BANDIT_CONTEXT_LABEL,
+    ADAPTIVE_CONTEXT_LABEL,
     AdaptiveDispatchAttack,
 )
 from pyrit.scenario.scenarios.adaptive.selector import (
@@ -16,9 +16,9 @@ from pyrit.scenario.scenarios.adaptive.selector import (
 from pyrit.scenario.scenarios.adaptive.text_adaptive import TextAdaptive
 
 __all__ = [
+    "ADAPTIVE_CONTEXT_LABEL",
     "AdaptiveDispatchAttack",
     "AdaptiveTechniqueSelector",
-    "BANDIT_CONTEXT_LABEL",
     "ContextExtractor",
     "TextAdaptive",
     "global_context",

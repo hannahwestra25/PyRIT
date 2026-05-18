@@ -9,9 +9,9 @@ import pytest
 from pyrit.executor.attack.core.attack_parameters import AttackParameters
 from pyrit.models import AttackOutcome, AttackResult
 from pyrit.scenario.scenarios.adaptive.dispatcher import (
-    ADAPTIVE_ARM_LABEL,
     ADAPTIVE_ATTEMPT_LABEL,
-    BANDIT_CONTEXT_LABEL,
+    ADAPTIVE_CONTEXT_LABEL,
+    ADAPTIVE_TECHNIQUE_LABEL,
     AdaptiveDispatchAttack,
     AdaptiveDispatchContext,
 )
@@ -53,9 +53,9 @@ def target() -> MagicMock:
 
 class TestInit:
     @pytest.mark.usefixtures("patch_central_database")
-    def test_init_rejects_empty_arms(self, target, selector):
-        with pytest.raises(ValueError, match="arms"):
-            AdaptiveDispatchAttack(objective_target=target, arms={}, selector=selector)
+    def test_init_rejects_empty_techniques(self, target, selector):
+        with pytest.raises(ValueError, match="techniques"):
+            AdaptiveDispatchAttack(objective_target=target, techniques={}, selector=selector)
 
     @pytest.mark.parametrize("bad_max", [0, -1])
     @pytest.mark.usefixtures("patch_central_database")
@@ -63,7 +63,7 @@ class TestInit:
         with pytest.raises(ValueError, match="max_attempts_per_objective"):
             AdaptiveDispatchAttack(
                 objective_target=target,
-                arms={"a": _make_inner_attack(name="a", outcomes=[AttackOutcome.SUCCESS])},
+                techniques={"a": _make_inner_attack(name="a", outcomes=[AttackOutcome.SUCCESS])},
                 selector=selector,
                 max_attempts_per_objective=bad_max,
             )
@@ -76,7 +76,7 @@ class TestPerform:
         b = _make_inner_attack(name="b", outcomes=[AttackOutcome.SUCCESS])
         dispatcher = AdaptiveDispatchAttack(
             objective_target=target,
-            arms={"a": a, "b": b},
+            techniques={"a": a, "b": b},
             selector=selector,
             max_attempts_per_objective=5,
         )
@@ -92,7 +92,7 @@ class TestPerform:
         b = _make_inner_attack(name="b", outcomes=[AttackOutcome.FAILURE] * 3)
         dispatcher = AdaptiveDispatchAttack(
             objective_target=target,
-            arms={"a": a, "b": b},
+            techniques={"a": a, "b": b},
             selector=selector,
             max_attempts_per_objective=3,
         )
@@ -108,7 +108,7 @@ class TestPerform:
         b = _make_inner_attack(name="b", outcomes=[AttackOutcome.SUCCESS])
         dispatcher = AdaptiveDispatchAttack(
             objective_target=target,
-            arms={"a": a, "b": b},
+            techniques={"a": a, "b": b},
             selector=selector,
             max_attempts_per_objective=3,
         )
@@ -124,7 +124,7 @@ class TestPerform:
         a = _make_inner_attack(name="a", outcomes=[AttackOutcome.SUCCESS])
         dispatcher = AdaptiveDispatchAttack(
             objective_target=target,
-            arms={"a": a},
+            techniques={"a": a},
             selector=selector,
         )
 
@@ -133,11 +133,11 @@ class TestPerform:
         kwargs = a.execute_async.call_args.kwargs
         assert kwargs["objective"] == "my-goal"
 
-    async def test_attaches_arm_and_attempt_labels(self, target, selector):
+    async def test_attaches_technique_and_attempt_labels(self, target, selector):
         a = _make_inner_attack(name="a", outcomes=[AttackOutcome.SUCCESS])
         dispatcher = AdaptiveDispatchAttack(
             objective_target=target,
-            arms={"a": a},
+            techniques={"a": a},
             selector=selector,
         )
 
@@ -145,24 +145,24 @@ class TestPerform:
 
         labels = a.execute_async.call_args.kwargs["memory_labels"]
         assert labels["foo"] == "bar"  # caller labels preserved
-        assert labels[ADAPTIVE_ARM_LABEL] == "a"
+        assert labels[ADAPTIVE_TECHNIQUE_LABEL] == "a"
         assert labels[ADAPTIVE_ATTEMPT_LABEL] == "1"
 
-    async def test_uses_bandit_context_from_label(self, target, selector):
-        # Two arms; one has been heavily rewarded under context "violence" only.
+    async def test_uses_adaptive_context_from_label(self, target, selector):
+        # Two techniques; one has been heavily rewarded under context "violence" only.
         a = _make_inner_attack(name="a", outcomes=[AttackOutcome.SUCCESS])
         b = _make_inner_attack(name="b", outcomes=[AttackOutcome.SUCCESS])
         for _ in range(5):
-            selector.update(context="violence", technique="b", success=True)
+            selector.record_outcome(context="violence", technique="b", success=True)
         for _ in range(5):
-            selector.update(context="violence", technique="a", success=False)
+            selector.record_outcome(context="violence", technique="a", success=False)
 
         dispatcher = AdaptiveDispatchAttack(
             objective_target=target,
-            arms={"a": a, "b": b},
+            techniques={"a": a, "b": b},
             selector=selector,
         )
-        ctx = _make_context(labels={BANDIT_CONTEXT_LABEL: "violence"})
+        ctx = _make_context(labels={ADAPTIVE_CONTEXT_LABEL: "violence"})
         await dispatcher._perform_async(context=ctx)
 
         # Exploit should have picked "b" first.
@@ -173,7 +173,7 @@ class TestPerform:
         a = _make_inner_attack(name="a", outcomes=[AttackOutcome.SUCCESS])
         dispatcher = AdaptiveDispatchAttack(
             objective_target=target,
-            arms={"a": a},
+            techniques={"a": a},
             selector=selector,
         )
         await dispatcher._perform_async(context=_make_context(labels={}))
@@ -182,12 +182,12 @@ class TestPerform:
         assert selector.counts(context=GLOBAL_CONTEXT, technique="a") == (1, 1)
 
     async def test_metadata_records_adaptive_trail(self, target, selector):
-        # Arm "a" fails on the first attempt then succeeds; verify the trail
+        # Technique "a" fails on the first attempt then succeeds; verify the trail
         # captures both attempts in order.
         a = _make_inner_attack(name="a", outcomes=[AttackOutcome.FAILURE, AttackOutcome.SUCCESS])
         dispatcher = AdaptiveDispatchAttack(
             objective_target=target,
-            arms={"a": a},
+            techniques={"a": a},
             selector=selector,
             max_attempts_per_objective=3,
         )
@@ -207,7 +207,7 @@ class TestValidate:
     def test_validate_rejects_empty_objective(self, target, selector, bad_objective):
         dispatcher = AdaptiveDispatchAttack(
             objective_target=target,
-            arms={"a": _make_inner_attack(name="a", outcomes=[AttackOutcome.SUCCESS])},
+            techniques={"a": _make_inner_attack(name="a", outcomes=[AttackOutcome.SUCCESS])},
             selector=selector,
         )
         with pytest.raises(ValueError, match="objective"):
@@ -216,7 +216,7 @@ class TestValidate:
     def test_validate_accepts_normal_objective(self, target, selector):
         dispatcher = AdaptiveDispatchAttack(
             objective_target=target,
-            arms={"a": _make_inner_attack(name="a", outcomes=[AttackOutcome.SUCCESS])},
+            techniques={"a": _make_inner_attack(name="a", outcomes=[AttackOutcome.SUCCESS])},
             selector=selector,
         )
         # Does not raise.

@@ -6,11 +6,11 @@
 technique to run for each objective using an ``AdaptiveTechniqueSelector``.
 
 This is the execution-side counterpart to the selector. The selector decides
-*which arm to pull*; the dispatcher *runs the arm*, records the outcome, and
-loops up to ``max_attempts_per_objective`` times.
+*which technique to try*; the dispatcher *runs the technique*, records the
+outcome, and loops up to ``max_attempts_per_objective`` times.
 
-The dispatcher reads a bandit-context key from
-``context.memory_labels[BANDIT_CONTEXT_LABEL]``. The scenario is expected to
+The dispatcher reads an adaptive-context key from
+``context.memory_labels[ADAPTIVE_CONTEXT_LABEL]``. The scenario is expected to
 stamp that label per-objective (computed once at atomic-attack construction
 time via a ``ContextExtractor``). When the label is missing, the global
 context is used.
@@ -36,10 +36,10 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-BANDIT_CONTEXT_LABEL: str = "_adaptive_context"
-"""Memory-label key whose value is the bandit context string for an objective."""
+"""Memory-label key whose value is the adaptive context string for an objective."""
+ADAPTIVE_CONTEXT_LABEL: str = "_adaptive_context"
 
-ADAPTIVE_ARM_LABEL: str = "_adaptive_arm"
+ADAPTIVE_TECHNIQUE_LABEL: str = "_adaptive_technique"
 ADAPTIVE_ATTEMPT_LABEL: str = "_adaptive_attempt"
 
 
@@ -56,10 +56,10 @@ class AdaptiveDispatchContext(AttackContext[AttackParameters]):
 class AdaptiveDispatchAttack(AttackStrategy[AdaptiveDispatchContext, AttackResult]):
     """
     Attack that delegates each attempt to one of several inner ``AttackStrategy``
-    instances ("arms"), choosing per attempt via an ``AdaptiveTechniqueSelector``.
+    instances ("techniques"), choosing per attempt via an ``AdaptiveTechniqueSelector``.
 
     For each objective the dispatcher loops up to ``max_attempts_per_objective``
-    times. On each iteration it asks the selector which arm to try, executes
+    times. On each iteration it asks the selector which technique to try, executes
     the inner attack with the objective, records the outcome on the selector,
     and stops early on success.
 
@@ -71,7 +71,7 @@ class AdaptiveDispatchAttack(AttackStrategy[AdaptiveDispatchContext, AttackResul
         self,
         *,
         objective_target: PromptTarget,
-        arms: dict[str, AttackStrategy[Any, AttackResult]],
+        techniques: dict[str, AttackStrategy[Any, AttackResult]],
         selector: AdaptiveTechniqueSelector,
         max_attempts_per_objective: int = 3,
     ) -> None:
@@ -80,17 +80,20 @@ class AdaptiveDispatchAttack(AttackStrategy[AdaptiveDispatchContext, AttackResul
             objective_target (PromptTarget): The target the inner attacks run against.
                 Stored for identifier/logging parity; the dispatcher does not call
                 the target directly.
-            arms (dict[str, AttackStrategy[Any, AttackResult]]): Mapping from
+            techniques (dict[str, AttackStrategy[Any, AttackResult]]): Mapping from
                 technique name to a pre-built inner attack. Must be non-empty.
-            selector (AdaptiveTechniqueSelector): Shared bandit state.
-            max_attempts_per_objective (int): Maximum number of arm attempts
+                These are constructed by the scenario from registered attack
+                technique factories.
+            selector (AdaptiveTechniqueSelector): Shared adaptive selection state
+                that tracks per-technique success rates across objectives.
+            max_attempts_per_objective (int): Maximum number of technique attempts
                 per objective. Must be >= 1. Defaults to 3.
 
         Raises:
-            ValueError: If ``arms`` is empty or ``max_attempts_per_objective`` < 1.
+            ValueError: If ``techniques`` is empty or ``max_attempts_per_objective`` < 1.
         """
-        if not arms:
-            raise ValueError("arms must contain at least one technique")
+        if not techniques:
+            raise ValueError("techniques must contain at least one attack technique")
         if max_attempts_per_objective < 1:
             raise ValueError(f"max_attempts_per_objective must be >= 1, got {max_attempts_per_objective}")
 
@@ -100,7 +103,7 @@ class AdaptiveDispatchAttack(AttackStrategy[AdaptiveDispatchContext, AttackResul
             params_type=AttackParameters,
             logger=logger,
         )
-        self._arms = arms
+        self._techniques = techniques
         self._selector = selector
         self._max_attempts = max_attempts_per_objective
 
@@ -115,26 +118,26 @@ class AdaptiveDispatchAttack(AttackStrategy[AdaptiveDispatchContext, AttackResul
         pass
 
     async def _perform_async(self, *, context: AdaptiveDispatchContext) -> AttackResult:
-        bandit_context = context.memory_labels.get(BANDIT_CONTEXT_LABEL, GLOBAL_CONTEXT)
-        arm_names = list(self._arms.keys())
+        adaptive_context = context.memory_labels.get(ADAPTIVE_CONTEXT_LABEL, GLOBAL_CONTEXT)
+        technique_names = list(self._techniques.keys())
 
         last_result: AttackResult | None = None
         trail: list[dict[str, str]] = []
 
         for attempt_idx in range(self._max_attempts):
-            chosen = self._selector.select(context=bandit_context, arms=arm_names)
-            inner = self._arms[chosen]
+            chosen = self._selector.select(context=adaptive_context, techniques=technique_names)
+            inner = self._techniques[chosen]
             attempt_labels = {
                 **context.memory_labels,
-                ADAPTIVE_ARM_LABEL: chosen,
+                ADAPTIVE_TECHNIQUE_LABEL: chosen,
                 ADAPTIVE_ATTEMPT_LABEL: str(attempt_idx + 1),
             }
 
             logger.debug(
-                "AdaptiveDispatchAttack: attempt %d/%d context=%r arm=%r",
+                "AdaptiveDispatchAttack: attempt %d/%d context=%r technique=%r",
                 attempt_idx + 1,
                 self._max_attempts,
-                bandit_context,
+                adaptive_context,
                 chosen,
             )
 
@@ -143,7 +146,7 @@ class AdaptiveDispatchAttack(AttackStrategy[AdaptiveDispatchContext, AttackResul
                 memory_labels=attempt_labels,
             )
             success = result.outcome == AttackOutcome.SUCCESS
-            self._selector.update(context=bandit_context, technique=chosen, success=success)
+            self._selector.record_outcome(context=adaptive_context, technique=chosen, success=success)
 
             trail.append({"technique": chosen, "outcome": result.outcome.value})
             last_result = result
@@ -156,6 +159,6 @@ class AdaptiveDispatchAttack(AttackStrategy[AdaptiveDispatchContext, AttackResul
         last_result.metadata = {
             **last_result.metadata,
             "adaptive_attempts": trail,
-            "adaptive_context": bandit_context,
+            "adaptive_context": adaptive_context,
         }
         return last_result
