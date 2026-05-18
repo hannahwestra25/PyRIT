@@ -168,10 +168,11 @@ class TestContextExtractors:
         sg = MagicMock()
         assert global_context(sg) == GLOBAL_CONTEXT
 
-    def test_harm_category_context_uses_first_category(self):
+    def test_harm_category_context_uses_sorted_first_category(self):
         sg = MagicMock()
         sg.harm_categories = ["violence", "hate"]
-        assert harm_category_context(sg) == "violence"
+        # sorted() ensures deterministic selection regardless of set iteration order
+        assert harm_category_context(sg) == "hate"
 
     def test_harm_category_context_falls_back_when_empty(self):
         sg = MagicMock()

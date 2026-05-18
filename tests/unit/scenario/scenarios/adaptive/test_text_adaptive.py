@@ -117,7 +117,7 @@ class TestTextAdaptiveBasics:
         assert strat is not None
 
     @patch("pyrit.scenario.core.scenario.Scenario._get_default_objective_scorer")
-    def test_init_stores_bandit_params(self, mock_get_scorer, mock_objective_scorer):
+    def test_init_stores_adaptive_params(self, mock_get_scorer, mock_objective_scorer):
         mock_get_scorer.return_value = mock_objective_scorer
         scenario = TextAdaptive(
             epsilon=0.4,

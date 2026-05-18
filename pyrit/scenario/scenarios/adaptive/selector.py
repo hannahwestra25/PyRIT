@@ -54,7 +54,7 @@ def harm_category_context(seed_attack_group: SeedAttackGroup) -> str:
     categories = seed_attack_group.harm_categories
     if not categories:
         return UNCATEGORIZED_CONTEXT
-    return categories[0]
+    return sorted(categories)[0]
 
 
 class AdaptiveTechniqueSelector:

@@ -23,7 +23,7 @@ from __future__ import annotations
 import logging
 import random
 import uuid
-from typing import TYPE_CHECKING, ClassVar, cast
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 from pyrit.common import apply_defaults
 from pyrit.executor.attack import AttackScoringConfig
@@ -43,7 +43,7 @@ from pyrit.scenario.scenarios.adaptive.selector import (
 
 if TYPE_CHECKING:
     from pyrit.executor.attack.core.attack_strategy import AttackStrategy
-    from pyrit.models import SeedAttackGroup
+    from pyrit.models import AttackResult, SeedAttackGroup
     from pyrit.scenario.core.atomic_attack import AtomicAttack
     from pyrit.score import TrueFalseScorer
 
@@ -197,7 +197,7 @@ class TextAdaptive(Scenario):
         # since the dispatcher cannot merge technique seeds into the objective's
         # seed group at dispatch time.
         scoring_config = AttackScoringConfig(objective_scorer=cast("TrueFalseScorer", self._objective_scorer))
-        techniques: dict[str, AttackStrategy] = {}
+        techniques: dict[str, AttackStrategy[Any, AttackResult]] = {}
         for technique_name in selected_techniques:
             factory = factories.get(technique_name)
             if factory is None:
@@ -256,7 +256,7 @@ class TextAdaptive(Scenario):
         from pyrit.scenario.core.atomic_attack import AtomicAttack
         from pyrit.scenario.core.attack_technique import AttackTechnique
 
-        bandit_context = self._context_extractor(seed_group)
+        adaptive_context = self._context_extractor(seed_group)
         # Use the objective's id when available so resume keys are stable across
         # runs that re-fetch the same seed groups; fall back to a random uuid.
         objective_id = seed_group.objective.id if seed_group.objective.id else uuid.uuid4()
@@ -264,7 +264,7 @@ class TextAdaptive(Scenario):
 
         memory_labels = {
             **self._memory_labels,
-            ADAPTIVE_CONTEXT_LABEL: bandit_context,
+            ADAPTIVE_CONTEXT_LABEL: adaptive_context,
         }
         return AtomicAttack(
             atomic_attack_name=atomic_attack_name,

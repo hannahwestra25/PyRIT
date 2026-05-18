@@ -46,10 +46,10 @@
 # %%
 from pathlib import Path
 
-from pyrit.scenario.scenarios.adaptive import TextAdaptive, harm_category_context
 from pyrit.registry import TargetRegistry
 from pyrit.scenario import DatasetConfiguration
 from pyrit.scenario.printer.console_printer import ConsoleScenarioResultPrinter
+from pyrit.scenario.scenarios.adaptive import TextAdaptive, harm_category_context
 from pyrit.setup import initialize_from_config_async
 
 await initialize_from_config_async(config_path=Path("../../scanner/pyrit_conf.yaml"))  # type: ignore
