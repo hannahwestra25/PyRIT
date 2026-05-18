@@ -191,8 +191,6 @@ class TextAdaptive(Scenario):
                 "Scenario not properly initialized. Call await scenario.initialize_async() before running."
             )
 
-        from pyrit.scenario.core.atomic_attack import AtomicAttack
-
         selected_arms = sorted({s.value for s in self._scenario_strategies})
         factories = self._get_attack_technique_factories()
 
@@ -212,8 +210,7 @@ class TextAdaptive(Scenario):
 
         if not arms:
             raise ValueError(
-                "TextAdaptive: no usable techniques after resolving strategies. "
-                "Check the --strategies selection."
+                "TextAdaptive: no usable techniques after resolving strategies. Check the --strategies selection."
             )
 
         selector = AdaptiveTechniqueSelector(

@@ -116,9 +116,7 @@ class TestPerform:
         await dispatcher._perform_async(context=_make_context())
 
         # Total attempts across arms must equal sum of selector counts.
-        total_attempts = sum(
-            selector.counts(context=GLOBAL_CONTEXT, technique=t)[1] for t in ("a", "b")
-        )
+        total_attempts = sum(selector.counts(context=GLOBAL_CONTEXT, technique=t)[1] for t in ("a", "b"))
         total_calls = a.execute_async.call_count + b.execute_async.call_count
         assert total_attempts == total_calls
 

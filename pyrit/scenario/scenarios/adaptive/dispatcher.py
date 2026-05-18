@@ -45,7 +45,8 @@ ADAPTIVE_ATTEMPT_LABEL: str = "_adaptive_attempt"
 
 @dataclass
 class AdaptiveDispatchContext(AttackContext[AttackParameters]):
-    """Execution context for ``AdaptiveDispatchAttack``.
+    """
+    Execution context for ``AdaptiveDispatchAttack``.
 
     No extra state is needed beyond what ``AttackContext`` provides; the
     dispatcher reads the objective and memory labels from the base class.
@@ -91,9 +92,7 @@ class AdaptiveDispatchAttack(AttackStrategy[AdaptiveDispatchContext, AttackResul
         if not arms:
             raise ValueError("arms must contain at least one technique")
         if max_attempts_per_objective < 1:
-            raise ValueError(
-                f"max_attempts_per_objective must be >= 1, got {max_attempts_per_objective}"
-            )
+            raise ValueError(f"max_attempts_per_objective must be >= 1, got {max_attempts_per_objective}")
 
         super().__init__(
             objective_target=objective_target,

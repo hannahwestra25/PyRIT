@@ -14,7 +14,6 @@ from pyrit.scenario.scenarios.adaptive.selector import (
     harm_category_context,
 )
 
-
 ARMS = ["a", "b", "c", "d"]
 
 
@@ -53,10 +52,7 @@ class TestAdaptiveTechniqueSelectorSelect:
         # With epsilon=0 and an empty table, every arm has estimate 1/1=1.0,
         # so the result is the seeded random tiebreak. Different seeds should
         # be able to produce different winners.
-        winners = {
-            _seeded_selector(seed=s).select(context=GLOBAL_CONTEXT, arms=ARMS)
-            for s in range(50)
-        }
+        winners = {_seeded_selector(seed=s).select(context=GLOBAL_CONTEXT, arms=ARMS) for s in range(50)}
         assert len(winners) > 1
         assert winners.issubset(set(ARMS))
 

@@ -27,7 +27,6 @@ from pyrit.scenario.scenarios.adaptive.selector import (
 from pyrit.scenario.scenarios.adaptive.text_adaptive import TextAdaptive
 from pyrit.score import TrueFalseScorer
 
-
 _MOCK_MANY_SHOT_EXAMPLES = [{"question": f"q{i}", "answer": f"a{i}"} for i in range(100)]
 
 
@@ -193,9 +192,7 @@ class TestTextAdaptiveAtomicAttacks:
         assert isinstance(next(iter(dispatchers)), AdaptiveDispatchAttack)
         assert isinstance(scenario._selector, AdaptiveTechniqueSelector)
 
-    async def test_global_context_label_when_using_global_extractor(
-        self, mock_objective_target, mock_objective_scorer
-    ):
+    async def test_global_context_label_when_using_global_extractor(self, mock_objective_target, mock_objective_scorer):
         groups = {
             "violence": [_make_seed_group(value="obj-1", harm_categories=["violence"])],
             "hate": [_make_seed_group(value="obj-2", harm_categories=["hate"])],
@@ -208,9 +205,7 @@ class TestTextAdaptiveAtomicAttacks:
         for atomic in attacks:
             assert atomic._memory_labels[BANDIT_CONTEXT_LABEL] == GLOBAL_CONTEXT
 
-    async def test_harm_category_extractor_partitions_labels(
-        self, mock_objective_target, mock_objective_scorer
-    ):
+    async def test_harm_category_extractor_partitions_labels(self, mock_objective_target, mock_objective_scorer):
         groups = {
             "violence": [_make_seed_group(value="obj-v", harm_categories=["violence"])],
             "hate": [_make_seed_group(value="obj-h", harm_categories=["hate"])],
@@ -228,9 +223,7 @@ class TestTextAdaptiveAtomicAttacks:
 
     async def test_atomic_names_are_unique(self, mock_objective_target, mock_objective_scorer):
         groups = {
-            "violence": [
-                _make_seed_group(value=f"obj-{i}", harm_categories=["violence"]) for i in range(5)
-            ],
+            "violence": [_make_seed_group(value=f"obj-{i}", harm_categories=["violence"]) for i in range(5)],
         }
         _scenario, attacks = await self._build_scenario_and_attacks(
             mock_objective_target=mock_objective_target,
@@ -269,9 +262,7 @@ class TestTextAdaptiveAtomicAttacks:
 
 @pytest.mark.usefixtures(*FIXTURES)
 class TestTextAdaptiveBaselinePolicy:
-    async def test_initialize_async_rejects_explicit_baseline(
-        self, mock_objective_target, mock_objective_scorer
-    ):
+    async def test_initialize_async_rejects_explicit_baseline(self, mock_objective_target, mock_objective_scorer):
         groups = {"violence": [_make_seed_group(value="obj", harm_categories=["violence"])]}
         with patch.object(DatasetConfiguration, "get_seed_attack_groups", return_value=groups):
             scenario = TextAdaptive(objective_scorer=mock_objective_scorer)

@@ -20,7 +20,8 @@ mutable table that lives for the duration of a single scenario run.
 from __future__ import annotations
 
 import random
-from typing import TYPE_CHECKING, Callable, Sequence
+from collections.abc import Callable, Sequence
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from pyrit.models.seeds.seed_attack_group import SeedAttackGroup
@@ -34,12 +35,12 @@ GLOBAL_CONTEXT: str = "_global"
 UNCATEGORIZED_CONTEXT: str = "_uncategorized"
 
 
-def global_context(_seed_attack_group: "SeedAttackGroup") -> str:
+def global_context(_seed_attack_group: SeedAttackGroup) -> str:
     """Return a constant context so all objectives share one bandit table."""
     return GLOBAL_CONTEXT
 
 
-def harm_category_context(seed_attack_group: "SeedAttackGroup") -> str:
+def harm_category_context(seed_attack_group: SeedAttackGroup) -> str:
     """Return the first harm category on the seed group, or a fallback."""
     categories = seed_attack_group.harm_categories
     if not categories:
