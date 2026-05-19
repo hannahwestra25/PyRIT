@@ -215,8 +215,11 @@ class AdaptiveScenario(Scenario):
 
         Filters the technique pool down to those whose ``seed_technique`` (if
         any) is compatible with this seed group, then constructs a dedicated
-        ``AdaptiveDispatchAttack`` bound to this seed group. Returns ``None``
-        when no techniques are compatible (caller skips the objective).
+        ``AdaptiveDispatchAttack`` bound to this seed group.
+
+        Returns:
+            AtomicAttack | None: The constructed atomic attack, or ``None`` when
+                no techniques are compatible (caller skips the objective).
 
         Raises:
             ValueError: If ``self._objective_target`` is not set (defensive
@@ -225,12 +228,11 @@ class AdaptiveScenario(Scenario):
         if self._objective_target is None:  # pragma: no cover - defensive
             raise ValueError("objective_target must be set before creating attacks")
 
-        compatible: dict[str, TechniqueBundle] = {}
-        for name, bundle in techniques.items():
-            if bundle.seed_technique is None or seed_group.is_compatible_with_technique(
-                technique=bundle.seed_technique
-            ):
-                compatible[name] = bundle
+        compatible: dict[str, TechniqueBundle] = {
+            name: bundle
+            for name, bundle in techniques.items()
+            if bundle.seed_technique is None or seed_group.is_compatible_with_technique(technique=bundle.seed_technique)
+        }
 
         if not compatible:
             logger.warning(

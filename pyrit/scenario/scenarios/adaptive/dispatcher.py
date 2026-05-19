@@ -142,7 +142,12 @@ class AdaptiveDispatchAttack(AttackStrategy[AdaptiveDispatchContext, AttackResul
         self._executor = AttackExecutor(max_concurrency=1)
 
     def _validate_context(self, *, context: AdaptiveDispatchContext) -> None:
-        """Ensure the context carries a non-empty objective string."""
+        """
+        Ensure the context carries a non-empty objective string.
+
+        Raises:
+            ValueError: If ``context.objective`` is empty or whitespace-only.
+        """
         if not context.objective or context.objective.isspace():
             raise ValueError("Attack objective must be provided and non-empty")
 

@@ -13,14 +13,12 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from pyrit.models.seeds.seed_attack_group import SeedAttackGroup
 
-
-ContextExtractor = Callable[["SeedAttackGroup"], str]
 """Maps a ``SeedAttackGroup`` to an adaptive context key."""
-
-GLOBAL_CONTEXT: str = "_global"
+ContextExtractor = Callable[["SeedAttackGroup"], str]
 """Default context: all objectives share one selection table."""
-UNCATEGORIZED_CONTEXT: str = "_uncategorized"
+GLOBAL_CONTEXT: str = "_global"
 """Fallback context for seed groups with no harm category metadata."""
+UNCATEGORIZED_CONTEXT: str = "_uncategorized"
 
 
 def global_context(_seed_attack_group: SeedAttackGroup) -> str:
@@ -173,6 +171,9 @@ class AdaptiveTechniqueSelector:
         ``pool_threshold`` local attempts.
 
         Callers must already hold ``self._lock``.
+
+        Returns:
+            float: Laplace-smoothed success-rate estimate in ``(0, 1)``.
         """
         local_s, local_n = self._counts.get((context, technique), (0, 0))
         if local_n >= self._pool_threshold:

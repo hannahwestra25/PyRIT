@@ -72,108 +72,104 @@ result = await scenario.run_async()  # type: ignore
 await printer.write_async(result)  # type: ignore
 
 # %% [markdown]
-# ## Tuning exploration (`epsilon`)
+# ## Configuring a run
 #
-# - `epsilon=0.0` — pure exploitation (always pick the best-known technique).
-# - `epsilon=1.0` — pure exploration (random every time).
-# - `epsilon=0.2` (default) — 20% exploration.
+# All the knobs below are constructor or `initialize_async` arguments — combine whichever
+# you need on a single scenario instance:
+#
+# - **`epsilon`** — exploration probability. `0.0` is pure exploit, `1.0` is pure random,
+#   `0.2` (default) is 20% exploration.
+# - **`max_attempts_per_objective`** — caps techniques tried per objective. Higher means
+#   more chances to succeed and more API calls.
+# - **`context_extractor`** — partitions the success-rate table. The default
+#   `global_context` keeps one shared table; `harm_category_context` learns each harm
+#   category independently. Custom callables of type `Callable[[SeedAttackGroup], str]`
+#   are supported.
+# - **`seed`** — makes every selection decision deterministic.
+# - **`scenario_strategies`** (on `initialize_async`) — restricts which techniques the
+#   selector can pick from. Use `TextAdaptive.get_strategy_class()` to access the enum.
+#
+# The cell below exercises all of them at once.
 
 # %%
-explorative_scenario = TextAdaptive(epsilon=0.5)
+strategy_class = TextAdaptive.get_strategy_class()
 
-await explorative_scenario.initialize_async(  # type: ignore
-    objective_target=objective_target,
-    dataset_config=DatasetConfiguration(dataset_names=["airt_hate"], max_dataset_size=4),
+configured_scenario = TextAdaptive(
+    epsilon=0.3,
+    max_attempts_per_objective=5,
+    context_extractor=harm_category_context,
+    seed=42,
 )
-explorative_result = await explorative_scenario.run_async()  # type: ignore
-await printer.write_async(explorative_result)  # type: ignore
 
-# %% [markdown]
-# ## Attempts per objective
-#
-# `max_attempts_per_objective` caps how many techniques are tried per objective before
-# moving on. Higher = more chances to succeed, more API calls.
-
-# %%
-persistent_scenario = TextAdaptive(max_attempts_per_objective=5)
-
-await persistent_scenario.initialize_async(  # type: ignore
+await configured_scenario.initialize_async(  # type: ignore
     objective_target=objective_target,
-    dataset_config=DatasetConfiguration(dataset_names=["airt_violence"], max_dataset_size=4),
-)
-persistent_result = await persistent_scenario.run_async()  # type: ignore
-await printer.write_async(persistent_result)  # type: ignore
-
-# %% [markdown]
-# ## Learning per harm category
-#
-# By default, the scenario keeps one global success-rate table — what works on hate
-# objectives boosts the same technique on violence objectives. Pass `harm_category_context`
-# to learn each category independently:
-
-# %%
-contextual_scenario = TextAdaptive(context_extractor=harm_category_context)
-
-await contextual_scenario.initialize_async(  # type: ignore
-    objective_target=objective_target,
+    scenario_strategies=[strategy_class("single_turn")],
     dataset_config=DatasetConfiguration(
         dataset_names=["airt_hate", "airt_violence"],
         max_dataset_size=4,
     ),
 )
-contextual_result = await contextual_scenario.run_async()  # type: ignore
-await printer.write_async(contextual_result)  # type: ignore
-
-# %% [markdown]
-# ## Restricting which techniques participate
-#
-# Use `scenario_strategies` to limit which techniques the scenario can pick from.
-
-# %%
-strategy_class = TextAdaptive.get_strategy_class()
-
-single_turn_scenario = TextAdaptive()
-
-await single_turn_scenario.initialize_async(  # type: ignore
-    objective_target=objective_target,
-    scenario_strategies=[strategy_class("single_turn")],
-    dataset_config=DatasetConfiguration(dataset_names=["airt_hate"], max_dataset_size=4),
-)
-single_turn_result = await single_turn_scenario.run_async()  # type: ignore
-await printer.write_async(single_turn_result)  # type: ignore
-
-# %% [markdown]
-# ## Reproducible runs
-#
-# Pass `seed` to make every selection decision deterministic.
-
-# %%
-deterministic_scenario = TextAdaptive(seed=42, epsilon=0.3)
-
-await deterministic_scenario.initialize_async(  # type: ignore
-    objective_target=objective_target,
-    dataset_config=DatasetConfiguration(dataset_names=["airt_hate"], max_dataset_size=2),
-)
-deterministic_result = await deterministic_scenario.run_async()  # type: ignore
-await printer.write_async(deterministic_result)  # type: ignore
+configured_result = await configured_scenario.run_async()  # type: ignore
+await printer.write_async(configured_result)  # type: ignore
 
 # %% [markdown]
 # ## Resuming a run
 #
 # Adaptive scenarios are resumable — pass `scenario_result_id=...` to the `TextAdaptive`
 # constructor and the run picks up where it left off, with prior outcomes replayed into
-# the selector. Here we resume the deterministic run from the previous cell.
+# the selector. Resume must use the same configuration as the original run.
 
 # %%
 resumed_scenario = TextAdaptive(
-    seed=42,
     epsilon=0.3,
-    scenario_result_id=str(deterministic_result.id),
+    max_attempts_per_objective=5,
+    context_extractor=harm_category_context,
+    seed=42,
+    scenario_result_id=str(configured_result.id),
 )
 
 await resumed_scenario.initialize_async(  # type: ignore
     objective_target=objective_target,
-    dataset_config=DatasetConfiguration(dataset_names=["airt_hate"], max_dataset_size=2),
+    scenario_strategies=[strategy_class("single_turn")],
+    dataset_config=DatasetConfiguration(
+        dataset_names=["airt_hate", "airt_violence"],
+        max_dataset_size=4,
+    ),
 )
 resumed_result = await resumed_scenario.run_async()  # type: ignore
 await printer.write_async(resumed_result)  # type: ignore
+
+# %% [markdown]
+# ## Inspecting which techniques were tried
+#
+# The dispatcher stamps every objective's `AttackResult.metadata` with:
+#
+# - `adaptive_context` — the bucket key from the `context_extractor`.
+# - `adaptive_attempts` — the ordered list of `{"technique", "outcome"}` dicts
+#   recording exactly which techniques the selector picked and what happened.
+#
+# Walk that metadata to see the per-objective trail and aggregate counts.
+
+# %%
+from collections import Counter
+
+# Per-objective trail
+for results in resumed_result.attack_results.values():
+    for r in results:
+        attempts = r.metadata.get("adaptive_attempts", [])
+        trail = " → ".join(f"{a['technique']}({a['outcome']})" for a in attempts)
+        print(f"[{r.outcome.value:7s}] {r.objective!r}: {trail}")
+
+# Aggregate per-technique pick counts and success rate across the run
+picks: Counter[str] = Counter()
+wins: Counter[str] = Counter()
+for results in resumed_result.attack_results.values():
+    for r in results:
+        for step in r.metadata.get("adaptive_attempts", []):
+            picks[step["technique"]] += 1
+            if step["outcome"] == "success":
+                wins[step["technique"]] += 1
+
+print("\nTechnique             wins / picks   rate")
+for technique, n in picks.most_common():
+    print(f"{technique:20s}  {wins[technique]:>4} / {n:<4}   {wins[technique] / n:.0%}")

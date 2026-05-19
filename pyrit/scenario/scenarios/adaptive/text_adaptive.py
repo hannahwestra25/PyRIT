@@ -14,24 +14,31 @@ restricts to single-turn techniques, etc.).
 from __future__ import annotations
 
 import logging
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 from pyrit.common import apply_defaults
 from pyrit.registry.tag_query import TagQuery
 from pyrit.scenario.core.dataset_configuration import DatasetConfiguration
-from pyrit.scenario.core.scenario_strategy import ScenarioStrategy
 from pyrit.scenario.scenarios.adaptive.adaptive_scenario import AdaptiveScenario
 from pyrit.scenario.scenarios.adaptive.selector import (
     ContextExtractor,
     global_context,
 )
-from pyrit.score import TrueFalseScorer
+
+if TYPE_CHECKING:
+    from pyrit.scenario.core.scenario_strategy import ScenarioStrategy
+    from pyrit.score import TrueFalseScorer
 
 logger = logging.getLogger(__name__)
 
 
 def _build_text_adaptive_strategy() -> type[ScenarioStrategy]:
-    """Build the strategy enum from the core scenario-techniques catalog."""
+    """
+    Build the strategy enum from the core scenario-techniques catalog.
+
+    Returns:
+        type[ScenarioStrategy]: The dynamically-built strategy enum class.
+    """
     from pyrit.registry.object_registries.attack_technique_registry import (
         AttackTechniqueRegistry,
     )
