@@ -142,14 +142,15 @@ class AdaptiveDispatchAttack(AttackStrategy[AdaptiveDispatchContext, AttackResul
         self._executor = AttackExecutor(max_concurrency=1)
 
     def _validate_context(self, *, context: AdaptiveDispatchContext) -> None:
+        """Ensure the context carries a non-empty objective string."""
         if not context.objective or context.objective.isspace():
             raise ValueError("Attack objective must be provided and non-empty")
 
     async def _setup_async(self, *, context: AdaptiveDispatchContext) -> None:
-        pass
+        """No-op: per-attempt setup is owned by the inner technique's executor."""
 
     async def _teardown_async(self, *, context: AdaptiveDispatchContext) -> None:
-        pass
+        """No-op: per-attempt teardown is owned by the inner technique's executor."""
 
     async def _run_inner_attack_async(
         self,
@@ -197,6 +198,27 @@ class AdaptiveDispatchAttack(AttackStrategy[AdaptiveDispatchContext, AttackResul
         )
 
     async def _perform_async(self, *, context: AdaptiveDispatchContext) -> AttackResult:
+        """
+        Run the per-objective adaptive loop.
+
+        Resolves the per-objective context key from ``context.memory_labels``
+        (falling back to :data:`GLOBAL_CONTEXT`), then loops up to
+        ``max_attempts_per_objective`` times: select a technique, execute it,
+        record the outcome, and stop early on success.
+
+        Args:
+            context (AdaptiveDispatchContext): Execution context. ``memory_labels``
+                may carry :data:`ADAPTIVE_CONTEXT_LABEL` to scope the selector.
+
+        Returns:
+            AttackResult: A fresh dispatcher-owned copy of the final inner
+                result with the dispatch trail stamped onto ``metadata``
+                (see class docstring for the two-row persistence note).
+
+        Raises:
+            RuntimeError: If the loop somehow ran zero attempts (unreachable
+                because ``max_attempts_per_objective`` is validated >= 1).
+        """
         adaptive_context = context.memory_labels.get(ADAPTIVE_CONTEXT_LABEL, GLOBAL_CONTEXT)
         technique_names = list(self._techniques.keys())
 

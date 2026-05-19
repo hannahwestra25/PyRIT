@@ -63,17 +63,20 @@ class TextAdaptive(AdaptiveScenario):
 
     @classmethod
     def get_strategy_class(cls) -> type[ScenarioStrategy]:
+        """Return the strategy enum for this scenario, building it once on first access."""
         if cls._cached_strategy_class is None:
             cls._cached_strategy_class = _build_text_adaptive_strategy()
         return cls._cached_strategy_class
 
     @classmethod
     def get_default_strategy(cls) -> ScenarioStrategy:
+        """Return the default strategy aggregate (resolves to every ``default``-tagged technique)."""
         strategy_class = cls.get_strategy_class()
         return strategy_class("default")
 
     @classmethod
     def required_datasets(cls) -> list[str]:
+        """Return the dataset names this scenario expects when no override is provided."""
         return [
             "airt_hate",
             "airt_fairness",
@@ -86,6 +89,7 @@ class TextAdaptive(AdaptiveScenario):
 
     @classmethod
     def default_dataset_config(cls) -> DatasetConfiguration:
+        """Return the default :class:`DatasetConfiguration` (required datasets, capped at 4 per dataset)."""
         return DatasetConfiguration(dataset_names=cls.required_datasets(), max_dataset_size=4)
 
     @apply_defaults

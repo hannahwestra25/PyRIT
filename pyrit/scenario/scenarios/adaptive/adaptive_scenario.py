@@ -113,6 +113,15 @@ class AdaptiveScenario(Scenario):
         so learning accumulates across objectives. Per-objective, techniques
         whose ``seed_technique`` is incompatible with the seed group are
         filtered out; objectives left with no compatible techniques are skipped.
+
+        Returns:
+            list[AtomicAttack]: One ``AtomicAttack`` per objective with at
+                least one compatible technique. Empty if every seed group
+                is incompatible with every selected technique.
+
+        Raises:
+            ValueError: If ``self._objective_target`` is not set, or if
+                ``_build_techniques_dict`` finds no usable techniques.
         """
         if self._objective_target is None:
             raise ValueError("objective_target must be set before creating attacks")
@@ -153,6 +162,10 @@ class AdaptiveScenario(Scenario):
         Each bundle carries the inner attack strategy along with the factory's
         ``seed_technique`` and ``adversarial_chat`` so the dispatcher can
         reproduce the static ``AtomicAttack`` execution path per attempt.
+
+        Returns:
+            dict[str, TechniqueBundle]: Mapping from technique name to its
+                bundle, in the order selected strategies were resolved.
 
         Raises:
             ValueError: If no techniques remain after filtering. Includes the
@@ -204,6 +217,10 @@ class AdaptiveScenario(Scenario):
         any) is compatible with this seed group, then constructs a dedicated
         ``AdaptiveDispatchAttack`` bound to this seed group. Returns ``None``
         when no techniques are compatible (caller skips the objective).
+
+        Raises:
+            ValueError: If ``self._objective_target`` is not set (defensive
+                guard; ``_get_atomic_attacks_async`` enforces this earlier).
         """
         if self._objective_target is None:  # pragma: no cover - defensive
             raise ValueError("objective_target must be set before creating attacks")

@@ -69,7 +69,7 @@ await scenario.initialize_async(  # type: ignore
     objective_target=objective_target,
 )
 result = await scenario.run_async()  # type: ignore
-await printer.print_summary_async(result)  # type: ignore
+await printer.write_async(result)  # type: ignore
 
 # %% [markdown]
 # ## Tuning exploration (`epsilon`)
@@ -86,7 +86,7 @@ await explorative_scenario.initialize_async(  # type: ignore
     dataset_config=DatasetConfiguration(dataset_names=["airt_hate"], max_dataset_size=4),
 )
 explorative_result = await explorative_scenario.run_async()  # type: ignore
-await printer.print_summary_async(explorative_result)  # type: ignore
+await printer.write_async(explorative_result)  # type: ignore
 
 # %% [markdown]
 # ## Attempts per objective
@@ -102,7 +102,7 @@ await persistent_scenario.initialize_async(  # type: ignore
     dataset_config=DatasetConfiguration(dataset_names=["airt_violence"], max_dataset_size=4),
 )
 persistent_result = await persistent_scenario.run_async()  # type: ignore
-await printer.print_summary_async(persistent_result)  # type: ignore
+await printer.write_async(persistent_result)  # type: ignore
 
 # %% [markdown]
 # ## Learning per harm category
@@ -122,7 +122,7 @@ await contextual_scenario.initialize_async(  # type: ignore
     ),
 )
 contextual_result = await contextual_scenario.run_async()  # type: ignore
-await printer.print_summary_async(contextual_result)  # type: ignore
+await printer.write_async(contextual_result)  # type: ignore
 
 # %% [markdown]
 # ## Restricting which techniques participate
@@ -140,7 +140,7 @@ await single_turn_scenario.initialize_async(  # type: ignore
     dataset_config=DatasetConfiguration(dataset_names=["airt_hate"], max_dataset_size=4),
 )
 single_turn_result = await single_turn_scenario.run_async()  # type: ignore
-await printer.print_summary_async(single_turn_result)  # type: ignore
+await printer.write_async(single_turn_result)  # type: ignore
 
 # %% [markdown]
 # ## Reproducible runs
@@ -155,17 +155,25 @@ await deterministic_scenario.initialize_async(  # type: ignore
     dataset_config=DatasetConfiguration(dataset_names=["airt_hate"], max_dataset_size=2),
 )
 deterministic_result = await deterministic_scenario.run_async()  # type: ignore
-await printer.print_summary_async(deterministic_result)  # type: ignore
+await printer.write_async(deterministic_result)  # type: ignore
 
 # %% [markdown]
 # ## Resuming a run
 #
 # Adaptive scenarios are resumable — pass `scenario_result_id=...` to the `TextAdaptive`
 # constructor and the run picks up where it left off, with prior outcomes replayed into
-# the selector.
-#
-# ```python
-# resumed_scenario = TextAdaptive(scenario_result_id="<existing-scenario-result-id>")
-# await resumed_scenario.initialize_async(objective_target=objective_target)
-# resumed_result = await resumed_scenario.run_async()
-# ```
+# the selector. Here we resume the deterministic run from the previous cell.
+
+# %%
+resumed_scenario = TextAdaptive(
+    seed=42,
+    epsilon=0.3,
+    scenario_result_id=str(deterministic_result.id),
+)
+
+await resumed_scenario.initialize_async(  # type: ignore
+    objective_target=objective_target,
+    dataset_config=DatasetConfiguration(dataset_names=["airt_hate"], max_dataset_size=2),
+)
+resumed_result = await resumed_scenario.run_async()  # type: ignore
+await printer.write_async(resumed_result)  # type: ignore

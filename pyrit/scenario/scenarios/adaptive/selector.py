@@ -24,7 +24,12 @@ UNCATEGORIZED_CONTEXT: str = "_uncategorized"
 
 
 def global_context(_seed_attack_group: SeedAttackGroup) -> str:
-    """Return a single shared context for all objectives."""
+    """
+    Return a single shared context for all objectives.
+
+    Returns:
+        str: Always :data:`GLOBAL_CONTEXT`.
+    """
     return GLOBAL_CONTEXT
 
 
@@ -33,7 +38,10 @@ def harm_category_context(seed_attack_group: SeedAttackGroup) -> str:
     Return a context keyed by the sorted, ``|``-joined harm categories.
 
     Multi-category seeds form their own bucket; sorting makes the key deterministic.
-    Returns ``UNCATEGORIZED_CONTEXT`` when no categories are set.
+
+    Returns:
+        str: The ``|``-joined sorted harm categories, or :data:`UNCATEGORIZED_CONTEXT`
+            when the seed group has no categories.
     """
     categories = seed_attack_group.harm_categories
     if not categories:
