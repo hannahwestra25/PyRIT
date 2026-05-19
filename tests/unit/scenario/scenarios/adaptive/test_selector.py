@@ -168,7 +168,7 @@ class TestContextExtractors:
         sg = MagicMock()
         assert global_context(sg) == GLOBAL_CONTEXT
 
-    def test_harm_category_context_uses_sorted_first_category(self):
+    def test_harm_category_context_joins_sorted_categories(self):
         sg = MagicMock()
         sg.harm_categories = ["violence", "hate"]
         # Multi-category seeds form their own bucket; sorting keeps the key deterministic.

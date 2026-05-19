@@ -1,7 +1,8 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
-"""``AdaptiveScenario`` — modality-agnostic base for scenarios that pick attack
+"""
+``AdaptiveScenario`` — modality-agnostic base for scenarios that pick attack
 techniques per-objective using an ``AdaptiveTechniqueSelector``.
 
 Owns selector wiring, dispatcher construction, per-objective atomic-attack
@@ -18,7 +19,7 @@ from __future__ import annotations
 import logging
 import random
 import uuid
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 from pyrit.executor.attack import AttackScoringConfig
 from pyrit.scenario.core.atomic_attack import AtomicAttack
@@ -27,6 +28,7 @@ from pyrit.scenario.core.scenario import BaselinePolicy, Scenario
 from pyrit.scenario.scenarios.adaptive.dispatcher import (
     ADAPTIVE_CONTEXT_LABEL,
     AdaptiveDispatchAttack,
+    TechniqueBundle,
 )
 from pyrit.scenario.scenarios.adaptive.selector import (
     AdaptiveTechniqueSelector,
@@ -35,8 +37,7 @@ from pyrit.scenario.scenarios.adaptive.selector import (
 )
 
 if TYPE_CHECKING:
-    from pyrit.executor.attack.core.attack_strategy import AttackStrategy
-    from pyrit.models import AttackResult, SeedAttackGroup
+    from pyrit.models import SeedAttackGroup
     from pyrit.prompt_target import PromptTarget
     from pyrit.score import TrueFalseScorer
 
@@ -44,7 +45,8 @@ logger = logging.getLogger(__name__)
 
 
 class AdaptiveScenario(Scenario):
-    """Abstract base for adaptive (epsilon-greedy) scenarios.
+    """
+    Abstract base for adaptive (epsilon-greedy) scenarios.
 
     Subclasses must implement the standard ``Scenario`` class-method overrides
     and declare ``VERSION`` and ``_atomic_attack_prefix``. Selector wiring,
@@ -103,8 +105,14 @@ class AdaptiveScenario(Scenario):
         )
 
     async def _get_atomic_attacks_async(self) -> list[AtomicAttack]:
-        """Build one ``AtomicAttack`` per objective, all sharing a single
-        ``AdaptiveDispatchAttack`` (and therefore a single selector).
+        """
+        Build one ``AtomicAttack`` per objective.
+
+        Each objective gets a freshly constructed ``AdaptiveDispatchAttack``
+        bound to its seed group, but all dispatchers share the same selector
+        so learning accumulates across objectives. Per-objective, techniques
+        whose ``seed_technique`` is incompatible with the seed group are
+        filtered out; objectives left with no compatible techniques are skipped.
         """
         if self._objective_target is None:
             raise ValueError("objective_target must be set before creating attacks")
@@ -119,24 +127,18 @@ class AdaptiveScenario(Scenario):
         # On resume, replay prior attempt outcomes from persisted metadata.
         self._rehydrate_selector_from_memory(selector=selector, known_techniques=set(techniques))
 
-        dispatcher = AdaptiveDispatchAttack(
-            objective_target=self._objective_target,
-            techniques=techniques,
-            selector=selector,
-            max_attempts_per_objective=self._max_attempts_per_objective,
-        )
-
         seed_groups_by_dataset = self._dataset_config.get_seed_attack_groups()
         atomic_attacks: list[AtomicAttack] = []
         for dataset_name, seed_groups in seed_groups_by_dataset.items():
             for seed_group in seed_groups:
-                atomic_attacks.append(
-                    self._build_atomic_for_seed_group(
-                        dataset_name=dataset_name,
-                        seed_group=seed_group,
-                        dispatcher=dispatcher,
-                    )
+                atomic = self._build_atomic_for_seed_group(
+                    dataset_name=dataset_name,
+                    seed_group=seed_group,
+                    techniques=techniques,
+                    selector=selector,
                 )
+                if atomic is not None:
+                    atomic_attacks.append(atomic)
 
         return atomic_attacks
 
@@ -144,13 +146,13 @@ class AdaptiveScenario(Scenario):
         self,
         *,
         objective_target: PromptTarget,
-    ) -> dict[str, AttackStrategy[Any, AttackResult]]:
-        """Resolve selected strategies into a ``{name: inner_attack}`` map.
+    ) -> dict[str, TechniqueBundle]:
+        """
+        Resolve selected strategies into a ``{name: TechniqueBundle}`` map.
 
-        Skips factories not registered for the current modality, and factories
-        whose technique requires a ``seed_technique`` (e.g. ``crescendo_simulated``)
-        — the dispatcher has no hook to merge technique seeds into per-objective
-        seed groups.
+        Each bundle carries the inner attack strategy along with the factory's
+        ``seed_technique`` and ``adversarial_chat`` so the dispatcher can
+        reproduce the static ``AtomicAttack`` execution path per attempt.
 
         Raises:
             ValueError: If no techniques remain after filtering. Includes the
@@ -160,8 +162,7 @@ class AdaptiveScenario(Scenario):
         factories = self._get_attack_technique_factories()
         scoring_config = AttackScoringConfig(objective_scorer=self._objective_scorer)
 
-        techniques: dict[str, AttackStrategy[Any, AttackResult]] = {}
-        skipped_seed_technique: list[str] = []
+        techniques: dict[str, TechniqueBundle] = {}
         skipped_no_factory: list[str] = []
         for technique_name in selected_techniques:
             factory = factories.get(technique_name)
@@ -173,24 +174,14 @@ class AdaptiveScenario(Scenario):
                 objective_target=objective_target,
                 attack_scoring_config=scoring_config,
             )
-            if technique.seed_technique is not None:
-                skipped_seed_technique.append(technique_name)
-                logger.warning(
-                    "Skipping technique '%s': it requires a seed_technique which the adaptive "
-                    "dispatcher cannot merge into per-objective seed groups. Use a static "
-                    "scenario (e.g. RapidResponse) to run this technique.",
-                    technique_name,
-                )
-                continue
-            techniques[technique_name] = technique.attack
+            techniques[technique_name] = TechniqueBundle(
+                attack=technique.attack,
+                seed_technique=technique.seed_technique,
+                adversarial_chat=factory.adversarial_chat,
+            )
 
         if not techniques:
-            details: list[str] = []
-            if skipped_seed_technique:
-                details.append(f"skipped (require seed_technique): {sorted(skipped_seed_technique)}")
-            if skipped_no_factory:
-                details.append(f"skipped (no factory registered): {sorted(skipped_no_factory)}")
-            suffix = f" ({'; '.join(details)})" if details else ""
+            suffix = f" (skipped, no factory registered: {sorted(skipped_no_factory)})" if skipped_no_factory else ""
             raise ValueError(
                 f"{type(self).__name__}: no usable techniques after resolving strategies. "
                 f"Check the --strategies selection.{suffix}"
@@ -203,13 +194,49 @@ class AdaptiveScenario(Scenario):
         *,
         dataset_name: str,
         seed_group: SeedAttackGroup,
-        dispatcher: AdaptiveDispatchAttack,
-    ) -> AtomicAttack:
+        techniques: dict[str, TechniqueBundle],
+        selector: AdaptiveTechniqueSelector,
+    ) -> AtomicAttack | None:
+        """
+        Build a single ``AtomicAttack`` for one ``SeedAttackGroup``.
+
+        Filters the technique pool down to those whose ``seed_technique`` (if
+        any) is compatible with this seed group, then constructs a dedicated
+        ``AdaptiveDispatchAttack`` bound to this seed group. Returns ``None``
+        when no techniques are compatible (caller skips the objective).
+        """
+        if self._objective_target is None:  # pragma: no cover - defensive
+            raise ValueError("objective_target must be set before creating attacks")
+
+        compatible: dict[str, TechniqueBundle] = {}
+        for name, bundle in techniques.items():
+            if bundle.seed_technique is None or seed_group.is_compatible_with_technique(
+                technique=bundle.seed_technique
+            ):
+                compatible[name] = bundle
+
+        if not compatible:
+            logger.warning(
+                "AdaptiveScenario: no compatible techniques for seed group in dataset '%s' (objective=%r); skipping.",
+                dataset_name,
+                seed_group.objective.value,
+            )
+            return None
+
         adaptive_context = self._context_extractor(seed_group)
         # Prefer the objective's id when available so resume keys stay stable
         # across re-fetches of the same seed groups.
         objective_id = seed_group.objective.id if seed_group.objective.id else uuid.uuid4()
         atomic_attack_name = f"{self._atomic_attack_prefix}_{dataset_name}_{objective_id}"
+
+        dispatcher = AdaptiveDispatchAttack(
+            objective_target=self._objective_target,
+            techniques=compatible,
+            selector=selector,
+            seed_group=seed_group,
+            objective_scorer=self._objective_scorer,
+            max_attempts_per_objective=self._max_attempts_per_objective,
+        )
 
         memory_labels = {
             **self._memory_labels,
@@ -230,7 +257,8 @@ class AdaptiveScenario(Scenario):
         selector: AdaptiveTechniqueSelector,
         known_techniques: set[str],
     ) -> None:
-        """Replay persisted dispatch trails into ``selector`` so resume
+        """
+        Replay persisted dispatch trails into ``selector`` so resume
         preserves learned state.
 
         Iterates every persisted ``AttackResult`` on the resumed
@@ -246,9 +274,11 @@ class AdaptiveScenario(Scenario):
         if not self._scenario_result_id:
             return
 
+        # Narrow to errors a memory backend would plausibly raise (DB/IO
+        # failures, integrity issues). Programmer-level errors propagate.
         try:
             scenario_results = self._memory.get_scenario_results(scenario_result_ids=[self._scenario_result_id])
-        except Exception as exc:
+        except (RuntimeError, OSError, ValueError) as exc:
             logger.warning(f"AdaptiveScenario: failed to load prior scenario result for rehydration: {exc}")
             return
 

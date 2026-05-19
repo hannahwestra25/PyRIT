@@ -160,5 +160,12 @@ await printer.print_summary_async(deterministic_result)  # type: ignore
 # %% [markdown]
 # ## Resuming a run
 #
-# Adaptive scenarios are resumable — pass `scenario_result_id=...` to `initialize_async`
-# and the run picks up where it left off, with prior outcomes replayed into the selector.
+# Adaptive scenarios are resumable — pass `scenario_result_id=...` to the `TextAdaptive`
+# constructor and the run picks up where it left off, with prior outcomes replayed into
+# the selector.
+#
+# ```python
+# resumed_scenario = TextAdaptive(scenario_result_id="<existing-scenario-result-id>")
+# await resumed_scenario.initialize_async(objective_target=objective_target)
+# resumed_result = await resumed_scenario.run_async()
+# ```
