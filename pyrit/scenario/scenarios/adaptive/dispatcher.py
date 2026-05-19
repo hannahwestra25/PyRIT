@@ -1,25 +1,18 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
-"""
-``AdaptiveDispatchAttack`` — an ``AttackStrategy`` that picks which inner
-technique to run for each objective using an ``AdaptiveTechniqueSelector``.
-
-This is the execution-side counterpart to the selector. The selector decides
-*which technique to try*; the dispatcher *runs the technique*, records the
-outcome, and loops up to ``max_attempts_per_objective`` times.
-
-The dispatcher reads an adaptive-context key from
-``context.memory_labels[ADAPTIVE_CONTEXT_LABEL]``. The scenario is expected to
-stamp that label per-objective (computed once at atomic-attack construction
-time via a ``ContextExtractor``). When the label is missing, the global
-context is used.
+"""``AdaptiveDispatchAttack`` — picks an inner technique per attempt via an
+``AdaptiveTechniqueSelector``, runs it, records the outcome, and loops up to
+``max_attempts_per_objective`` times. Reads the per-objective context key from
+``context.memory_labels[ADAPTIVE_CONTEXT_LABEL]`` (falls back to the global context).
 """
 
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+import uuid
+from dataclasses import dataclass, replace
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 from pyrit.executor.attack.core.attack_parameters import AttackParameters
@@ -36,35 +29,30 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-"""Memory-label key whose value is the adaptive context string for an objective."""
+# Memory-label keys stamped onto persisted prompt rows so adaptive attempts
+# can be filtered/grouped after a run. The scenario stamps the context once
+# per objective; the dispatcher stamps technique + attempt index on each try.
 ADAPTIVE_CONTEXT_LABEL: str = "_adaptive_context"
-
+"""Per-objective context key (e.g. ``"_global"`` or a harm category)."""
 ADAPTIVE_TECHNIQUE_LABEL: str = "_adaptive_technique"
+"""Technique chosen by the dispatcher for a given attempt."""
 ADAPTIVE_ATTEMPT_LABEL: str = "_adaptive_attempt"
+"""1-based attempt index within the per-objective loop."""
 
 
 @dataclass
 class AdaptiveDispatchContext(AttackContext[AttackParameters]):
-    """
-    Execution context for ``AdaptiveDispatchAttack``.
-
-    No extra state is needed beyond what ``AttackContext`` provides; the
-    dispatcher reads the objective and memory labels from the base class.
-    """
+    """Execution context for ``AdaptiveDispatchAttack`` (no extra state)."""
 
 
 class AdaptiveDispatchAttack(AttackStrategy[AdaptiveDispatchContext, AttackResult]):
-    """
-    Attack that delegates each attempt to one of several inner ``AttackStrategy``
-    instances ("techniques"), choosing per attempt via an ``AdaptiveTechniqueSelector``.
+    """Attack that delegates each attempt to one of several inner techniques,
+    choosing per attempt via an ``AdaptiveTechniqueSelector``.
 
-    For each objective the dispatcher loops up to ``max_attempts_per_objective``
-    times. On each iteration it asks the selector which technique to try, executes
-    the inner attack with the objective, records the outcome on the selector,
-    and stops early on success.
-
-    The selector instance is **shared by reference** with the scenario, so
-    learning accumulates across all objectives in a run.
+    For each objective, loops up to ``max_attempts_per_objective`` times:
+    ask the selector, execute the chosen technique, record the outcome, and
+    stop early on success. The selector is shared by reference with the
+    scenario so learning accumulates across objectives.
     """
 
     def __init__(
@@ -77,17 +65,13 @@ class AdaptiveDispatchAttack(AttackStrategy[AdaptiveDispatchContext, AttackResul
     ) -> None:
         """
         Args:
-            objective_target (PromptTarget): The target the inner attacks run against.
-                Stored for identifier/logging parity; the dispatcher does not call
-                the target directly.
+            objective_target (PromptTarget): The target inner attacks run against.
+                Stored for identifier/logging parity; not called directly.
             techniques (dict[str, AttackStrategy[Any, AttackResult]]): Mapping from
                 technique name to a pre-built inner attack. Must be non-empty.
-                These are constructed by the scenario from registered attack
-                technique factories.
-            selector (AdaptiveTechniqueSelector): Shared adaptive selection state
-                that tracks per-technique success rates across objectives.
-            max_attempts_per_objective (int): Maximum number of technique attempts
-                per objective. Must be >= 1. Defaults to 3.
+            selector (AdaptiveTechniqueSelector): Shared selector state.
+            max_attempts_per_objective (int): Max attempts per objective; >= 1.
+                Defaults to 3.
 
         Raises:
             ValueError: If ``techniques`` is empty or ``max_attempts_per_objective`` < 1.
@@ -154,11 +138,22 @@ class AdaptiveDispatchAttack(AttackStrategy[AdaptiveDispatchContext, AttackResul
             if success:
                 break
 
-        # ``max_attempts`` is validated >= 1 above, so the loop always runs at least once.
-        assert last_result is not None
-        last_result.metadata = {
-            **last_result.metadata,
-            "adaptive_attempts": trail,
-            "adaptive_context": adaptive_context,
-        }
-        return last_result
+        # ``max_attempts`` is validated >= 1, so the loop always runs at least
+        # once. Guard explicitly rather than with ``assert`` (stripped under -O).
+        if last_result is None:  # pragma: no cover - defensive
+            raise RuntimeError("AdaptiveDispatchAttack ran zero attempts; this should be unreachable.")
+        # Return a fresh dispatcher-owned ``AttackResult``: the inner attack
+        # already persisted ``last_result`` via its own post-execute hook, so
+        # returning it directly would cause a PK conflict on the outer hook.
+        # ``dataclasses.replace`` copies every field; we override identity
+        # fields and stamp the trail onto metadata.
+        return replace(
+            last_result,
+            attack_result_id=str(uuid.uuid4()),
+            timestamp=datetime.now(timezone.utc),
+            metadata={
+                **last_result.metadata,
+                "adaptive_attempts": trail,
+                "adaptive_context": adaptive_context,
+            },
+        )

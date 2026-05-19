@@ -259,6 +259,125 @@ class TestTextAdaptiveAtomicAttacks:
 
 
 @pytest.mark.usefixtures(*FIXTURES)
+class TestTextAdaptiveSelectorRehydration:
+    """When resuming, prior dispatch trails should replay into the new selector."""
+
+    def _build_scenario_no_resume_id(self, *, scorer):
+        return TextAdaptive(objective_scorer=scorer)
+
+    def test_no_scenario_result_id_is_noop(self, mock_objective_scorer):
+        from pyrit.scenario.scenarios.adaptive.selector import AdaptiveTechniqueSelector
+
+        scenario = TextAdaptive(objective_scorer=mock_objective_scorer)
+        selector = AdaptiveTechniqueSelector()
+        # No scenario_result_id set -> early return, no errors, no replays.
+        scenario._rehydrate_selector_from_memory(selector=selector, known_techniques={"a", "b"})
+        assert selector.snapshot() == {}
+
+    def test_replays_attempts_from_metadata(self, mock_objective_scorer):
+        from pyrit.models import AttackResult
+        from pyrit.scenario.scenarios.adaptive.selector import AdaptiveTechniqueSelector
+
+        scenario = TextAdaptive(objective_scorer=mock_objective_scorer, scenario_result_id="rid")
+
+        prior_result = MagicMock()
+        prior_result.attack_results = {
+            "adaptive_violence_o1": [
+                AttackResult(
+                    conversation_id="c1",
+                    objective="o1",
+                    metadata={
+                        "adaptive_attempts": [
+                            {"technique": "a", "outcome": "failure"},
+                            {"technique": "b", "outcome": "success"},
+                        ],
+                        "adaptive_context": "violence",
+                    },
+                ),
+            ],
+            "adaptive_hate_o2": [
+                AttackResult(
+                    conversation_id="c2",
+                    objective="o2",
+                    metadata={
+                        "adaptive_attempts": [{"technique": "a", "outcome": "success"}],
+                        "adaptive_context": "hate",
+                    },
+                ),
+            ],
+        }
+        scenario._memory = MagicMock()
+        scenario._memory.get_scenario_results.return_value = [prior_result]
+
+        selector = AdaptiveTechniqueSelector()
+        scenario._rehydrate_selector_from_memory(selector=selector, known_techniques={"a", "b"})
+
+        # Trails replayed verbatim into the per-context table.
+        assert selector.counts(context="violence", technique="a") == (0, 1)
+        assert selector.counts(context="violence", technique="b") == (1, 1)
+        assert selector.counts(context="hate", technique="a") == (1, 1)
+
+    def test_skips_unknown_techniques(self, mock_objective_scorer):
+        from pyrit.models import AttackResult
+        from pyrit.scenario.scenarios.adaptive.selector import AdaptiveTechniqueSelector
+
+        scenario = TextAdaptive(objective_scorer=mock_objective_scorer, scenario_result_id="rid")
+        prior_result = MagicMock()
+        prior_result.attack_results = {
+            "x": [
+                AttackResult(
+                    conversation_id="c1",
+                    objective="o1",
+                    metadata={
+                        "adaptive_attempts": [
+                            {"technique": "removed_technique", "outcome": "success"},
+                            {"technique": "a", "outcome": "failure"},
+                        ],
+                        "adaptive_context": "ctx",
+                    },
+                ),
+            ],
+        }
+        scenario._memory = MagicMock()
+        scenario._memory.get_scenario_results.return_value = [prior_result]
+
+        selector = AdaptiveTechniqueSelector()
+        scenario._rehydrate_selector_from_memory(selector=selector, known_techniques={"a"})
+
+        # Only the known technique was recorded.
+        assert selector.counts(context="ctx", technique="a") == (0, 1)
+        assert selector.counts(context="ctx", technique="removed_technique") == (0, 0)
+
+    def test_ignores_results_without_adaptive_metadata(self, mock_objective_scorer):
+        from pyrit.models import AttackResult
+        from pyrit.scenario.scenarios.adaptive.selector import AdaptiveTechniqueSelector
+
+        scenario = TextAdaptive(objective_scorer=mock_objective_scorer, scenario_result_id="rid")
+        prior_result = MagicMock()
+        prior_result.attack_results = {
+            "baseline": [AttackResult(conversation_id="c", objective="o", metadata={})],
+        }
+        scenario._memory = MagicMock()
+        scenario._memory.get_scenario_results.return_value = [prior_result]
+
+        selector = AdaptiveTechniqueSelector()
+        scenario._rehydrate_selector_from_memory(selector=selector, known_techniques={"a"})
+        assert selector.snapshot() == {}
+
+    def test_memory_load_failure_is_swallowed(self, mock_objective_scorer):
+        from pyrit.scenario.scenarios.adaptive.selector import AdaptiveTechniqueSelector
+
+        scenario = TextAdaptive(objective_scorer=mock_objective_scorer, scenario_result_id="rid")
+        scenario._memory = MagicMock()
+        scenario._memory.get_scenario_results.side_effect = RuntimeError("db down")
+
+        selector = AdaptiveTechniqueSelector()
+        # Must not raise; selector remains empty.
+        scenario._rehydrate_selector_from_memory(selector=selector, known_techniques={"a"})
+        assert selector.snapshot() == {}
+
+
+@pytest.mark.usefixtures(*FIXTURES)
 class TestTextAdaptiveBaselinePolicy:
     async def test_initialize_async_rejects_explicit_baseline(self, mock_objective_target, mock_objective_scorer):
         groups = {"violence": [_make_seed_group(value="obj", harm_categories=["violence"])]}

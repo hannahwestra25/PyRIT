@@ -171,8 +171,13 @@ class TestContextExtractors:
     def test_harm_category_context_uses_sorted_first_category(self):
         sg = MagicMock()
         sg.harm_categories = ["violence", "hate"]
-        # sorted() ensures deterministic selection regardless of set iteration order
-        assert harm_category_context(sg) == "hate"
+        # Multi-category seeds form their own bucket; sorting keeps the key deterministic.
+        assert harm_category_context(sg) == "hate|violence"
+
+    def test_harm_category_context_single_category(self):
+        sg = MagicMock()
+        sg.harm_categories = ["violence"]
+        assert harm_category_context(sg) == "violence"
 
     def test_harm_category_context_falls_back_when_empty(self):
         sg = MagicMock()
@@ -183,3 +188,38 @@ class TestContextExtractors:
         sg = MagicMock()
         sg.harm_categories = None
         assert harm_category_context(sg) == UNCATEGORIZED_CONTEXT
+
+
+class TestAdaptiveTechniqueSelectorConcurrency:
+    """Concurrent record_outcome / select calls must not corrupt counts."""
+
+    def test_concurrent_record_outcome_preserves_total_attempts(self):
+        import threading
+
+        selector = _seeded_selector(pool_threshold=1)
+        threads_per_arm = 8
+        attempts_per_thread = 100
+        techniques = ["a", "b", "c", "d"]
+
+        def worker(technique: str, success_pattern: list[bool]) -> None:
+            for ok in success_pattern:
+                selector.record_outcome(context=GLOBAL_CONTEXT, technique=technique, success=ok)
+
+        threads: list[threading.Thread] = []
+        expected_successes: dict[str, int] = dict.fromkeys(techniques, 0)
+        for t in techniques:
+            for i in range(threads_per_arm):
+                pattern = [(j + i) % 2 == 0 for j in range(attempts_per_thread)]
+                expected_successes[t] += sum(pattern)
+                threads.append(threading.Thread(target=worker, args=(t, pattern)))
+
+        for th in threads:
+            th.start()
+        for th in threads:
+            th.join()
+
+        # Every increment landed: no lost updates from interleaved read-modify-write.
+        for t in techniques:
+            successes, attempts = selector.counts(context=GLOBAL_CONTEXT, technique=t)
+            assert attempts == threads_per_arm * attempts_per_thread
+            assert successes == expected_successes[t]

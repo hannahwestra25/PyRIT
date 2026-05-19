@@ -200,6 +200,39 @@ class TestPerform:
         ]
         assert result.metadata["adaptive_context"] == GLOBAL_CONTEXT
 
+    async def test_returns_fresh_result_distinct_from_inner(self, target, selector):
+        # The dispatcher must NOT return the inner attack's ``AttackResult``
+        # instance — doing so would cause a duplicate-PK insert when both the
+        # inner and the dispatcher's ``execute_async`` post-execute hooks try
+        # to persist the same row. Verify the returned result has a fresh
+        # ``attack_result_id`` while preserving the inner's identifying fields
+        # and stamping the dispatch trail.
+        a = _make_inner_attack(name="a", outcomes=[AttackOutcome.SUCCESS])
+        dispatcher = AdaptiveDispatchAttack(
+            objective_target=target,
+            techniques={"a": a},
+            selector=selector,
+        )
+        # Capture the inner result's id by spying on execute_async.
+        original_execute = a.execute_async
+        inner_ids: list[str] = []
+
+        async def _spy(**kwargs):
+            inner_result = await original_execute(**kwargs)
+            inner_ids.append(inner_result.attack_result_id)
+            return inner_result
+
+        a.execute_async = _spy  # type: ignore[assignment]
+
+        result = await dispatcher._perform_async(context=_make_context())
+
+        assert len(inner_ids) == 1
+        assert result.attack_result_id != inner_ids[0]
+        assert result.conversation_id  # carried over from inner
+        assert result.outcome == AttackOutcome.SUCCESS
+        assert result.metadata["adaptive_attempts"] == [{"technique": "a", "outcome": "success"}]
+        assert result.metadata["adaptive_context"] == GLOBAL_CONTEXT
+
 
 @pytest.mark.usefixtures("patch_central_database")
 class TestValidate:
