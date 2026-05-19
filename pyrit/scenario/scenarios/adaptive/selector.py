@@ -29,7 +29,8 @@ def global_context(_seed_attack_group: SeedAttackGroup) -> str:
 
 
 def harm_category_context(seed_attack_group: SeedAttackGroup) -> str:
-    """Return a context keyed by the sorted, ``|``-joined harm categories.
+    """
+    Return a context keyed by the sorted, ``|``-joined harm categories.
 
     Multi-category seeds form their own bucket; sorting makes the key deterministic.
     Returns ``UNCATEGORIZED_CONTEXT`` when no categories are set.
@@ -41,7 +42,8 @@ def harm_category_context(seed_attack_group: SeedAttackGroup) -> str:
 
 
 class AdaptiveTechniqueSelector:
-    """Epsilon-greedy selector over attack techniques.
+    """
+    Epsilon-greedy selector over attack techniques.
 
     Maintains a ``(context, technique) -> (successes, attempts)`` table. With
     probability ``epsilon`` picks uniformly at random; otherwise picks the
@@ -94,7 +96,8 @@ class AdaptiveTechniqueSelector:
         self._lock = threading.Lock()
 
     def select(self, *, context: str, techniques: Sequence[str]) -> str:
-        """Pick the next technique to try for ``context``.
+        """
+        Pick the next technique to try for ``context``.
 
         Args:
             context (str): The context key.
@@ -120,7 +123,8 @@ class AdaptiveTechniqueSelector:
             return self._rng.choice(winners)
 
     def record_outcome(self, *, context: str, technique: str, success: bool) -> None:
-        """Record the outcome of an attempt.
+        """
+        Record the outcome of an attempt.
 
         Args:
             context (str): The context key the decision was made under.
@@ -156,7 +160,8 @@ class AdaptiveTechniqueSelector:
             return dict(self._counts)
 
     def _estimate(self, *, context: str, technique: str) -> float:
-        """Estimate for ``(context, technique)``; falls back to pooled rate below
+        """
+        Estimate for ``(context, technique)``; falls back to pooled rate below
         ``pool_threshold`` local attempts.
 
         Callers must already hold ``self._lock``.

@@ -1,7 +1,8 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
-"""``AdaptiveDispatchAttack`` — picks an inner technique per attempt via an
+"""
+``AdaptiveDispatchAttack`` — picks an inner technique per attempt via an
 ``AdaptiveTechniqueSelector``, runs it, records the outcome, and loops up to
 ``max_attempts_per_objective`` times. Reads the per-objective context key from
 ``context.memory_labels[ADAPTIVE_CONTEXT_LABEL]`` (falls back to the global context).
@@ -46,7 +47,8 @@ class AdaptiveDispatchContext(AttackContext[AttackParameters]):
 
 
 class AdaptiveDispatchAttack(AttackStrategy[AdaptiveDispatchContext, AttackResult]):
-    """Attack that delegates each attempt to one of several inner techniques,
+    """
+    Attack that delegates each attempt to one of several inner techniques,
     choosing per attempt via an ``AdaptiveTechniqueSelector``.
 
     For each objective, loops up to ``max_attempts_per_objective`` times:

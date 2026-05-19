@@ -1,7 +1,8 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
-"""``TextAdaptive`` — text adaptive scenario.
+"""
+``TextAdaptive`` — text adaptive scenario.
 
 Picks attack techniques per-objective using an epsilon-greedy selector
 informed by observed success rates. Runs up to ``max_attempts_per_objective``
@@ -48,7 +49,8 @@ def _build_text_adaptive_strategy() -> type[ScenarioStrategy]:
 
 
 class TextAdaptive(AdaptiveScenario):
-    """Adaptive text-attack scenario.
+    """
+    Adaptive text-attack scenario.
 
     Selects techniques per-objective via an epsilon-greedy selector over the
     set of selected strategies. ``prompt_sending`` participates as one of the
