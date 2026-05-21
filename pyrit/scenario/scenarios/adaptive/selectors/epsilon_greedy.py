@@ -9,15 +9,19 @@ import hashlib
 import random
 import struct
 import threading
-from collections.abc import Sequence
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 
 def _derive_rng(random_seed: int | None, context: str, decision_key: str) -> random.Random:
     """
     Derive a per-decision ``Random`` from ``(random_seed, context, decision_key)``.
 
-    Returns a fresh ``random.Random`` seeded deterministically from the
-    inputs when ``random_seed`` is not None, or an unseeded ``Random`` otherwise.
+    Returns:
+        random.Random: A fresh ``random.Random`` seeded deterministically from the
+        inputs when ``random_seed`` is not None, or an unseeded ``Random`` otherwise.
     """
     if random_seed is None:
         return random.Random()
@@ -176,4 +180,3 @@ class EpsilonGreedyTechniqueSelector:
             return (local_s + 1) / (local_n + 1)
         global_s, global_n = self._global_counts.get(technique, (0, 0))
         return (global_s + 1) / (global_n + 1)
-

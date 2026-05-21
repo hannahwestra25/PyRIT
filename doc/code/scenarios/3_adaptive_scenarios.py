@@ -99,9 +99,7 @@ configured_scenario = TextAdaptive(
     context_extractor=harm_category_context,
     selector=EpsilonGreedyTechniqueSelector(epsilon=0.3, random_seed=42),
 )
-configured_scenario.set_params_from_args(
-    args={"max_attempts_per_objective": 5}
-)
+configured_scenario.set_params_from_args(args={"max_attempts_per_objective": 5})
 
 await configured_scenario.initialize_async(  # type: ignore
     objective_target=objective_target,
@@ -127,9 +125,7 @@ resumed_scenario = TextAdaptive(
     selector=EpsilonGreedyTechniqueSelector(epsilon=0.3, random_seed=42),
     scenario_result_id=str(configured_result.id),
 )
-resumed_scenario.set_params_from_args(
-    args={"max_attempts_per_objective": 5}
-)
+resumed_scenario.set_params_from_args(args={"max_attempts_per_objective": 5})
 
 await resumed_scenario.initialize_async(  # type: ignore
     objective_target=objective_target,

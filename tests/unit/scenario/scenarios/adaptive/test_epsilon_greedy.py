@@ -11,7 +11,9 @@ from pyrit.scenario.scenarios.adaptive.selectors import (
 TECHNIQUES = ["a", "b", "c", "d"]
 
 
-def _seeded_selector(*, epsilon: float = 0.0, pool_threshold: int = 3, random_seed: int = 0) -> EpsilonGreedyTechniqueSelector:
+def _seeded_selector(
+    *, epsilon: float = 0.0, pool_threshold: int = 3, random_seed: int = 0
+) -> EpsilonGreedyTechniqueSelector:
     return EpsilonGreedyTechniqueSelector(
         epsilon=epsilon,
         pool_threshold=pool_threshold,
@@ -46,7 +48,9 @@ class TestEpsilonGreedyTechniqueSelectorSelect:
         # With epsilon=0 and an empty table, every technique has estimate 1/1=1.0,
         # so the result is the seeded random tiebreak. Different seeds should
         # be able to produce different winners.
-        winners = {_seeded_selector(random_seed=s).select(context=GLOBAL_CONTEXT, techniques=TECHNIQUES) for s in range(50)}
+        winners = {
+            _seeded_selector(random_seed=s).select(context=GLOBAL_CONTEXT, techniques=TECHNIQUES) for s in range(50)
+        }
         assert len(winners) > 1
         assert winners.issubset(set(TECHNIQUES))
 

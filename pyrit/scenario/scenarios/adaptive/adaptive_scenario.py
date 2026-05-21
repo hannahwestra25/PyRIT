@@ -28,8 +28,8 @@ from pyrit.scenario.scenarios.adaptive.dispatcher import (
     TechniqueBundle,
 )
 from pyrit.scenario.scenarios.adaptive.selectors import (
-    EpsilonGreedyTechniqueSelector,
     ContextExtractor,
+    EpsilonGreedyTechniqueSelector,
     TechniqueSelector,
     global_context,
 )
@@ -123,11 +123,9 @@ class AdaptiveScenario(Scenario):
 
         techniques = self._build_techniques_dict(objective_target=self._objective_target)
 
-        selector: TechniqueSelector
-        if self._custom_selector is not None:
-            selector = self._custom_selector
-        else:
-            selector = EpsilonGreedyTechniqueSelector()
+        selector: TechniqueSelector = (
+            self._custom_selector if self._custom_selector is not None else EpsilonGreedyTechniqueSelector()
+        )
         # On resume, replay prior attempt outcomes from persisted metadata.
         self._rehydrate_selector_from_memory(selector=selector, known_techniques=set(techniques))
 

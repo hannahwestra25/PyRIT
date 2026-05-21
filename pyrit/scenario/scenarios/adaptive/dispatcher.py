@@ -70,6 +70,8 @@ class TechniqueBundle:
 
 @dataclass(frozen=True)
 class AdaptiveDispatchParams(AttackParameters):
+    """Attack parameters for adaptive dispatch, carrying the original seed group."""
+
     # The original SeedAttackGroup is preserved on the params so the
     # dispatcher can apply per-attempt seed_technique merging and derive
     # the per-call adaptive context. Captured by ``from_seed_group_async``;
@@ -81,10 +83,10 @@ class AdaptiveDispatchParams(AttackParameters):
         cls,
         *,
         seed_group: SeedAttackGroup,
-        adversarial_chat: Optional["PromptTarget"] = None,  # noqa: ARG003 — required by base class signature
-        objective_scorer: Optional["TrueFalseScorer"] = None,  # noqa: ARG003 — required by base class signature
+        adversarial_chat: Optional[PromptTarget] = None,  # noqa: ARG003 — required by base class signature
+        objective_scorer: Optional[TrueFalseScorer] = None,  # noqa: ARG003 — required by base class signature
         **overrides: Any,
-    ) -> "AdaptiveDispatchParams":
+    ) -> AdaptiveDispatchParams:
         """
         Build params for a single dispatch and capture the original seed_group.
 
@@ -93,6 +95,12 @@ class AdaptiveDispatchParams(AttackParameters):
         expansion / next_message extraction: the inner technique runs through
         its own ``execute_attack_from_seed_groups_async`` call which performs
         that work using the technique-merged seed_group.
+
+        Returns:
+            AdaptiveDispatchParams: The constructed parameters with the seed group attached.
+
+        Raises:
+            ValueError: If the seed_group's objective is not initialized or invalid overrides are passed.
         """
         if seed_group.objective is None:
             raise ValueError("seed_group.objective is not initialized")
@@ -101,9 +109,7 @@ class AdaptiveDispatchParams(AttackParameters):
         valid_fields = {f.name for f in dataclasses.fields(cls)} - {"seed_group"}
         invalid = set(overrides.keys()) - valid_fields
         if invalid:
-            raise ValueError(
-                f"{cls.__name__} does not accept parameters: {invalid}. Accepted: {valid_fields}"
-            )
+            raise ValueError(f"{cls.__name__} does not accept parameters: {invalid}. Accepted: {valid_fields}")
 
         return cls(
             objective=seed_group.objective.value,
@@ -294,8 +300,7 @@ class AdaptiveDispatchAttack(AttackStrategy[AdaptiveDispatchContext, AttackResul
         compatible_names = [
             name
             for name, bundle in self._techniques.items()
-            if bundle.seed_technique is None
-            or seed_group.is_compatible_with_technique(technique=bundle.seed_technique)
+            if bundle.seed_technique is None or seed_group.is_compatible_with_technique(technique=bundle.seed_technique)
         ]
         if not compatible_names:
             raise ValueError(
