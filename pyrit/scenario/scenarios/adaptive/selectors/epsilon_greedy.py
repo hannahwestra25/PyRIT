@@ -1,53 +1,32 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
-"""Epsilon-greedy selector and context extractors for adaptive scenarios."""
+"""Epsilon-greedy technique selector for adaptive scenarios."""
 
 from __future__ import annotations
 
+import hashlib
 import random
+import struct
 import threading
-from collections.abc import Callable, Sequence
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from pyrit.models.seeds.seed_attack_group import SeedAttackGroup
-
-"""Maps a ``SeedAttackGroup`` to an adaptive context key."""
-ContextExtractor = Callable[["SeedAttackGroup"], str]
-"""Default context: all objectives share one selection table."""
-GLOBAL_CONTEXT: str = "_global"
-"""Fallback context for seed groups with no harm category metadata."""
-UNCATEGORIZED_CONTEXT: str = "_uncategorized"
+from collections.abc import Sequence
 
 
-def global_context(_seed_attack_group: SeedAttackGroup) -> str:
+def _derive_rng(random_seed: int | None, context: str, decision_key: str) -> random.Random:
     """
-    Return a single shared context for all objectives.
+    Derive a per-decision ``Random`` from ``(random_seed, context, decision_key)``.
 
-    Returns:
-        str: Always :data:`GLOBAL_CONTEXT`.
+    Returns a fresh ``random.Random`` seeded deterministically from the
+    inputs when ``random_seed`` is not None, or an unseeded ``Random`` otherwise.
     """
-    return GLOBAL_CONTEXT
+    if random_seed is None:
+        return random.Random()
+    digest = hashlib.sha256(f"{random_seed}|{context}|{decision_key}".encode()).digest()
+    derived_seed = struct.unpack("<Q", digest[:8])[0]
+    return random.Random(derived_seed)
 
 
-def harm_category_context(seed_attack_group: SeedAttackGroup) -> str:
-    """
-    Return a context keyed by the sorted, ``|``-joined harm categories.
-
-    Multi-category seeds form their own bucket; sorting makes the key deterministic.
-
-    Returns:
-        str: The ``|``-joined sorted harm categories, or :data:`UNCATEGORIZED_CONTEXT`
-            when the seed group has no categories.
-    """
-    categories = seed_attack_group.harm_categories
-    if not categories:
-        return UNCATEGORIZED_CONTEXT
-    return "|".join(sorted(categories))
-
-
-class AdaptiveTechniqueSelector:
+class EpsilonGreedyTechniqueSelector:
     """
     Epsilon-greedy selector over attack techniques.
 
@@ -57,6 +36,10 @@ class AdaptiveTechniqueSelector:
     (unseen techniques start at 1.0). A ``(context, technique)`` cell with
     fewer than ``pool_threshold`` attempts falls back to the technique's
     pooled rate across all contexts.
+
+    Each ``select`` call derives a per-decision ``Random`` from
+    ``(random_seed, context, decision_key)`` so that resume produces deterministic
+    decisions without persisting RNG state.
 
     All public methods are guarded by a ``threading.Lock`` so concurrent
     callers cannot corrupt the table. The lock makes individual ops atomic,
@@ -72,7 +55,7 @@ class AdaptiveTechniqueSelector:
         *,
         epsilon: float = 0.2,
         pool_threshold: int = 3,
-        rng: random.Random | None = None,
+        random_seed: int | None = None,
     ) -> None:
         """
         Args:
@@ -80,8 +63,8 @@ class AdaptiveTechniqueSelector:
             pool_threshold (int): Minimum per-(context, technique) attempts before
                 the local estimate replaces the pooled rate. Must be >= 1; set to 1
                 to disable pooling. Defaults to 3.
-            rng (random.Random | None): RNG for reproducible decisions. Defaults
-                to a fresh unseeded ``random.Random()``.
+            random_seed (int | None): Base seed for deterministic per-decision RNG derivation.
+                Defaults to ``None`` (non-deterministic).
 
         Raises:
             ValueError: If ``epsilon`` is outside [0.0, 1.0] or ``pool_threshold`` < 1.
@@ -93,21 +76,27 @@ class AdaptiveTechniqueSelector:
 
         self._epsilon = epsilon
         self._pool_threshold = pool_threshold
-        self._rng = rng if rng is not None else random.Random()
+        self._seed = random_seed
         self._counts: dict[tuple[str, str], tuple[int, int]] = {}
         # Per-technique pooled counts, kept in sync with ``_counts`` so the
         # pooled-backoff branch in ``_estimate`` is O(1).
         self._global_counts: dict[str, tuple[int, int]] = {}
-        # Guards _counts, _global_counts, and _rng against concurrent callers.
+        # Monotonic counter for auto-generating decision keys when the caller
+        # doesn't provide one.
+        self._decision_counter: int = 0
+        # Guards _counts, _global_counts, and _decision_counter against concurrent callers.
         self._lock = threading.Lock()
 
-    def select(self, *, context: str, techniques: Sequence[str]) -> str:
+    def select(self, *, context: str, techniques: Sequence[str], decision_key: str = "") -> str:
         """
         Pick the next technique to try for ``context``.
 
         Args:
             context (str): The context key.
             techniques (Sequence[str]): Candidate technique names.
+            decision_key (str): Caller-supplied key (e.g. ``"obj_id:attempt_idx"``)
+                used to derive a per-decision RNG for deterministic replay.
+                Defaults to ``""`` (auto-incremented counter).
 
         Returns:
             str: The chosen technique name.
@@ -120,13 +109,20 @@ class AdaptiveTechniqueSelector:
             raise ValueError("techniques must contain at least one entry")
 
         with self._lock:
-            if self._rng.random() < self._epsilon:
-                return self._rng.choice(technique_list)
+            if decision_key:
+                effective_key = decision_key
+            else:
+                effective_key = str(self._decision_counter)
+                self._decision_counter += 1
+            rng = _derive_rng(self._seed, context, effective_key)
+
+            if rng.random() < self._epsilon:
+                return rng.choice(technique_list)
 
             estimates = {t: self._estimate(context=context, technique=t) for t in technique_list}
             best = max(estimates.values())
             winners = [t for t, value in estimates.items() if value >= best - self._TIE_TOL]
-            return self._rng.choice(winners)
+            return rng.choice(winners)
 
     def record_outcome(self, *, context: str, technique: str, success: bool) -> None:
         """
@@ -180,3 +176,4 @@ class AdaptiveTechniqueSelector:
             return (local_s + 1) / (local_n + 1)
         global_s, global_n = self._global_counts.get(technique, (0, 0))
         return (global_s + 1) / (global_n + 1)
+

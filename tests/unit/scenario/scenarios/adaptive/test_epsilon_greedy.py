@@ -1,48 +1,42 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
-import random
-from unittest.mock import MagicMock
-
 import pytest
 
-from pyrit.scenario.scenarios.adaptive.selector import (
+from pyrit.scenario.scenarios.adaptive.selectors import (
     GLOBAL_CONTEXT,
-    UNCATEGORIZED_CONTEXT,
-    AdaptiveTechniqueSelector,
-    global_context,
-    harm_category_context,
+    EpsilonGreedyTechniqueSelector,
 )
 
 TECHNIQUES = ["a", "b", "c", "d"]
 
 
-def _seeded_selector(*, epsilon: float = 0.0, pool_threshold: int = 3, seed: int = 0) -> AdaptiveTechniqueSelector:
-    return AdaptiveTechniqueSelector(
+def _seeded_selector(*, epsilon: float = 0.0, pool_threshold: int = 3, random_seed: int = 0) -> EpsilonGreedyTechniqueSelector:
+    return EpsilonGreedyTechniqueSelector(
         epsilon=epsilon,
         pool_threshold=pool_threshold,
-        rng=random.Random(seed),
+        random_seed=random_seed,
     )
 
 
-class TestAdaptiveTechniqueSelectorInit:
+class TestEpsilonGreedyTechniqueSelectorInit:
     def test_init_defaults(self):
-        selector = AdaptiveTechniqueSelector()
+        selector = EpsilonGreedyTechniqueSelector()
         assert selector.snapshot() == {}
 
     @pytest.mark.parametrize("bad_epsilon", [-0.1, 1.1, 2.0, -1.0])
     def test_init_rejects_out_of_range_epsilon(self, bad_epsilon):
         with pytest.raises(ValueError, match="epsilon"):
-            AdaptiveTechniqueSelector(epsilon=bad_epsilon)
+            EpsilonGreedyTechniqueSelector(epsilon=bad_epsilon)
 
     def test_init_rejects_pool_threshold_below_one(self):
         with pytest.raises(ValueError, match="pool_threshold"):
-            AdaptiveTechniqueSelector(pool_threshold=0)
+            EpsilonGreedyTechniqueSelector(pool_threshold=0)
         with pytest.raises(ValueError, match="pool_threshold"):
-            AdaptiveTechniqueSelector(pool_threshold=-1)
+            EpsilonGreedyTechniqueSelector(pool_threshold=-1)
 
 
-class TestAdaptiveTechniqueSelectorSelect:
+class TestEpsilonGreedyTechniqueSelectorSelect:
     def test_select_empty_techniques_raises(self):
         selector = _seeded_selector()
         with pytest.raises(ValueError, match="techniques"):
@@ -52,7 +46,7 @@ class TestAdaptiveTechniqueSelectorSelect:
         # With epsilon=0 and an empty table, every technique has estimate 1/1=1.0,
         # so the result is the seeded random tiebreak. Different seeds should
         # be able to produce different winners.
-        winners = {_seeded_selector(seed=s).select(context=GLOBAL_CONTEXT, techniques=TECHNIQUES) for s in range(50)}
+        winners = {_seeded_selector(random_seed=s).select(context=GLOBAL_CONTEXT, techniques=TECHNIQUES) for s in range(50)}
         assert len(winners) > 1
         assert winners.issubset(set(TECHNIQUES))
 
@@ -102,7 +96,7 @@ class TestAdaptiveTechniqueSelectorSelect:
         assert sorted(tried) == sorted(TECHNIQUES)
 
 
-class TestAdaptiveTechniqueSelectorUpdate:
+class TestEpsilonGreedyTechniqueSelectorUpdate:
     def test_record_outcome_accumulates_counts(self):
         selector = _seeded_selector()
         selector.record_outcome(context="ctx", technique="a", success=True)
@@ -139,7 +133,7 @@ class TestAdaptiveTechniqueSelectorUpdate:
         assert selector.success_rate(context="new_ctx", technique="c") == pytest.approx(1.0)
 
 
-class TestAdaptiveTechniqueSelectorEstimate:
+class TestEpsilonGreedyTechniqueSelectorEstimate:
     def test_success_rate_unseen_is_one(self):
         # Optimistic init: (0 + 1) / (0 + 1) = 1.0
         selector = _seeded_selector()
@@ -163,34 +157,7 @@ class TestAdaptiveTechniqueSelectorEstimate:
         assert selector.success_rate(context="ctx", technique="a") == pytest.approx(11 / 12)
 
 
-class TestContextExtractors:
-    def test_global_context_is_constant(self):
-        sg = MagicMock()
-        assert global_context(sg) == GLOBAL_CONTEXT
-
-    def test_harm_category_context_joins_sorted_categories(self):
-        sg = MagicMock()
-        sg.harm_categories = ["violence", "hate"]
-        # Multi-category seeds form their own bucket; sorting keeps the key deterministic.
-        assert harm_category_context(sg) == "hate|violence"
-
-    def test_harm_category_context_single_category(self):
-        sg = MagicMock()
-        sg.harm_categories = ["violence"]
-        assert harm_category_context(sg) == "violence"
-
-    def test_harm_category_context_falls_back_when_empty(self):
-        sg = MagicMock()
-        sg.harm_categories = []
-        assert harm_category_context(sg) == UNCATEGORIZED_CONTEXT
-
-    def test_harm_category_context_falls_back_when_none(self):
-        sg = MagicMock()
-        sg.harm_categories = None
-        assert harm_category_context(sg) == UNCATEGORIZED_CONTEXT
-
-
-class TestAdaptiveTechniqueSelectorConcurrency:
+class TestEpsilonGreedyTechniqueSelectorConcurrency:
     """Concurrent record_outcome / select calls must not corrupt counts."""
 
     def test_concurrent_record_outcome_preserves_total_attempts(self):

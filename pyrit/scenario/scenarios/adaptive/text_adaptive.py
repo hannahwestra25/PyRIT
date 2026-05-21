@@ -6,9 +6,9 @@
 
 Picks attack techniques per-objective using an epsilon-greedy selector
 informed by observed success rates. Runs up to ``max_attempts_per_objective``
-techniques per objective and stops early on success. The available techniques
-come from the selected scenario strategies (``--strategies single_turn``
-restricts to single-turn techniques, etc.).
+techniques per objective and stops early on success. ``prompt_sending`` is
+excluded from the adaptive technique pool and runs as the baseline comparison
+instead.
 """
 
 from __future__ import annotations
@@ -17,11 +17,13 @@ import logging
 from typing import TYPE_CHECKING, ClassVar
 
 from pyrit.common import apply_defaults
+from pyrit.common.parameter import Parameter
 from pyrit.registry.tag_query import TagQuery
 from pyrit.scenario.core.dataset_configuration import DatasetConfiguration
 from pyrit.scenario.scenarios.adaptive.adaptive_scenario import AdaptiveScenario
-from pyrit.scenario.scenarios.adaptive.selector import (
+from pyrit.scenario.scenarios.adaptive.selectors import (
     ContextExtractor,
+    TechniqueSelector,
     global_context,
 )
 
@@ -31,10 +33,15 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Techniques excluded from the adaptive technique pool. These run as the
+# baseline comparison rather than as adversarial moves the selector chooses.
+_EXCLUDED_TECHNIQUES = frozenset({"prompt_sending"})
+
 
 def _build_text_adaptive_strategy() -> type[ScenarioStrategy]:
     """
-    Build the strategy enum from the core scenario-techniques catalog.
+    Build the strategy enum from the core scenario-techniques catalog,
+    excluding techniques that run as baseline.
 
     Returns:
         type[ScenarioStrategy]: The dynamically-built strategy enum class.
@@ -44,9 +51,11 @@ def _build_text_adaptive_strategy() -> type[ScenarioStrategy]:
     )
     from pyrit.scenario.core.scenario_techniques import SCENARIO_TECHNIQUES
 
+    filtered_specs = [spec for spec in SCENARIO_TECHNIQUES if spec.name not in _EXCLUDED_TECHNIQUES]
+
     return AttackTechniqueRegistry.build_strategy_class_from_specs(  # type: ignore[return-value, ty:invalid-return-type]
         class_name="TextAdaptiveStrategy",
-        specs=SCENARIO_TECHNIQUES,
+        specs=filtered_specs,
         aggregate_tags={
             "default": TagQuery.any_of("default"),
             "single_turn": TagQuery.any_of("single_turn"),
@@ -60,8 +69,8 @@ class TextAdaptive(AdaptiveScenario):
     Adaptive text-attack scenario.
 
     Selects techniques per-objective via an epsilon-greedy selector over the
-    set of selected strategies. ``prompt_sending`` participates as one of the
-    selector's techniques rather than being prepended as a baseline.
+    set of selected strategies. ``prompt_sending`` runs as the baseline
+    comparison and is excluded from the adaptive technique pool.
     """
 
     VERSION: int = 1
@@ -99,39 +108,48 @@ class TextAdaptive(AdaptiveScenario):
         """Return the default :class:`DatasetConfiguration` (required datasets, capped at 4 per dataset)."""
         return DatasetConfiguration(dataset_names=cls.required_datasets(), max_dataset_size=4)
 
+    @classmethod
+    def supported_parameters(cls) -> list[Parameter]:
+        """
+        Declare custom parameters this scenario accepts from the CLI / config file.
+
+        Returns:
+            list[Parameter]: Parameters configurable per-run.
+        """
+        return [
+            Parameter(
+                name="max_attempts_per_objective",
+                description="Max techniques tried per objective.",
+                param_type=int,
+                default=3,
+            ),
+        ]
+
     @apply_defaults
     def __init__(
         self,
         *,
         objective_scorer: TrueFalseScorer | None = None,
-        epsilon: float = 0.2,
-        pool_threshold: int = 3,
-        max_attempts_per_objective: int = 3,
-        seed: int | None = None,
         context_extractor: ContextExtractor = global_context,
+        selector: TechniqueSelector | None = None,
         scenario_result_id: str | None = None,
     ) -> None:
         """
         Args:
             objective_scorer (TrueFalseScorer | None): Scorer used to judge each
                 response. Defaults to the composite scorer from the base class.
-            epsilon (float): Exploration probability for the selector. Defaults to 0.2.
-            pool_threshold (int): Minimum per-(context, technique) attempts before
-                the local estimate overrides the pooled rate. Set to 1 to disable
-                pooling. Defaults to 3.
-            max_attempts_per_objective (int): Max techniques per objective. Defaults to 3.
-            seed (int | None): RNG seed for deterministic selection. Defaults to ``None``.
             context_extractor (ContextExtractor): Maps a ``SeedAttackGroup`` to a
                 context key. Defaults to ``global_context``. Use
                 ``harm_category_context`` to partition by harm category.
+            selector (TechniqueSelector | None): Pre-built selector. When ``None``
+                (default) an :class:`EpsilonGreedyTechniqueSelector` is created
+                with default settings. Pass a custom instance to tune
+                ``epsilon``, ``pool_threshold``, or ``random_seed``.
             scenario_result_id (str | None): ID of an existing ``ScenarioResult`` to resume.
         """
         super().__init__(
             objective_scorer=objective_scorer,
-            epsilon=epsilon,
-            pool_threshold=pool_threshold,
-            max_attempts_per_objective=max_attempts_per_objective,
-            seed=seed,
             context_extractor=context_extractor,
+            selector=selector,
             scenario_result_id=scenario_result_id,
         )

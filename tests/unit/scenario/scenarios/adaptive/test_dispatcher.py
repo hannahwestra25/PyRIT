@@ -1,24 +1,23 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
-import random
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from pyrit.executor.attack.core.attack_parameters import AttackParameters
 from pyrit.models import AttackOutcome, AttackResult, SeedAttackGroup, SeedObjective
 from pyrit.scenario.scenarios.adaptive.dispatcher import (
     ADAPTIVE_ATTEMPT_LABEL,
-    ADAPTIVE_CONTEXT_LABEL,
     ADAPTIVE_TECHNIQUE_LABEL,
     AdaptiveDispatchAttack,
     AdaptiveDispatchContext,
+    AdaptiveDispatchParams,
     TechniqueBundle,
 )
-from pyrit.scenario.scenarios.adaptive.selector import (
+from pyrit.scenario.scenarios.adaptive.selectors import (
     GLOBAL_CONTEXT,
-    AdaptiveTechniqueSelector,
+    EpsilonGreedyTechniqueSelector,
+    harm_category_context,
 )
 
 
@@ -34,8 +33,22 @@ def _make_bundle(*, name: str, outcomes: list[AttackOutcome], seed_technique=Non
     return TechniqueBundle(attack=attack, seed_technique=seed_technique)
 
 
-def _make_context(*, objective: str = "obj", labels: dict[str, str] | None = None) -> AdaptiveDispatchContext:
-    return AdaptiveDispatchContext(params=AttackParameters(objective=objective, memory_labels=labels or {}))
+def _make_context(
+    *,
+    objective: str = "obj",
+    labels: dict[str, str] | None = None,
+    seed_group: SeedAttackGroup | None = None,
+    harm_categories: list[str] | None = None,
+) -> AdaptiveDispatchContext:
+    if seed_group is None:
+        seed_group = SeedAttackGroup(seeds=[SeedObjective(value=objective, harm_categories=harm_categories)])
+    return AdaptiveDispatchContext(
+        params=AdaptiveDispatchParams(
+            objective=objective,
+            memory_labels=labels or {},
+            seed_group=seed_group,
+        )
+    )
 
 
 def _patch_inner(
@@ -52,7 +65,7 @@ def _patch_inner(
     name_for_attack = {id(b.attack): name for name, b in bundles.items()}
     counters: dict[str, int] = dict.fromkeys(bundles, 0)
 
-    async def _stub(*, bundle: TechniqueBundle, attempt_labels: dict[str, str]) -> AttackResult:
+    async def _stub(*, bundle: TechniqueBundle, seed_group, attempt_labels: dict[str, str]) -> AttackResult:
         name = name_for_attack[id(bundle.attack)]
         idx = counters[name]
         counters[name] = idx + 1
@@ -69,9 +82,9 @@ def _patch_inner(
 
 
 @pytest.fixture
-def selector() -> AdaptiveTechniqueSelector:
+def selector() -> EpsilonGreedyTechniqueSelector:
     # epsilon=0 makes selection deterministic given the table.
-    return AdaptiveTechniqueSelector(epsilon=0.0, pool_threshold=1, rng=random.Random(0))
+    return EpsilonGreedyTechniqueSelector(epsilon=0.0, pool_threshold=1, random_seed=0)
 
 
 @pytest.fixture
@@ -92,7 +105,6 @@ class TestInit:
                 objective_target=target,
                 techniques={},
                 selector=selector,
-                seed_group=seed_group,
             )
 
     @pytest.mark.parametrize("bad_max", [0, -1])
@@ -103,7 +115,6 @@ class TestInit:
                 objective_target=target,
                 techniques={"a": _make_bundle(name="a", outcomes=[AttackOutcome.SUCCESS])},
                 selector=selector,
-                seed_group=seed_group,
                 max_attempts_per_objective=bad_max,
             )
 
@@ -119,7 +130,6 @@ class TestPerform:
             objective_target=target,
             techniques=bundles,
             selector=selector,
-            seed_group=seed_group,
             max_attempts_per_objective=5,
         )
         inner = _patch_inner(dispatcher=dispatcher, bundles=bundles)
@@ -138,7 +148,6 @@ class TestPerform:
             objective_target=target,
             techniques=bundles,
             selector=selector,
-            seed_group=seed_group,
             max_attempts_per_objective=3,
         )
         inner = _patch_inner(dispatcher=dispatcher, bundles=bundles)
@@ -157,7 +166,6 @@ class TestPerform:
             objective_target=target,
             techniques=bundles,
             selector=selector,
-            seed_group=seed_group,
             max_attempts_per_objective=3,
         )
         inner = _patch_inner(dispatcher=dispatcher, bundles=bundles)
@@ -173,7 +181,6 @@ class TestPerform:
             objective_target=target,
             techniques=bundles,
             selector=selector,
-            seed_group=seed_group,
         )
         inner = _patch_inner(dispatcher=dispatcher, bundles=bundles)
 
@@ -184,7 +191,7 @@ class TestPerform:
         assert labels[ADAPTIVE_TECHNIQUE_LABEL] == "a"
         assert labels[ADAPTIVE_ATTEMPT_LABEL] == "1"
 
-    async def test_uses_adaptive_context_from_label(self, target, selector, seed_group):
+    async def test_uses_adaptive_context_from_extractor(self, target, selector, seed_group):
         # Two techniques; one has been heavily rewarded under context "violence" only.
         bundles = {
             "a": _make_bundle(name="a", outcomes=[AttackOutcome.SUCCESS]),
@@ -199,23 +206,22 @@ class TestPerform:
             objective_target=target,
             techniques=bundles,
             selector=selector,
-            seed_group=seed_group,
+            context_extractor=harm_category_context,
         )
         inner = _patch_inner(dispatcher=dispatcher, bundles=bundles)
-        ctx = _make_context(labels={ADAPTIVE_CONTEXT_LABEL: "violence"})
+        ctx = _make_context(harm_categories=["violence"])
         await dispatcher._perform_async(context=ctx)
 
         # Exploit should have picked "b" first.
         chosen_bundle = inner.call_args.kwargs["bundle"]
         assert chosen_bundle is bundles["b"]
 
-    async def test_falls_back_to_global_context_when_label_missing(self, target, selector, seed_group):
+    async def test_falls_back_to_global_context_with_default_extractor(self, target, selector, seed_group):
         bundles = {"a": _make_bundle(name="a", outcomes=[AttackOutcome.SUCCESS])}
         dispatcher = AdaptiveDispatchAttack(
             objective_target=target,
             techniques=bundles,
             selector=selector,
-            seed_group=seed_group,
         )
         _patch_inner(dispatcher=dispatcher, bundles=bundles)
         await dispatcher._perform_async(context=_make_context(labels={}))
@@ -229,7 +235,6 @@ class TestPerform:
             objective_target=target,
             techniques=bundles,
             selector=selector,
-            seed_group=seed_group,
             max_attempts_per_objective=3,
         )
         _patch_inner(dispatcher=dispatcher, bundles=bundles)
@@ -243,22 +248,15 @@ class TestPerform:
         assert result.metadata["adaptive_context"] == GLOBAL_CONTEXT
 
     async def test_returns_fresh_result_distinct_from_inner(self, target, selector, seed_group):
-        # The dispatcher must NOT return the inner attack's ``AttackResult``
-        # instance — doing so would cause a duplicate-PK insert when both the
-        # inner and the dispatcher's ``execute_async`` post-execute hooks try
-        # to persist the same row. Verify the returned result has a fresh
-        # ``attack_result_id`` while preserving the inner's identifying fields
-        # and stamping the dispatch trail.
         bundles = {"a": _make_bundle(name="a", outcomes=[AttackOutcome.SUCCESS])}
         dispatcher = AdaptiveDispatchAttack(
             objective_target=target,
             techniques=bundles,
             selector=selector,
-            seed_group=seed_group,
         )
         inner_ids: list[str] = []
 
-        async def _spy(*, bundle, attempt_labels):
+        async def _spy(*, bundle, seed_group, attempt_labels):
             inner_result = AttackResult(
                 conversation_id="conv-a-0",
                 objective="obj",
@@ -287,7 +285,6 @@ class TestValidate:
             objective_target=target,
             techniques={"a": _make_bundle(name="a", outcomes=[AttackOutcome.SUCCESS])},
             selector=selector,
-            seed_group=seed_group,
         )
         with pytest.raises(ValueError, match="objective"):
             dispatcher._validate_context(context=_make_context(objective=bad_objective))
@@ -297,7 +294,6 @@ class TestValidate:
             objective_target=target,
             techniques={"a": _make_bundle(name="a", outcomes=[AttackOutcome.SUCCESS])},
             selector=selector,
-            seed_group=seed_group,
         )
         # Does not raise.
         dispatcher._validate_context(context=_make_context(objective="ok"))

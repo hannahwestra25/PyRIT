@@ -60,7 +60,8 @@ printer = ConsoleScenarioResultPrinter()
 # %% [markdown]
 # ## Basic usage
 #
-# Defaults: `epsilon=0.2`, `max_attempts_per_objective=3`, the subclass's default datasets.
+# Defaults: `max_attempts_per_objective=3`, epsilon-greedy selector with `epsilon=0.2`,
+# the subclass's default datasets.
 
 # %%
 scenario = TextAdaptive()
@@ -74,31 +75,32 @@ await printer.write_async(result)  # type: ignore
 # %% [markdown]
 # ## Configuring a run
 #
-# All the knobs below are constructor or `initialize_async` arguments — combine whichever
-# you need on a single scenario instance:
-#
-# - **`epsilon`** — exploration probability. `0.0` is pure exploit, `1.0` is pure random,
-#   `0.2` (default) is 20% exploration.
 # - **`max_attempts_per_objective`** — caps techniques tried per objective. Higher means
-#   more chances to succeed and more API calls.
+#   more chances to succeed and more API calls. Set via `set_params_from_args`.
+# - **`selector`** — a pre-built ``TechniqueSelector`` instance. Pass an
+#   ``EpsilonGreedyTechniqueSelector(epsilon=..., pool_threshold=..., random_seed=...)``
+#   to tune the selection algorithm. Defaults to ``EpsilonGreedyTechniqueSelector()``
+#   (``epsilon=0.2``, ``pool_threshold=3``).
 # - **`context_extractor`** — partitions the success-rate table. The default
 #   `global_context` keeps one shared table; `harm_category_context` learns each harm
 #   category independently. Custom callables of type `Callable[[SeedAttackGroup], str]`
 #   are supported.
-# - **`seed`** — makes every selection decision deterministic.
 # - **`scenario_strategies`** (on `initialize_async`) — restricts which techniques the
 #   selector can pick from. Use `TextAdaptive.get_strategy_class()` to access the enum.
 #
 # The cell below exercises all of them at once.
 
 # %%
+from pyrit.scenario.scenarios.adaptive import EpsilonGreedyTechniqueSelector
+
 strategy_class = TextAdaptive.get_strategy_class()
 
 configured_scenario = TextAdaptive(
-    epsilon=0.3,
-    max_attempts_per_objective=5,
     context_extractor=harm_category_context,
-    seed=42,
+    selector=EpsilonGreedyTechniqueSelector(epsilon=0.3, random_seed=42),
+)
+configured_scenario.set_params_from_args(
+    args={"max_attempts_per_objective": 5}
 )
 
 await configured_scenario.initialize_async(  # type: ignore
@@ -121,11 +123,12 @@ await printer.write_async(configured_result)  # type: ignore
 
 # %%
 resumed_scenario = TextAdaptive(
-    epsilon=0.3,
-    max_attempts_per_objective=5,
     context_extractor=harm_category_context,
-    seed=42,
+    selector=EpsilonGreedyTechniqueSelector(epsilon=0.3, random_seed=42),
     scenario_result_id=str(configured_result.id),
+)
+resumed_scenario.set_params_from_args(
+    args={"max_attempts_per_objective": 5}
 )
 
 await resumed_scenario.initialize_async(  # type: ignore
