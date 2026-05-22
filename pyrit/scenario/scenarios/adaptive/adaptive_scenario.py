@@ -5,10 +5,10 @@
 ``AdaptiveScenario`` — modality-agnostic base for scenarios that pick attack
 techniques per-objective using a ``TechniqueSelector``.
 
-Owns selector wiring, dispatcher construction, per-dataset atomic-attack
-emission, and resume rehydration. Concrete subclasses (``TextAdaptive``,
-future ``ImageAdaptive`` / ``AudioAdaptive``) only declare strategy class,
-default datasets, version, and atomic-attack prefix.
+Owns selector wiring, dispatcher construction, and per-dataset atomic-attack
+emission. Concrete subclasses (``TextAdaptive``, future ``ImageAdaptive`` /
+``AudioAdaptive``) only declare strategy class, default datasets, version,
+and atomic-attack prefix.
 
 Baseline policy is ``Enabled``: prompt_sending runs as a separate baseline
 comparison and is excluded from the adaptive technique pool.
@@ -22,16 +22,14 @@ from typing import TYPE_CHECKING, ClassVar
 from pyrit.executor.attack import AttackScoringConfig
 from pyrit.scenario.core.atomic_attack import AtomicAttack
 from pyrit.scenario.core.attack_technique import AttackTechnique
-from pyrit.scenario.core.scenario import BaselineAttackPolicy, Scenario
+from pyrit.scenario.core.scenario import Scenario
 from pyrit.scenario.scenarios.adaptive.dispatcher import (
     AdaptiveDispatchAttack,
     TechniqueBundle,
 )
 from pyrit.scenario.scenarios.adaptive.selectors import (
-    ContextExtractor,
     EpsilonGreedyTechniqueSelector,
     TechniqueSelector,
-    global_context,
 )
 
 if TYPE_CHECKING:
@@ -47,15 +45,12 @@ class AdaptiveScenario(Scenario):
     Abstract base for adaptive (epsilon-greedy) scenarios.
 
     Subclasses must implement the standard ``Scenario`` class-method overrides
-    and declare ``VERSION`` and ``_atomic_attack_prefix``. Selector wiring,
-    dispatcher construction, per-objective atomic-attack emission, and resume
-    rehydration are handled here.
+    and declare ``_atomic_attack_prefix``. Selector wiring
+    and dispatcher construction are handled here.
     """
 
-    BASELINE_ATTACK_POLICY: ClassVar[BaselineAttackPolicy] = BaselineAttackPolicy.Enabled
-
-    #: Subclasses must declare a scenario version for memory bookkeeping.
-    VERSION: ClassVar[int]
+    #: Scenario version for memory bookkeeping.
+    VERSION: ClassVar[int] = 1
 
     #: Prefix for per-objective atomic-attack names (e.g. ``"adaptive_text"``).
     _atomic_attack_prefix: ClassVar[str] = "adaptive"
@@ -64,7 +59,6 @@ class AdaptiveScenario(Scenario):
         self,
         *,
         objective_scorer: TrueFalseScorer | None = None,
-        context_extractor: ContextExtractor = global_context,
         selector: TechniqueSelector | None = None,
         scenario_result_id: str | None = None,
     ) -> None:
@@ -72,8 +66,6 @@ class AdaptiveScenario(Scenario):
         Args:
             objective_scorer (TrueFalseScorer | None): Scorer used to judge each
                 response. Defaults to the composite scorer from the base class.
-            context_extractor (ContextExtractor): Maps a ``SeedAttackGroup`` to a
-                context key. Defaults to ``global_context``.
             selector (TechniqueSelector | None): Pre-built selector. When ``None``
                 (default) an :class:`EpsilonGreedyTechniqueSelector` is created
                 with default settings.
@@ -83,7 +75,6 @@ class AdaptiveScenario(Scenario):
             objective_scorer = self._get_default_objective_scorer()
         self._objective_scorer: TrueFalseScorer = objective_scorer
 
-        self._context_extractor = context_extractor
         self._custom_selector = selector
 
         super().__init__(
@@ -105,14 +96,9 @@ class AdaptiveScenario(Scenario):
         dispatchers across all datasets share one ``TechniqueSelector``
         instance so learning accumulates globally.
 
-        Seed groups whose objective is incompatible with every technique are
-        dropped up-front with a warning so the dispatcher never sees an empty
-        compatible pool at run time.
-
         Returns:
             list[AtomicAttack]: One ``AtomicAttack`` per dataset that has at
-                least one compatible seed group. Empty if every seed group is
-                incompatible with every selected technique.
+                least one compatible seed group.
 
         Raises:
             ValueError: If ``self._objective_target`` is not set, or if
@@ -124,10 +110,10 @@ class AdaptiveScenario(Scenario):
         techniques = self._build_techniques_dict(objective_target=self._objective_target)
 
         selector: TechniqueSelector = (
-            self._custom_selector if self._custom_selector is not None else EpsilonGreedyTechniqueSelector()
+            self._custom_selector
+            if self._custom_selector is not None
+            else EpsilonGreedyTechniqueSelector()
         )
-        # On resume, replay prior attempt outcomes from persisted metadata.
-        self._rehydrate_selector_from_memory(selector=selector, known_techniques=set(techniques))
 
         seed_groups_by_dataset = self._dataset_config.get_seed_attack_groups()
         atomic_attacks: list[AtomicAttack] = []
@@ -149,14 +135,19 @@ class AdaptiveScenario(Scenario):
         objective_target: PromptTarget,
     ) -> dict[str, TechniqueBundle]:
         """
-        Resolve selected strategies into a ``{name: TechniqueBundle}`` map.
+        Resolve selected strategies into a ``{eval_hash: TechniqueBundle}`` map.
 
         Each bundle carries the inner attack strategy along with the factory's
         ``seed_technique`` and ``adversarial_chat`` so the dispatcher can
         reproduce the static ``AtomicAttack`` execution path per attempt.
 
+        Technique keys are eval hashes derived from the ``AttackTechnique``
+        identity (strategy + seed_technique configuration). This allows the
+        selector and analytics to track techniques by their behavioral
+        configuration rather than by name alone.
+
         Returns:
-            dict[str, TechniqueBundle]: Mapping from technique name to its
+            dict[str, TechniqueBundle]: Mapping from technique eval hash to its
                 bundle, in the order selected strategies were resolved.
 
         Raises:
@@ -179,8 +170,10 @@ class AdaptiveScenario(Scenario):
                 objective_target=objective_target,
                 attack_scoring_config=scoring_config,
             )
-            techniques[technique_name] = TechniqueBundle(
+            eval_hash = technique.get_identifier().hash
+            techniques[eval_hash] = TechniqueBundle(
                 attack=technique.attack,
+                name=technique_name,
                 seed_technique=technique.seed_technique,
                 adversarial_chat=factory.adversarial_chat,
             )
@@ -245,9 +238,9 @@ class AdaptiveScenario(Scenario):
             objective_target=self._objective_target,
             techniques=techniques,
             selector=selector,
-            context_extractor=self._context_extractor,
             objective_scorer=self._objective_scorer,
             max_attempts_per_objective=self.params["max_attempts_per_objective"],
+            scenario_result_id=self._scenario_result_id,
         )
 
         return AtomicAttack(
@@ -259,63 +252,3 @@ class AdaptiveScenario(Scenario):
             display_group=dataset_name,
         )
 
-    def _rehydrate_selector_from_memory(
-        self,
-        *,
-        selector: TechniqueSelector,
-        known_techniques: set[str],
-    ) -> None:
-        """
-        Replay persisted dispatch trails into ``selector`` so resume
-        preserves learned state.
-
-        Queries ``AttackResultEntry`` rows directly by ``scenario_result_id``
-        (which selects on ``attribution_parent_id`` stamped at write time by
-        ``AtomicAttack``'s attribution path) and filters to rows belonging to
-        this scenario's adaptive atomic attacks via
-        ``attribution_data["parent_collection"]``.
-
-        Args:
-            selector (TechniqueSelector): A freshly built selector to populate.
-            known_techniques (set[str]): Techniques available in the current run.
-                Trails referencing unknown techniques (e.g. after a strategies
-                change) are skipped so replay can't poison the table.
-        """
-        if not self._scenario_result_id:
-            return
-
-        # Narrow to errors a memory backend would plausibly raise (DB/IO
-        # failures, integrity issues). Programmer-level errors propagate.
-        try:
-            rows = self._memory.get_attack_results(scenario_result_id=self._scenario_result_id)
-        except (RuntimeError, OSError, ValueError) as exc:
-            logger.warning(f"AdaptiveScenario: failed to load prior attack results for rehydration: {exc}")
-            return
-
-        adaptive_prefix = f"{self._atomic_attack_prefix}_"
-        replayed = 0
-        for result in rows:
-            if result.attribution_data is None:
-                continue
-            collection = result.attribution_data.get("parent_collection")
-            if not collection or not collection.startswith(adaptive_prefix):
-                continue
-            metadata = result.metadata or {}
-            trail = metadata.get("adaptive_attempts")
-            context = metadata.get("adaptive_context")
-            if not trail or not context:
-                continue
-            for step in trail:
-                technique = step.get("technique")
-                outcome = step.get("outcome")
-                if not technique or technique not in known_techniques:
-                    continue
-                selector.record_outcome(
-                    context=context,
-                    technique=technique,
-                    success=outcome == "success",
-                )
-                replayed += 1
-
-        if replayed:
-            logger.info(f"AdaptiveScenario: rehydrated selector with {replayed} prior attempt(s).")

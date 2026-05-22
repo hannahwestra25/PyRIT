@@ -22,9 +22,7 @@ from pyrit.registry.tag_query import TagQuery
 from pyrit.scenario.core.dataset_configuration import DatasetConfiguration
 from pyrit.scenario.scenarios.adaptive.adaptive_scenario import AdaptiveScenario
 from pyrit.scenario.scenarios.adaptive.selectors import (
-    ContextExtractor,
     TechniqueSelector,
-    global_context,
 )
 
 if TYPE_CHECKING:
@@ -73,8 +71,6 @@ class TextAdaptive(AdaptiveScenario):
     comparison and is excluded from the adaptive technique pool.
     """
 
-    VERSION: int = 1
-    _atomic_attack_prefix: ClassVar[str] = "adaptive"
     _cached_strategy_class: ClassVar[type[ScenarioStrategy] | None] = None
 
     @classmethod
@@ -130,7 +126,6 @@ class TextAdaptive(AdaptiveScenario):
         self,
         *,
         objective_scorer: TrueFalseScorer | None = None,
-        context_extractor: ContextExtractor = global_context,
         selector: TechniqueSelector | None = None,
         scenario_result_id: str | None = None,
     ) -> None:
@@ -138,18 +133,14 @@ class TextAdaptive(AdaptiveScenario):
         Args:
             objective_scorer (TrueFalseScorer | None): Scorer used to judge each
                 response. Defaults to the composite scorer from the base class.
-            context_extractor (ContextExtractor): Maps a ``SeedAttackGroup`` to a
-                context key. Defaults to ``global_context``. Use
-                ``harm_category_context`` to partition by harm category.
             selector (TechniqueSelector | None): Pre-built selector. When ``None``
                 (default) an :class:`EpsilonGreedyTechniqueSelector` is created
                 with default settings. Pass a custom instance to tune
-                ``epsilon``, ``pool_threshold``, or ``random_seed``.
+                ``epsilon`` or ``random_seed``.
             scenario_result_id (str | None): ID of an existing ``ScenarioResult`` to resume.
         """
         super().__init__(
             objective_scorer=objective_scorer,
-            context_extractor=context_extractor,
             selector=selector,
             scenario_result_id=scenario_result_id,
         )

@@ -18,10 +18,6 @@ from pyrit.scenario.core.scenario import BaselineAttackPolicy
 from pyrit.scenario.scenarios.adaptive.dispatcher import (
     AdaptiveDispatchAttack,
 )
-from pyrit.scenario.scenarios.adaptive.selectors import (
-    GLOBAL_CONTEXT,
-    harm_category_context,
-)
 from pyrit.scenario.scenarios.adaptive.text_adaptive import TextAdaptive
 from pyrit.score import TrueFalseScorer
 
@@ -209,47 +205,6 @@ class TestTextAdaptiveAtomicAttacks:
         selectors = {id(d._selector) for d in dispatchers}
         assert len(selectors) == 1
 
-    async def test_default_context_extractor_is_global(self, mock_objective_target, mock_objective_scorer):
-        from pyrit.scenario.scenarios.adaptive.selectors import global_context
-
-        groups = {
-            "violence": [_make_seed_group(value="obj-1", harm_categories=["violence"])],
-            "hate": [_make_seed_group(value="obj-2", harm_categories=["hate"])],
-        }
-        _scenario, attacks = await self._build_scenario_and_attacks(
-            mock_objective_target=mock_objective_target,
-            mock_objective_scorer=mock_objective_scorer,
-            seed_groups=groups,
-        )
-        for atomic in attacks:
-            dispatcher = atomic._attack_technique.attack
-            # All seed groups in a global-extractor scenario resolve to the same
-            # context bucket regardless of harm category.
-            for sg in atomic.seed_groups:
-                assert dispatcher._context_extractor(sg) == GLOBAL_CONTEXT
-            assert dispatcher._context_extractor is global_context
-
-    async def test_harm_category_extractor_partitions_contexts(self, mock_objective_target, mock_objective_scorer):
-        groups = {
-            "violence": [_make_seed_group(value="obj-v", harm_categories=["violence"])],
-            "hate": [_make_seed_group(value="obj-h", harm_categories=["hate"])],
-            "uncat": [_make_seed_group(value="obj-u", harm_categories=None)],
-        }
-        _scenario, attacks = await self._build_scenario_and_attacks(
-            mock_objective_target=mock_objective_target,
-            mock_objective_scorer=mock_objective_scorer,
-            seed_groups=groups,
-            context_extractor=harm_category_context,
-        )
-        contexts: set[str] = set()
-        for atomic in attacks:
-            dispatcher = atomic._attack_technique.attack
-            assert dispatcher._context_extractor is harm_category_context
-            for sg in atomic.seed_groups:
-                contexts.add(dispatcher._context_extractor(sg))
-        # Each harm category gets its own context bucket.
-        assert contexts == {"violence", "hate", "_uncategorized"}
-
     async def test_atomic_names_are_dataset_scoped(self, mock_objective_target, mock_objective_scorer):
         groups = {
             "violence": [_make_seed_group(value=f"obj-{i}", harm_categories=["violence"]) for i in range(5)],
@@ -318,9 +273,10 @@ class TestTextAdaptiveAtomicAttacks:
         dispatcher = attacks[0]._attack_technique.attack
         assert isinstance(dispatcher, AdaptiveDispatchAttack)
         # Both factories survive; in particular the seeded one is no longer
-        # silently dropped.
-        assert "role_play" in dispatcher._techniques
-        assert "many_shot" in dispatcher._techniques
+        # silently dropped. Keys are now eval hashes; check by bundle name.
+        technique_names = {b.name for b in dispatcher._techniques.values()}
+        assert "role_play" in technique_names
+        assert "many_shot" in technique_names
 
     async def test_incompatible_seed_technique_is_filtered_per_objective(
         self, mock_objective_target, mock_objective_scorer
@@ -353,9 +309,10 @@ class TestTextAdaptiveAtomicAttacks:
         # shared by the dispatcher; per-call compatibility filtering now
         # happens inside ``AdaptiveDispatchAttack._perform_async``. The seed
         # group survived because the plain (no-seed_technique) factory keeps
-        # the compatible pool non-empty.
-        assert "role_play" in dispatcher._techniques
-        assert "many_shot" in dispatcher._techniques
+        # the compatible pool non-empty. Keys are now eval hashes; check by bundle name.
+        technique_names = {b.name for b in dispatcher._techniques.values()}
+        assert "role_play" in technique_names
+        assert "many_shot" in technique_names
         assert len(attacks[0].seed_groups) == 1
 
     async def test_objective_skipped_when_no_compatible_techniques(
@@ -400,120 +357,6 @@ class TestTextAdaptiveAtomicAttacks:
         assert len(attacks) == 1
         # Skip was logged with the affected objective value.
         assert any("obj-skip" in record.getMessage() for record in caplog.records)
-
-
-@pytest.mark.usefixtures(*FIXTURES)
-class TestTextAdaptiveSelectorRehydration:
-    """When resuming, prior dispatch trails should replay into the new selector."""
-
-    def _build_scenario_no_resume_id(self, *, scorer):
-        return TextAdaptive(objective_scorer=scorer)
-
-    def test_no_scenario_result_id_is_noop(self, mock_objective_scorer):
-        from pyrit.scenario.scenarios.adaptive.selectors import EpsilonGreedyTechniqueSelector
-
-        scenario = TextAdaptive(objective_scorer=mock_objective_scorer)
-        selector = EpsilonGreedyTechniqueSelector()
-        # No scenario_result_id set -> early return, no errors, no replays.
-        scenario._rehydrate_selector_from_memory(selector=selector, known_techniques={"a", "b"})
-        assert selector.snapshot() == {}
-
-    def test_replays_attempts_from_metadata(self, mock_objective_scorer):
-        from pyrit.models import AttackResult
-        from pyrit.scenario.scenarios.adaptive.selectors import EpsilonGreedyTechniqueSelector
-
-        scenario = TextAdaptive(objective_scorer=mock_objective_scorer, scenario_result_id="rid")
-
-        rows = [
-            AttackResult(
-                conversation_id="c1",
-                objective="o1",
-                attribution_data={"parent_collection": "adaptive_violence"},
-                metadata={
-                    "adaptive_attempts": [
-                        {"technique": "a", "outcome": "failure"},
-                        {"technique": "b", "outcome": "success"},
-                    ],
-                    "adaptive_context": "violence",
-                },
-            ),
-            AttackResult(
-                conversation_id="c2",
-                objective="o2",
-                attribution_data={"parent_collection": "adaptive_hate"},
-                metadata={
-                    "adaptive_attempts": [{"technique": "a", "outcome": "success"}],
-                    "adaptive_context": "hate",
-                },
-            ),
-        ]
-
-        selector = EpsilonGreedyTechniqueSelector()
-        with patch.object(scenario._memory, "get_attack_results", return_value=rows):
-            scenario._rehydrate_selector_from_memory(selector=selector, known_techniques={"a", "b"})
-
-        # Trails replayed verbatim into the per-context table.
-        assert selector.counts(context="violence", technique="a") == (0, 1)
-        assert selector.counts(context="violence", technique="b") == (1, 1)
-        assert selector.counts(context="hate", technique="a") == (1, 1)
-
-    def test_skips_unknown_techniques(self, mock_objective_scorer):
-        from pyrit.models import AttackResult
-        from pyrit.scenario.scenarios.adaptive.selectors import EpsilonGreedyTechniqueSelector
-
-        scenario = TextAdaptive(objective_scorer=mock_objective_scorer, scenario_result_id="rid")
-        rows = [
-            AttackResult(
-                conversation_id="c1",
-                objective="o1",
-                attribution_data={"parent_collection": "adaptive_violence"},
-                metadata={
-                    "adaptive_attempts": [
-                        {"technique": "removed_technique", "outcome": "success"},
-                        {"technique": "a", "outcome": "failure"},
-                    ],
-                    "adaptive_context": "ctx",
-                },
-            ),
-        ]
-
-        selector = EpsilonGreedyTechniqueSelector()
-        with patch.object(scenario._memory, "get_attack_results", return_value=rows):
-            scenario._rehydrate_selector_from_memory(selector=selector, known_techniques={"a"})
-
-        # Only the known technique was recorded.
-        assert selector.counts(context="ctx", technique="a") == (0, 1)
-        assert selector.counts(context="ctx", technique="removed_technique") == (0, 0)
-
-    def test_ignores_results_without_adaptive_metadata(self, mock_objective_scorer):
-        from pyrit.models import AttackResult
-        from pyrit.scenario.scenarios.adaptive.selectors import EpsilonGreedyTechniqueSelector
-
-        scenario = TextAdaptive(objective_scorer=mock_objective_scorer, scenario_result_id="rid")
-        rows = [
-            AttackResult(
-                conversation_id="c",
-                objective="o",
-                attribution_data={"parent_collection": "adaptive_violence"},
-                metadata={},
-            ),
-        ]
-
-        selector = EpsilonGreedyTechniqueSelector()
-        with patch.object(scenario._memory, "get_attack_results", return_value=rows):
-            scenario._rehydrate_selector_from_memory(selector=selector, known_techniques={"a"})
-        assert selector.snapshot() == {}
-
-    def test_memory_load_failure_is_swallowed(self, mock_objective_scorer):
-        from pyrit.scenario.scenarios.adaptive.selectors import EpsilonGreedyTechniqueSelector
-
-        scenario = TextAdaptive(objective_scorer=mock_objective_scorer, scenario_result_id="rid")
-
-        selector = EpsilonGreedyTechniqueSelector()
-        with patch.object(scenario._memory, "get_attack_results", side_effect=RuntimeError("db down")):
-            # Must not raise; selector remains empty.
-            scenario._rehydrate_selector_from_memory(selector=selector, known_techniques={"a"})
-        assert selector.snapshot() == {}
 
 
 @pytest.mark.usefixtures(*FIXTURES)

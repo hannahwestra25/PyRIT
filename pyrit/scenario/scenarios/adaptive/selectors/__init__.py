@@ -1,26 +1,20 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
-"""Selector protocol, context extractors, and selector implementations."""
+"""Selector protocol and selector implementations."""
 
 from pyrit.scenario.scenarios.adaptive.selectors.epsilon_greedy import (
     EpsilonGreedyTechniqueSelector,
 )
-from pyrit.scenario.scenarios.adaptive.selectors.protocol import (
-    GLOBAL_CONTEXT,
-    UNCATEGORIZED_CONTEXT,
-    ContextExtractor,
+from pyrit.scenario.scenarios.adaptive.selectors.technique_selector import (
+    ADAPTIVE_TECHNIQUE_LABEL,
+    SelectorScope,
     TechniqueSelector,
-    global_context,
-    harm_category_context,
 )
 
 __all__ = [
-    "ContextExtractor",
+    "ADAPTIVE_TECHNIQUE_LABEL",
     "EpsilonGreedyTechniqueSelector",
-    "GLOBAL_CONTEXT",
+    "SelectorScope",
     "TechniqueSelector",
-    "UNCATEGORIZED_CONTEXT",
-    "global_context",
-    "harm_category_context",
 ]

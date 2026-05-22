@@ -6,18 +6,21 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import random
 import struct
-import threading
-from typing import TYPE_CHECKING
+from collections.abc import Sequence
 
-if TYPE_CHECKING:
-    from collections.abc import Sequence
+from pyrit.analytics.result_analysis import AttackStats
+from pyrit.analytics.scenario_analysis import compute_technique_success_rates
+from pyrit.scenario.scenarios.adaptive.selectors.technique_selector import ADAPTIVE_TECHNIQUE_LABEL, SelectorScope
+
+logger = logging.getLogger(__name__)
 
 
-def _derive_rng(random_seed: int | None, context: str, decision_key: str) -> random.Random:
+def _derive_rng(random_seed: int | None, decision_key: str) -> random.Random:
     """
-    Derive a per-decision ``Random`` from ``(random_seed, context, decision_key)``.
+    Derive a per-decision ``Random`` from ``(random_seed, decision_key)``.
 
     Returns:
         random.Random: A fresh ``random.Random`` seeded deterministically from the
@@ -25,158 +28,131 @@ def _derive_rng(random_seed: int | None, context: str, decision_key: str) -> ran
     """
     if random_seed is None:
         return random.Random()
-    digest = hashlib.sha256(f"{random_seed}|{context}|{decision_key}".encode()).digest()
+    digest = hashlib.sha256(f"{random_seed}|{decision_key}".encode()).digest()
     derived_seed = struct.unpack("<Q", digest[:8])[0]
     return random.Random(derived_seed)
 
 
 class EpsilonGreedyTechniqueSelector:
     """
-    Epsilon-greedy selector over attack techniques.
+    Stateless epsilon-greedy selector over attack techniques.
 
-    Maintains a ``(context, technique) -> (successes, attempts)`` table. With
-    probability ``epsilon`` picks uniformly at random; otherwise picks the
-    technique with the highest Laplace-smoothed estimate ``(s + 1) / (n + 1)``
-    (unseen techniques start at 1.0). A ``(context, technique)`` cell with
-    fewer than ``pool_threshold`` attempts falls back to the technique's
-    pooled rate across all contexts.
+    Queries memory for historical success rates and applies epsilon-greedy
+    selection. With probability ``epsilon`` picks uniformly at random;
+    otherwise picks the technique with the highest Laplace-smoothed estimate
+    ``(s + 1) / (n + 1)`` (unseen techniques start at 1.0).
 
-    Each ``select`` call derives a per-decision ``Random`` from
-    ``(random_seed, context, decision_key)`` so that resume produces deterministic
-    decisions without persisting RNG state.
-
-    All public methods are guarded by a ``threading.Lock`` so concurrent
-    callers cannot corrupt the table. The lock makes individual ops atomic,
-    not the overall select → execute → record sequence.
+    The selector is **stateless** — it does not maintain internal counts.
+    All outcome data comes from the memory database via
+    ``_compute_success_rates``. Calling ``select_async`` with the same
+    arguments produces the same result (deterministic given memory
+    contents and ``random_seed``).
     """
 
-    # Tolerance for tiebreaking on float estimates (current estimates are exact
-    # rationals; this guards against future estimator changes).
     _TIE_TOL: float = 1e-12
 
     def __init__(
         self,
         *,
         epsilon: float = 0.2,
-        pool_threshold: int = 3,
+        scope: SelectorScope = SelectorScope.ALL_RUNS,
         random_seed: int | None = None,
     ) -> None:
         """
         Args:
             epsilon (float): Exploration probability in [0.0, 1.0]. Defaults to 0.2.
-            pool_threshold (int): Minimum per-(context, technique) attempts before
-                the local estimate replaces the pooled rate. Must be >= 1; set to 1
-                to disable pooling. Defaults to 3.
-            random_seed (int | None): Base seed for deterministic per-decision RNG derivation.
-                Defaults to ``None`` (non-deterministic).
+            scope (SelectorScope): Whether to use all historical data or only
+                the current scenario run. Defaults to ``SelectorScope.ALL_RUNS``.
+            random_seed (int | None): Base seed for deterministic per-decision RNG
+                derivation. Defaults to ``None`` (non-deterministic).
 
         Raises:
-            ValueError: If ``epsilon`` is outside [0.0, 1.0] or ``pool_threshold`` < 1.
+            ValueError: If ``epsilon`` is outside [0.0, 1.0].
         """
         if not 0.0 <= epsilon <= 1.0:
             raise ValueError(f"epsilon must be in [0.0, 1.0], got {epsilon}")
-        if pool_threshold < 1:
-            raise ValueError(f"pool_threshold must be >= 1, got {pool_threshold}")
 
         self._epsilon = epsilon
-        self._pool_threshold = pool_threshold
+        self._scope = scope
         self._seed = random_seed
-        self._counts: dict[tuple[str, str], tuple[int, int]] = {}
-        # Per-technique pooled counts, kept in sync with ``_counts`` so the
-        # pooled-backoff branch in ``_estimate`` is O(1).
-        self._global_counts: dict[str, tuple[int, int]] = {}
-        # Monotonic counter for auto-generating decision keys when the caller
-        # doesn't provide one.
-        self._decision_counter: int = 0
-        # Guards _counts, _global_counts, and _decision_counter against concurrent callers.
-        self._lock = threading.Lock()
 
-    def select(self, *, context: str, techniques: Sequence[str], decision_key: str = "") -> str:
+    async def select_async(
+        self,
+        *,
+        technique_identifiers: Sequence[str],
+        objective: str,
+        num_top_techniques: int = 1,
+        scenario_result_id: str | None = None,
+    ) -> Sequence[str]:
         """
-        Pick the next technique to try for ``context``.
+        Return up to ``num_top_techniques`` techniques in priority order.
 
         Args:
-            context (str): The context key.
-            techniques (Sequence[str]): Candidate technique names.
-            decision_key (str): Caller-supplied key (e.g. ``"obj_id:attempt_idx"``)
-                used to derive a per-decision RNG for deterministic replay.
-                Defaults to ``""`` (auto-incremented counter).
+            technique_identifiers (Sequence[str]): Available technique names.
+            objective (str): The objective text for scoping the per-decision RNG.
+            num_top_techniques (int): Max techniques to return. Defaults to 1.
+            scenario_result_id (str | None): If provided, restrict memory
+                queries to this scenario run. Defaults to ``None`` (all runs).
 
         Returns:
-            str: The chosen technique name.
+            Sequence[str]: Techniques in priority order. Fewer than
+                ``num_top_techniques`` if not enough techniques are available.
 
         Raises:
-            ValueError: If ``techniques`` is empty.
+            ValueError: If ``technique_identifiers`` is empty.
         """
-        technique_list = list(techniques)
+        technique_list = list(technique_identifiers)
         if not technique_list:
-            raise ValueError("techniques must contain at least one entry")
+            raise ValueError("technique_identifiers must contain at least one entry")
 
-        with self._lock:
-            if decision_key:
-                effective_key = decision_key
-            else:
-                effective_key = str(self._decision_counter)
-                self._decision_counter += 1
-            rng = _derive_rng(self._seed, context, effective_key)
+        num_top_techniques = min(num_top_techniques, len(technique_list))
+
+        decision_key = objective
+        rng = _derive_rng(self._seed, decision_key)
+
+        stats = compute_technique_success_rates(
+            technique_hashes=technique_list,
+            label_key=ADAPTIVE_TECHNIQUE_LABEL,
+            scenario_result_id=scenario_result_id if self._scope == SelectorScope.CURRENT_RUN else None,
+        )
+
+        chosen: list[str] = []
+        remaining = list(technique_list)
+
+        for _ in range(num_top_techniques):
+            if not remaining:
+                break
 
             if rng.random() < self._epsilon:
-                return rng.choice(technique_list)
+                pick = rng.choice(remaining)
+            else:
+                estimates = {
+                    t: self._estimate(technique=t, stats=stats) for t in remaining
+                }
+                best = max(estimates.values())
+                winners = [t for t, v in estimates.items() if v >= best - self._TIE_TOL]
+                pick = rng.choice(winners)
 
-            estimates = {t: self._estimate(context=context, technique=t) for t in technique_list}
-            best = max(estimates.values())
-            winners = [t for t, value in estimates.items() if value >= best - self._TIE_TOL]
-            return rng.choice(winners)
+            chosen.append(pick)
+            remaining.remove(pick)
 
-    def record_outcome(self, *, context: str, technique: str, success: bool) -> None:
+        return chosen
+
+    @staticmethod
+    def _estimate(*, technique: str, stats: dict[str, AttackStats]) -> float:
         """
-        Record the outcome of an attempt.
+        Laplace-smoothed success-rate estimate for a technique.
+
+        Unseen techniques get ``(0 + 1) / (0 + 1) = 1.0`` (optimistic init).
 
         Args:
-            context (str): The context key the decision was made under.
-            technique (str): The technique that was tried.
-            success (bool): Whether the attempt succeeded.
-        """
-        with self._lock:
-            successes, attempts = self._counts.get((context, technique), (0, 0))
-            attempts += 1
-            if success:
-                successes += 1
-            self._counts[(context, technique)] = (successes, attempts)
-
-            global_successes, global_attempts = self._global_counts.get(technique, (0, 0))
-            global_attempts += 1
-            if success:
-                global_successes += 1
-            self._global_counts[technique] = (global_successes, global_attempts)
-
-    def success_rate(self, *, context: str, technique: str) -> float:
-        """Return the Laplace-smoothed estimate ``(s + 1) / (n + 1)`` used for exploitation."""
-        with self._lock:
-            return self._estimate(context=context, technique=technique)
-
-    def counts(self, *, context: str, technique: str) -> tuple[int, int]:
-        """Return raw ``(successes, attempts)`` for a ``(context, technique)`` cell."""
-        with self._lock:
-            return self._counts.get((context, technique), (0, 0))
-
-    def snapshot(self) -> dict[tuple[str, str], tuple[int, int]]:
-        """Return a shallow copy of the full counts table (for logging/debug)."""
-        with self._lock:
-            return dict(self._counts)
-
-    def _estimate(self, *, context: str, technique: str) -> float:
-        """
-        Estimate for ``(context, technique)``; falls back to pooled rate below
-        ``pool_threshold`` local attempts.
-
-        Callers must already hold ``self._lock``.
+            technique (str): The technique name.
+            stats (dict[str, AttackStats]): Pre-computed stats from memory.
 
         Returns:
-            float: Laplace-smoothed success-rate estimate in ``(0, 1)``.
+            float: Estimated success rate in ``(0, 1]``.
         """
-        local_s, local_n = self._counts.get((context, technique), (0, 0))
-        if local_n >= self._pool_threshold:
-            return (local_s + 1) / (local_n + 1)
-        global_s, global_n = self._global_counts.get(technique, (0, 0))
-        return (global_s + 1) / (global_n + 1)
+        technique_stats = stats.get(technique)
+        if technique_stats is None or technique_stats.total_decided == 0:
+            return 1.0
+        return (technique_stats.successes + 1) / (technique_stats.total_decided + 1)

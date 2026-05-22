@@ -15,22 +15,16 @@ from pyrit.scenario.scenarios.adaptive.dispatcher import (
     TechniqueBundle,
 )
 from pyrit.scenario.scenarios.adaptive.selectors import (
-    GLOBAL_CONTEXT,
     EpsilonGreedyTechniqueSelector,
-    harm_category_context,
 )
 
 
 def _make_bundle(*, name: str, outcomes: list[AttackOutcome], seed_technique=None) -> TechniqueBundle:
-    """Build a TechniqueBundle whose attack stub yields the given outcomes in order.
-
-    The dispatcher routes execution through ``_run_inner_attack_async``; tests
-    patch that method directly so we only need a placeholder attack here.
-    """
+    """Build a TechniqueBundle whose attack stub yields the given outcomes in order."""
     attack = MagicMock(name=f"attack-{name}")
     attack._outcomes = outcomes
     attack._name = name
-    return TechniqueBundle(attack=attack, seed_technique=seed_technique)
+    return TechniqueBundle(attack=attack, name=name, seed_technique=seed_technique)
 
 
 def _make_context(
@@ -56,12 +50,7 @@ def _patch_inner(
     dispatcher: AdaptiveDispatchAttack,
     bundles: dict[str, TechniqueBundle],
 ) -> AsyncMock:
-    """Replace ``_run_inner_attack_async`` with a stub backed by per-bundle outcomes.
-
-    Returns the AsyncMock so tests can introspect call history (kwargs include
-    ``bundle`` and ``attempt_labels``).
-    """
-    # Each call consumes one outcome from the chosen bundle's deque.
+    """Replace ``_run_inner_attack_async`` with a stub backed by per-bundle outcomes."""
     name_for_attack = {id(b.attack): name for name, b in bundles.items()}
     counters: dict[str, int] = dict.fromkeys(bundles, 0)
 
@@ -81,10 +70,26 @@ def _patch_inner(
     return inner_mock
 
 
+class _StubSelector:
+    """A deterministic selector stub that returns techniques in the order given."""
+
+    def __init__(self, *, technique_order: list[str]):
+        self._order = technique_order
+
+    async def select_async(
+        self,
+        *,
+        technique_identifiers,
+        objective: str,
+        num_top_techniques: int = 1,
+        scenario_result_id: str | None = None,
+    ):
+        return self._order[:num_top_techniques]
+
+
 @pytest.fixture
-def selector() -> EpsilonGreedyTechniqueSelector:
-    # epsilon=0 makes selection deterministic given the table.
-    return EpsilonGreedyTechniqueSelector(epsilon=0.0, pool_threshold=1, random_seed=0)
+def selector():
+    return _StubSelector(technique_order=["a", "b", "c"])
 
 
 @pytest.fixture
@@ -105,6 +110,8 @@ class TestInit:
                 objective_target=target,
                 techniques={},
                 selector=selector,
+
+
             )
 
     @pytest.mark.parametrize("bad_max", [0, -1])
@@ -115,21 +122,26 @@ class TestInit:
                 objective_target=target,
                 techniques={"a": _make_bundle(name="a", outcomes=[AttackOutcome.SUCCESS])},
                 selector=selector,
+
+
                 max_attempts_per_objective=bad_max,
             )
 
 
 @pytest.mark.usefixtures("patch_central_database")
 class TestPerform:
-    async def test_stops_on_first_success(self, target, selector, seed_group):
+    async def test_stops_on_first_success(self, target, seed_group):
         bundles = {
             "a": _make_bundle(name="a", outcomes=[AttackOutcome.SUCCESS]),
             "b": _make_bundle(name="b", outcomes=[AttackOutcome.SUCCESS]),
         }
+        selector = _StubSelector(technique_order=["a", "b"])
         dispatcher = AdaptiveDispatchAttack(
             objective_target=target,
             techniques=bundles,
             selector=selector,
+
+
             max_attempts_per_objective=5,
         )
         inner = _patch_inner(dispatcher=dispatcher, bundles=bundles)
@@ -139,15 +151,19 @@ class TestPerform:
         assert result.outcome == AttackOutcome.SUCCESS
         assert inner.call_count == 1
 
-    async def test_retries_until_max_attempts_on_failure(self, target, selector, seed_group):
+    async def test_retries_until_max_attempts_on_failure(self, target, seed_group):
         bundles = {
             "a": _make_bundle(name="a", outcomes=[AttackOutcome.FAILURE] * 3),
             "b": _make_bundle(name="b", outcomes=[AttackOutcome.FAILURE] * 3),
+            "c": _make_bundle(name="c", outcomes=[AttackOutcome.FAILURE] * 3),
         }
+        selector = _StubSelector(technique_order=["a", "b", "c"])
         dispatcher = AdaptiveDispatchAttack(
             objective_target=target,
             techniques=bundles,
             selector=selector,
+
+
             max_attempts_per_objective=3,
         )
         inner = _patch_inner(dispatcher=dispatcher, bundles=bundles)
@@ -157,84 +173,37 @@ class TestPerform:
         assert result.outcome == AttackOutcome.FAILURE
         assert inner.call_count == 3
 
-    async def test_updates_selector_on_each_attempt(self, target, selector, seed_group):
-        bundles = {
-            "a": _make_bundle(name="a", outcomes=[AttackOutcome.FAILURE, AttackOutcome.SUCCESS]),
-            "b": _make_bundle(name="b", outcomes=[AttackOutcome.SUCCESS]),
-        }
-        dispatcher = AdaptiveDispatchAttack(
-            objective_target=target,
-            techniques=bundles,
-            selector=selector,
-            max_attempts_per_objective=3,
-        )
-        inner = _patch_inner(dispatcher=dispatcher, bundles=bundles)
-
-        await dispatcher._perform_async(context=_make_context())
-
-        total_attempts = sum(selector.counts(context=GLOBAL_CONTEXT, technique=t)[1] for t in ("a", "b"))
-        assert total_attempts == inner.call_count
-
-    async def test_passes_attempt_labels_to_inner(self, target, selector, seed_group):
+    async def test_passes_attempt_labels_to_inner(self, target, seed_group):
         bundles = {"a": _make_bundle(name="a", outcomes=[AttackOutcome.SUCCESS])}
+        selector = _StubSelector(technique_order=["a"])
         dispatcher = AdaptiveDispatchAttack(
             objective_target=target,
             techniques=bundles,
             selector=selector,
+
+
         )
         inner = _patch_inner(dispatcher=dispatcher, bundles=bundles)
 
         await dispatcher._perform_async(context=_make_context(labels={"foo": "bar"}))
 
         labels = inner.call_args.kwargs["attempt_labels"]
-        assert labels["foo"] == "bar"  # caller labels preserved
+        assert labels["foo"] == "bar"
         assert labels[ADAPTIVE_TECHNIQUE_LABEL] == "a"
         assert labels[ADAPTIVE_ATTEMPT_LABEL] == "1"
 
-    async def test_uses_adaptive_context_from_extractor(self, target, selector, seed_group):
-        # Two techniques; one has been heavily rewarded under context "violence" only.
+    async def test_metadata_records_adaptive_trail(self, target, seed_group):
         bundles = {
-            "a": _make_bundle(name="a", outcomes=[AttackOutcome.SUCCESS]),
+            "a": _make_bundle(name="a", outcomes=[AttackOutcome.FAILURE]),
             "b": _make_bundle(name="b", outcomes=[AttackOutcome.SUCCESS]),
         }
-        for _ in range(5):
-            selector.record_outcome(context="violence", technique="b", success=True)
-        for _ in range(5):
-            selector.record_outcome(context="violence", technique="a", success=False)
-
+        selector = _StubSelector(technique_order=["a", "b"])
         dispatcher = AdaptiveDispatchAttack(
             objective_target=target,
             techniques=bundles,
             selector=selector,
-            context_extractor=harm_category_context,
-        )
-        inner = _patch_inner(dispatcher=dispatcher, bundles=bundles)
-        ctx = _make_context(harm_categories=["violence"])
-        await dispatcher._perform_async(context=ctx)
 
-        # Exploit should have picked "b" first.
-        chosen_bundle = inner.call_args.kwargs["bundle"]
-        assert chosen_bundle is bundles["b"]
 
-    async def test_falls_back_to_global_context_with_default_extractor(self, target, selector, seed_group):
-        bundles = {"a": _make_bundle(name="a", outcomes=[AttackOutcome.SUCCESS])}
-        dispatcher = AdaptiveDispatchAttack(
-            objective_target=target,
-            techniques=bundles,
-            selector=selector,
-        )
-        _patch_inner(dispatcher=dispatcher, bundles=bundles)
-        await dispatcher._perform_async(context=_make_context(labels={}))
-
-        # The global context bucket received the update.
-        assert selector.counts(context=GLOBAL_CONTEXT, technique="a") == (1, 1)
-
-    async def test_metadata_records_adaptive_trail(self, target, selector, seed_group):
-        bundles = {"a": _make_bundle(name="a", outcomes=[AttackOutcome.FAILURE, AttackOutcome.SUCCESS])}
-        dispatcher = AdaptiveDispatchAttack(
-            objective_target=target,
-            techniques=bundles,
-            selector=selector,
             max_attempts_per_objective=3,
         )
         _patch_inner(dispatcher=dispatcher, bundles=bundles)
@@ -242,17 +211,19 @@ class TestPerform:
 
         trail = result.metadata["adaptive_attempts"]
         assert trail == [
-            {"technique": "a", "outcome": "failure"},
-            {"technique": "a", "outcome": "success"},
+            {"technique": "a", "technique_hash": "a", "outcome": "failure"},
+            {"technique": "b", "technique_hash": "b", "outcome": "success"},
         ]
-        assert result.metadata["adaptive_context"] == GLOBAL_CONTEXT
 
-    async def test_returns_fresh_result_distinct_from_inner(self, target, selector, seed_group):
+    async def test_returns_fresh_result_distinct_from_inner(self, target, seed_group):
         bundles = {"a": _make_bundle(name="a", outcomes=[AttackOutcome.SUCCESS])}
+        selector = _StubSelector(technique_order=["a"])
         dispatcher = AdaptiveDispatchAttack(
             objective_target=target,
             techniques=bundles,
             selector=selector,
+
+
         )
         inner_ids: list[str] = []
 
@@ -271,10 +242,8 @@ class TestPerform:
 
         assert len(inner_ids) == 1
         assert result.attack_result_id != inner_ids[0]
-        assert result.conversation_id  # carried over from inner
         assert result.outcome == AttackOutcome.SUCCESS
-        assert result.metadata["adaptive_attempts"] == [{"technique": "a", "outcome": "success"}]
-        assert result.metadata["adaptive_context"] == GLOBAL_CONTEXT
+        assert result.metadata["adaptive_attempts"] == [{"technique": "a", "technique_hash": "a", "outcome": "success"}]
 
 
 @pytest.mark.usefixtures("patch_central_database")
@@ -285,6 +254,8 @@ class TestValidate:
             objective_target=target,
             techniques={"a": _make_bundle(name="a", outcomes=[AttackOutcome.SUCCESS])},
             selector=selector,
+
+
         )
         with pytest.raises(ValueError, match="objective"):
             dispatcher._validate_context(context=_make_context(objective=bad_objective))
@@ -294,6 +265,7 @@ class TestValidate:
             objective_target=target,
             techniques={"a": _make_bundle(name="a", outcomes=[AttackOutcome.SUCCESS])},
             selector=selector,
+
+
         )
-        # Does not raise.
         dispatcher._validate_context(context=_make_context(objective="ok"))

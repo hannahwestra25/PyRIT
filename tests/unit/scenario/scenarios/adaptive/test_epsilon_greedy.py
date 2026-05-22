@@ -1,196 +1,132 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
+from unittest.mock import MagicMock, patch
+
 import pytest
 
+from pyrit.analytics.result_analysis import AttackStats
 from pyrit.scenario.scenarios.adaptive.selectors import (
-    GLOBAL_CONTEXT,
     EpsilonGreedyTechniqueSelector,
 )
 
 TECHNIQUES = ["a", "b", "c", "d"]
 
 
-def _seeded_selector(
-    *, epsilon: float = 0.0, pool_threshold: int = 3, random_seed: int = 0
-) -> EpsilonGreedyTechniqueSelector:
-    return EpsilonGreedyTechniqueSelector(
-        epsilon=epsilon,
-        pool_threshold=pool_threshold,
-        random_seed=random_seed,
-    )
+def _seeded_selector(*, epsilon: float = 0.0, random_seed: int = 0) -> EpsilonGreedyTechniqueSelector:
+    return EpsilonGreedyTechniqueSelector(epsilon=epsilon, random_seed=random_seed)
+
+
+def _empty_rates(*args, **kwargs) -> dict[str, AttackStats]:
+    """Return empty stats (all techniques unseen)."""
+    return {}
+
+
+def _rates_with_winner(winner: str, *, successes: int = 5, failures: int = 0):
+    """Return stats where one technique has a clear win record and others have failures."""
+
+    def _compute(*args, **kwargs):
+        stats = {}
+        total = successes + failures
+        stats[winner] = AttackStats(
+            success_rate=successes / total if total else None,
+            total_decided=total,
+            successes=successes,
+            failures=failures,
+            undetermined=0,
+            errors=0,
+        )
+        for t in TECHNIQUES:
+            if t != winner:
+                stats[t] = AttackStats(
+                    success_rate=0.0,
+                    total_decided=5,
+                    successes=0,
+                    failures=5,
+                    undetermined=0,
+                    errors=0,
+                )
+        return stats
+
+    return _compute
 
 
 class TestEpsilonGreedyTechniqueSelectorInit:
     def test_init_defaults(self):
-        selector = EpsilonGreedyTechniqueSelector()
-        assert selector.snapshot() == {}
+        EpsilonGreedyTechniqueSelector()
 
     @pytest.mark.parametrize("bad_epsilon", [-0.1, 1.1, 2.0, -1.0])
     def test_init_rejects_out_of_range_epsilon(self, bad_epsilon):
         with pytest.raises(ValueError, match="epsilon"):
             EpsilonGreedyTechniqueSelector(epsilon=bad_epsilon)
 
-    def test_init_rejects_pool_threshold_below_one(self):
-        with pytest.raises(ValueError, match="pool_threshold"):
-            EpsilonGreedyTechniqueSelector(pool_threshold=0)
-        with pytest.raises(ValueError, match="pool_threshold"):
-            EpsilonGreedyTechniqueSelector(pool_threshold=-1)
-
 
 class TestEpsilonGreedyTechniqueSelectorSelect:
-    def test_select_empty_techniques_raises(self):
+    @patch("pyrit.scenario.scenarios.adaptive.selectors.epsilon_greedy.compute_technique_success_rates", side_effect=_empty_rates)
+    async def test_select_empty_techniques_raises(self, _mock):
         selector = _seeded_selector()
-        with pytest.raises(ValueError, match="techniques"):
-            selector.select(context=GLOBAL_CONTEXT, techniques=[])
+        with pytest.raises(ValueError, match="technique_identifiers"):
+            await selector.select_async(technique_identifiers=[], objective="obj")
 
-    def test_select_all_unseen_ties_resolved_randomly(self):
-        # With epsilon=0 and an empty table, every technique has estimate 1/1=1.0,
-        # so the result is the seeded random tiebreak. Different seeds should
-        # be able to produce different winners.
-        winners = {
-            _seeded_selector(random_seed=s).select(context=GLOBAL_CONTEXT, techniques=TECHNIQUES) for s in range(50)
-        }
+    @patch("pyrit.scenario.scenarios.adaptive.selectors.epsilon_greedy.compute_technique_success_rates", side_effect=_empty_rates)
+    async def test_select_all_unseen_ties_resolved_randomly(self, _mock):
+        winners = set()
+        for s in range(50):
+            sel = _seeded_selector(random_seed=s)
+            result = await sel.select_async(technique_identifiers=TECHNIQUES, objective="obj")
+            winners.add(result[0])
         assert len(winners) > 1
         assert winners.issubset(set(TECHNIQUES))
 
-    def test_select_exploits_clear_winner(self):
-        selector = _seeded_selector(pool_threshold=1)
-        # Give "b" a track record of pure success, others pure failure.
-        for _ in range(5):
-            selector.record_outcome(context=GLOBAL_CONTEXT, technique="b", success=True)
-        for technique in ("a", "c", "d"):
-            for _ in range(5):
-                selector.record_outcome(context=GLOBAL_CONTEXT, technique=technique, success=False)
-
-        # With epsilon=0, every selection must exploit the winner.
+    @patch(
+        "pyrit.scenario.scenarios.adaptive.selectors.epsilon_greedy.compute_technique_success_rates",
+        side_effect=_rates_with_winner("b"),
+    )
+    async def test_select_exploits_clear_winner(self, _mock):
+        selector = _seeded_selector()
         for _ in range(20):
-            assert selector.select(context=GLOBAL_CONTEXT, techniques=TECHNIQUES) == "b"
+            result = await selector.select_async(technique_identifiers=TECHNIQUES, objective="obj")
+            assert result[0] == "b"
 
-    def test_select_epsilon_one_is_pure_random(self):
+    @patch("pyrit.scenario.scenarios.adaptive.selectors.epsilon_greedy.compute_technique_success_rates", side_effect=_empty_rates)
+    async def test_select_epsilon_one_is_pure_random(self, _mock):
         selector = _seeded_selector(epsilon=1.0)
-        # Bias the table heavily toward "a"; with epsilon=1 it must still be ignored.
-        for _ in range(20):
-            selector.record_outcome(context=GLOBAL_CONTEXT, technique="a", success=True)
+        picks = set()
+        for i in range(200):
+            result = await selector.select_async(
+                technique_identifiers=TECHNIQUES, objective=f"obj-{i}"
+            )
+            picks.add(result[0])
+        assert picks == set(TECHNIQUES)
 
-        picks = [selector.select(context=GLOBAL_CONTEXT, techniques=TECHNIQUES) for _ in range(200)]
-        assert set(picks) == set(TECHNIQUES)
-
-    def test_select_epsilon_zero_never_explores(self):
-        selector = _seeded_selector(epsilon=0.0, pool_threshold=1)
-        for _ in range(3):
-            selector.record_outcome(context=GLOBAL_CONTEXT, technique="a", success=True)
-        # Make the other techniques tried-and-failed so they fall below "a"'s estimate;
-        # unseen techniques would otherwise tie at the optimistic 1.0.
-        for technique in ("b", "c", "d"):
-            selector.record_outcome(context=GLOBAL_CONTEXT, technique=technique, success=False)
-        for _ in range(50):
-            assert selector.select(context=GLOBAL_CONTEXT, techniques=TECHNIQUES) == "a"
-
-    def test_select_cold_start_round_robins(self):
-        # Optimistic init + epsilon=0: untried techniques tie at 1.0 and beat tried-and-failed
-        # techniques (1/2 = 0.5). So the first failures push each technique to "tried" exactly once
-        # before any technique gets tried twice.
-        selector = _seeded_selector(pool_threshold=1)
-        tried: list[str] = []
-        for _ in range(len(TECHNIQUES)):
-            technique = selector.select(context=GLOBAL_CONTEXT, techniques=TECHNIQUES)
-            tried.append(technique)
-            selector.record_outcome(context=GLOBAL_CONTEXT, technique=technique, success=False)
-        assert sorted(tried) == sorted(TECHNIQUES)
-
-
-class TestEpsilonGreedyTechniqueSelectorUpdate:
-    def test_record_outcome_accumulates_counts(self):
+    @patch("pyrit.scenario.scenarios.adaptive.selectors.epsilon_greedy.compute_technique_success_rates", side_effect=_empty_rates)
+    async def test_select_returns_multiple_techniques(self, _mock):
         selector = _seeded_selector()
-        selector.record_outcome(context="ctx", technique="a", success=True)
-        selector.record_outcome(context="ctx", technique="a", success=False)
-        selector.record_outcome(context="ctx", technique="a", success=True)
-        assert selector.counts(context="ctx", technique="a") == (2, 3)
+        result = await selector.select_async(
+            technique_identifiers=TECHNIQUES, objective="obj", num_top_techniques=3
+        )
+        assert len(result) == 3
+        assert len(set(result)) == 3  # no duplicates
 
-    def test_record_outcome_separate_contexts_are_independent(self):
+    @patch("pyrit.scenario.scenarios.adaptive.selectors.epsilon_greedy.compute_technique_success_rates", side_effect=_empty_rates)
+    async def test_select_caps_at_available_techniques(self, _mock):
         selector = _seeded_selector()
-        selector.record_outcome(context="x", technique="a", success=True)
-        selector.record_outcome(context="y", technique="a", success=False)
-        assert selector.counts(context="x", technique="a") == (1, 1)
-        assert selector.counts(context="y", technique="a") == (0, 1)
-
-    def test_counts_default_zero_for_unseen(self):
-        selector = _seeded_selector()
-        assert selector.counts(context="missing", technique="missing") == (0, 0)
-
-    def test_record_outcome_keeps_pooled_global_counts_in_sync(self):
-        # Pooled-global counts back the O(1) pooled-backoff branch in _estimate.
-        # They must aggregate across contexts for a given technique.
-        selector = _seeded_selector(pool_threshold=5)
-        selector.record_outcome(context="x", technique="a", success=True)
-        selector.record_outcome(context="y", technique="a", success=False)
-        selector.record_outcome(context="z", technique="a", success=True)
-        selector.record_outcome(context="x", technique="b", success=True)
-
-        # Below the local threshold, _estimate must use the pooled-global rate.
-        # technique "a": 2 successes / 3 attempts -> (2+1)/(3+1) = 0.75
-        assert selector.success_rate(context="new_ctx", technique="a") == pytest.approx(0.75)
-        # technique "b": 1/1 -> (1+1)/(1+1) = 1.0
-        assert selector.success_rate(context="new_ctx", technique="b") == pytest.approx(1.0)
-        # Unseen technique "c" -> (0+1)/(0+1) = 1.0
-        assert selector.success_rate(context="new_ctx", technique="c") == pytest.approx(1.0)
+        result = await selector.select_async(
+            technique_identifiers=["a", "b"], objective="obj", num_top_techniques=5
+        )
+        assert len(result) == 2
 
 
-class TestEpsilonGreedyTechniqueSelectorEstimate:
-    def test_success_rate_unseen_is_one(self):
-        # Optimistic init: (0 + 1) / (0 + 1) = 1.0
-        selector = _seeded_selector()
-        assert selector.success_rate(context="ctx", technique="a") == pytest.approx(1.0)
+class TestEpsilonGreedyEstimate:
+    def test_estimate_unseen_is_one(self):
+        assert EpsilonGreedyTechniqueSelector._estimate(technique="a", stats={}) == pytest.approx(1.0)
 
-    def test_success_rate_local_when_above_threshold(self):
-        selector = _seeded_selector(pool_threshold=2)
-        for _ in range(3):
-            selector.record_outcome(context="ctx", technique="a", success=True)
-        # (3 + 1) / (3 + 1) = 1.0
-        assert selector.success_rate(context="ctx", technique="a") == pytest.approx(1.0)
+    def test_estimate_with_data(self):
+        stats = {
+            "a": AttackStats(
+                success_rate=0.6, total_decided=5, successes=3, failures=2, undetermined=0, errors=0
+            )
+        }
+        # (3 + 1) / (5 + 1) = 4/6 ≈ 0.6667
+        assert EpsilonGreedyTechniqueSelector._estimate(technique="a", stats=stats) == pytest.approx(4 / 6)
 
-    def test_success_rate_pools_when_below_threshold(self):
-        selector = _seeded_selector(pool_threshold=5)
-        # Local cell has only 1 attempt (below threshold).
-        selector.record_outcome(context="ctx", technique="a", success=False)
-        # Other contexts have plenty of data for technique "a".
-        for _ in range(10):
-            selector.record_outcome(context="other", technique="a", success=True)
-        # Pooled estimate = (10 + 0 + 1) / (10 + 1 + 1) = 11/12.
-        assert selector.success_rate(context="ctx", technique="a") == pytest.approx(11 / 12)
-
-
-class TestEpsilonGreedyTechniqueSelectorConcurrency:
-    """Concurrent record_outcome / select calls must not corrupt counts."""
-
-    def test_concurrent_record_outcome_preserves_total_attempts(self):
-        import threading
-
-        selector = _seeded_selector(pool_threshold=1)
-        threads_per_arm = 8
-        attempts_per_thread = 100
-        techniques = ["a", "b", "c", "d"]
-
-        def worker(technique: str, success_pattern: list[bool]) -> None:
-            for ok in success_pattern:
-                selector.record_outcome(context=GLOBAL_CONTEXT, technique=technique, success=ok)
-
-        threads: list[threading.Thread] = []
-        expected_successes: dict[str, int] = dict.fromkeys(techniques, 0)
-        for t in techniques:
-            for i in range(threads_per_arm):
-                pattern = [(j + i) % 2 == 0 for j in range(attempts_per_thread)]
-                expected_successes[t] += sum(pattern)
-                threads.append(threading.Thread(target=worker, args=(t, pattern)))
-
-        for th in threads:
-            th.start()
-        for th in threads:
-            th.join()
-
-        # Every increment landed: no lost updates from interleaved read-modify-write.
-        for t in techniques:
-            successes, attempts = selector.counts(context=GLOBAL_CONTEXT, technique=t)
-            assert attempts == threads_per_arm * attempts_per_thread
-            assert successes == expected_successes[t]

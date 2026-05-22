@@ -2,17 +2,12 @@
 # Licensed under the MIT license.
 
 """
-``AdaptiveDispatchAttack`` — picks an inner technique per attempt via a
-``TechniqueSelector``, runs it, records the outcome, and loops up to
-``max_attempts_per_objective`` times.
+``AdaptiveDispatchAttack`` — picks inner techniques per objective via a
+``TechniqueSelector``, runs them in priority order, and stops on success.
 
-The dispatcher is shared across all seed groups in an enclosing
-``AtomicAttack`` and reads the per-call ``SeedAttackGroup`` from
-``AdaptiveDispatchParams.seed_group`` (populated by
-``AdaptiveDispatchParams.from_seed_group_async``). It computes the per-call
-adaptive context key via the injected ``ContextExtractor`` and merges each
-chosen technique's ``seed_technique`` (when present) into the seed group
-before delegating execution to ``AttackExecutor``.
+The selector is stateless and async: it queries memory for historical
+success rates. The dispatcher pre-selects up to ``max_attempts_per_objective``
+techniques at the start of each objective, then iterates through them.
 """
 
 from __future__ import annotations
@@ -29,10 +24,9 @@ from pyrit.executor.attack.core.attack_parameters import AttackParameters
 from pyrit.executor.attack.core.attack_strategy import AttackContext, AttackStrategy
 from pyrit.models import AttackOutcome, AttackResult, SeedAttackGroup
 from pyrit.scenario.scenarios.adaptive.selectors import (
-    ContextExtractor,
     TechniqueSelector,
-    global_context,
 )
+from pyrit.scenario.scenarios.adaptive.selectors.technique_selector import ADAPTIVE_TECHNIQUE_LABEL
 
 if TYPE_CHECKING:
     from pyrit.models import SeedAttackTechniqueGroup
@@ -43,12 +37,7 @@ logger = logging.getLogger(__name__)
 
 
 # Memory-label keys stamped onto persisted prompt rows so adaptive attempts
-# can be filtered/grouped after a run. The dispatcher stamps all three on
-# each attempt (context derived per-call from the seed group).
-ADAPTIVE_CONTEXT_LABEL: str = "_adaptive_context"
-"""Per-objective context key (e.g. ``"_global"`` or a harm category)."""
-ADAPTIVE_TECHNIQUE_LABEL: str = "_adaptive_technique"
-"""Technique chosen by the dispatcher for a given attempt."""
+# can be filtered/grouped after a run.
 ADAPTIVE_ATTEMPT_LABEL: str = "_adaptive_attempt"
 """1-based attempt index within the per-objective loop."""
 
@@ -64,6 +53,7 @@ class TechniqueBundle:
     """
 
     attack: AttackStrategy[Any, AttackResult]
+    name: str = ""
     seed_technique: SeedAttackTechniqueGroup | None = None
     adversarial_chat: PromptTarget | None = None
 
@@ -159,23 +149,22 @@ class AdaptiveDispatchAttack(AttackStrategy[AdaptiveDispatchContext, AttackResul
         objective_target: PromptTarget,
         techniques: dict[str, TechniqueBundle],
         selector: TechniqueSelector,
-        context_extractor: ContextExtractor = global_context,
         objective_scorer: TrueFalseScorer | None = None,
         max_attempts_per_objective: int = 3,
+        scenario_result_id: str | None = None,
     ) -> None:
         """
         Args:
             objective_target (PromptTarget): The target inner attacks run against.
-                Stored for identifier/logging parity; not called directly.
-            techniques (dict[str, TechniqueBundle]): Mapping from technique name to
-                its bundle (attack, seed_technique, adversarial_chat). Must be non-empty.
-            selector (TechniqueSelector): Shared selector state.
-            context_extractor (ContextExtractor): Maps a per-call ``SeedAttackGroup`` to
-                the adaptive context key used by the selector. Defaults to ``global_context``.
+            techniques (dict[str, TechniqueBundle]): Mapping from technique eval hash to
+                its bundle (attack, name, seed_technique, adversarial_chat). Must be non-empty.
+            selector (TechniqueSelector): Stateless technique selector.
             objective_scorer (TrueFalseScorer | None): Scorer passed through to
                 techniques that generate simulated conversations.
             max_attempts_per_objective (int): Max attempts per objective; >= 1.
                 Defaults to 3.
+            scenario_result_id (str | None): If provided, passed to the selector
+                to scope memory queries to this scenario run. Defaults to ``None``.
 
         Raises:
             ValueError: If ``techniques`` is empty or ``max_attempts_per_objective`` < 1.
@@ -193,12 +182,9 @@ class AdaptiveDispatchAttack(AttackStrategy[AdaptiveDispatchContext, AttackResul
         )
         self._techniques = techniques
         self._selector = selector
-        self._context_extractor = context_extractor
         self._objective_scorer = objective_scorer
         self._max_attempts = max_attempts_per_objective
-        # Attempts are inherently sequential (each one reads the selector
-        # state updated by the previous), so a single shared executor with
-        # ``max_concurrency=1`` is reused across attempts.
+        self._scenario_result_id = scenario_result_id
         self._executor = AttackExecutor(max_concurrency=1)
 
     def _validate_context(self, *, context: AdaptiveDispatchContext) -> None:
@@ -268,12 +254,9 @@ class AdaptiveDispatchAttack(AttackStrategy[AdaptiveDispatchContext, AttackResul
         """
         Run the per-objective adaptive loop.
 
-        Reads the per-call ``SeedAttackGroup`` from ``context.params.seed_group``,
-        derives the adaptive context key via the injected ``ContextExtractor``,
-        and filters the technique pool to those whose ``seed_technique`` is
-        compatible with this seed group. Then loops up to
-        ``max_attempts_per_objective`` times: select a technique, execute it,
-        record the outcome, and stop early on success.
+        Pre-selects up to ``max_attempts_per_objective`` techniques via the
+        stateless selector, then iterates in priority order. Stops early on
+        success.
 
         Args:
             context (AdaptiveDispatchContext): Execution context whose
@@ -281,8 +264,7 @@ class AdaptiveDispatchAttack(AttackStrategy[AdaptiveDispatchContext, AttackResul
 
         Returns:
             AttackResult: A fresh dispatcher-owned copy of the final inner
-                result with the dispatch trail stamped onto ``metadata``
-                (see class docstring for the two-row persistence note).
+                result with the dispatch trail stamped onto ``metadata``.
 
         Raises:
             ValueError: If ``context.params.seed_group`` is missing, or if no
@@ -308,55 +290,44 @@ class AdaptiveDispatchAttack(AttackStrategy[AdaptiveDispatchContext, AttackResul
                 f"(objective={seed_group.objective.value!r})."
             )
 
-        adaptive_context = self._context_extractor(seed_group)
+        chosen_techniques = await self._selector.select_async(
+            technique_identifiers=compatible_names,
+            objective=context.objective,
+            num_top_techniques=self._max_attempts,
+            scenario_result_id=self._scenario_result_id,
+        )
 
         last_result: AttackResult | None = None
         trail: list[dict[str, str]] = []
 
-        for attempt_idx in range(self._max_attempts):
-            decision_key = f"{context.objective}:{attempt_idx}"
-            chosen = self._selector.select(
-                context=adaptive_context,
-                techniques=compatible_names,
-                decision_key=decision_key,
-            )
+        for attempt_idx, chosen in enumerate(chosen_techniques):
             bundle = self._techniques[chosen]
             attempt_labels = {
                 **context.memory_labels,
-                ADAPTIVE_CONTEXT_LABEL: adaptive_context,
                 ADAPTIVE_TECHNIQUE_LABEL: chosen,
                 ADAPTIVE_ATTEMPT_LABEL: str(attempt_idx + 1),
             }
 
             logger.debug(
-                "AdaptiveDispatchAttack: attempt %d/%d context=%r technique=%r",
+                "AdaptiveDispatchAttack: attempt %d/%d technique=%r (hash=%s)",
                 attempt_idx + 1,
-                self._max_attempts,
-                adaptive_context,
+                len(chosen_techniques),
+                bundle.name,
                 chosen,
             )
 
             result = await self._run_inner_attack_async(
                 bundle=bundle, seed_group=seed_group, attempt_labels=attempt_labels
             )
-            success = result.outcome == AttackOutcome.SUCCESS
-            self._selector.record_outcome(context=adaptive_context, technique=chosen, success=success)
 
-            trail.append({"technique": chosen, "outcome": result.outcome.value})
+            trail.append({"technique": bundle.name, "technique_hash": chosen, "outcome": result.outcome.value})
             last_result = result
 
-            if success:
+            if result.outcome == AttackOutcome.SUCCESS:
                 break
 
-        # ``max_attempts`` is validated >= 1, so the loop always runs at least
-        # once. Guard explicitly rather than with ``assert`` (stripped under -O).
         if last_result is None:  # pragma: no cover - defensive
             raise RuntimeError("AdaptiveDispatchAttack ran zero attempts; this should be unreachable.")
-        # Return a fresh dispatcher-owned ``AttackResult``: the inner attack
-        # already persisted ``last_result`` via its own post-execute hook, so
-        # returning it directly would cause a PK conflict on the outer hook.
-        # ``dataclasses.replace`` copies every field; we override identity
-        # fields and stamp the trail onto metadata.
         return replace(
             last_result,
             attack_result_id=str(uuid.uuid4()),
@@ -364,6 +335,5 @@ class AdaptiveDispatchAttack(AttackStrategy[AdaptiveDispatchContext, AttackResul
             metadata={
                 **last_result.metadata,
                 "adaptive_attempts": trail,
-                "adaptive_context": adaptive_context,
             },
         )
