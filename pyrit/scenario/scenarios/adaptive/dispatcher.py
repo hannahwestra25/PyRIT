@@ -23,14 +23,12 @@ from pyrit.executor.attack.core.attack_executor import AttackExecutor
 from pyrit.executor.attack.core.attack_parameters import AttackParameters
 from pyrit.executor.attack.core.attack_strategy import AttackContext, AttackStrategy
 from pyrit.models import AttackOutcome, AttackResult, SeedAttackGroup
-from pyrit.scenario.scenarios.adaptive.selectors import (
-    TechniqueSelector,
-)
 from pyrit.scenario.scenarios.adaptive.selectors.technique_selector import ADAPTIVE_TECHNIQUE_LABEL
 
 if TYPE_CHECKING:
     from pyrit.models import SeedAttackTechniqueGroup
     from pyrit.prompt_target import PromptTarget
+    from pyrit.scenario.scenarios.adaptive.selectors import TechniqueSelector
     from pyrit.score import TrueFalseScorer
 
 logger = logging.getLogger(__name__)
