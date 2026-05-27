@@ -14,14 +14,9 @@ from pyrit.models import SeedAttackGroup, SeedObjective
 from pyrit.prompt_target import PromptTarget
 from pyrit.registry.object_registries.attack_technique_registry import AttackTechniqueRegistry
 from pyrit.scenario.core.dataset_configuration import DatasetConfiguration
-from pyrit.scenario.core.scenario import BaselinePolicy
+from pyrit.scenario.core.scenario import BaselineAttackPolicy
 from pyrit.scenario.scenarios.adaptive.dispatcher import (
-    ADAPTIVE_CONTEXT_LABEL,
     AdaptiveDispatchAttack,
-)
-from pyrit.scenario.scenarios.adaptive.selector import (
-    GLOBAL_CONTEXT,
-    harm_category_context,
 )
 from pyrit.scenario.scenarios.adaptive.text_adaptive import TextAdaptive
 from pyrit.score import TrueFalseScorer
@@ -110,8 +105,8 @@ class TestTextAdaptiveBasics:
     def test_version(self):
         assert TextAdaptive.VERSION == 1
 
-    def test_baseline_forbidden(self):
-        assert TextAdaptive.BASELINE_POLICY is BaselinePolicy.Forbidden
+    def test_baseline_enabled(self):
+        assert TextAdaptive.BASELINE_ATTACK_POLICY is BaselineAttackPolicy.Enabled
 
     def test_default_dataset_config(self):
         config = TextAdaptive.default_dataset_config()
@@ -134,16 +129,13 @@ class TestTextAdaptiveBasics:
     @patch("pyrit.scenario.core.scenario.Scenario._get_default_objective_scorer")
     def test_init_stores_adaptive_params(self, mock_get_scorer, mock_objective_scorer):
         mock_get_scorer.return_value = mock_objective_scorer
-        scenario = TextAdaptive(
-            epsilon=0.4,
-            pool_threshold=5,
-            max_attempts_per_objective=7,
-            seed=42,
+        scenario = TextAdaptive()
+        scenario.set_params_from_args(
+            args={
+                "max_attempts_per_objective": 7,
+            }
         )
-        assert scenario._epsilon == 0.4
-        assert scenario._pool_threshold == 5
-        assert scenario._max_attempts_per_objective == 7
-        assert scenario._seed == 42
+        assert scenario.params["max_attempts_per_objective"] == 7
 
 
 @pytest.mark.usefixtures(*FIXTURES)
@@ -169,7 +161,7 @@ class TestTextAdaptiveAtomicAttacks:
             )
             return scenario, await scenario._get_atomic_attacks_async()
 
-    async def test_one_atomic_per_objective(self, mock_objective_target, mock_objective_scorer):
+    async def test_one_atomic_per_dataset(self, mock_objective_target, mock_objective_scorer):
         groups = {
             "violence": [
                 _make_seed_group(value="obj-v1", harm_categories=["violence"]),
@@ -184,16 +176,19 @@ class TestTextAdaptiveAtomicAttacks:
             mock_objective_scorer=mock_objective_scorer,
             seed_groups=groups,
         )
-        assert len(attacks) == 3
-        for atomic in attacks:
-            # Each atomic carries exactly one seed group.
-            assert len(atomic.objectives) == 1
+        # One atomic per dataset, carrying all that dataset's seed groups.
+        assert len(attacks) == 2
+        total_seed_groups = sum(len(a.seed_groups) for a in attacks)
+        assert total_seed_groups == 3
 
     async def test_atomics_share_one_selector_across_dispatchers(self, mock_objective_target, mock_objective_scorer):
         groups = {
             "violence": [
                 _make_seed_group(value="obj-v1", harm_categories=["violence"]),
                 _make_seed_group(value="obj-v2", harm_categories=["violence"]),
+            ],
+            "hate": [
+                _make_seed_group(value="obj-h1", harm_categories=["hate"]),
             ],
         }
         _scenario, attacks = await self._build_scenario_and_attacks(
@@ -202,54 +197,28 @@ class TestTextAdaptiveAtomicAttacks:
             seed_groups=groups,
         )
         dispatchers = [atomic._attack_technique.attack for atomic in attacks]
-        # Each objective gets its own dispatcher (bound to its own seed group)...
+        # One dispatcher per dataset (atomic).
         assert len({id(d) for d in dispatchers}) == len(attacks)
         for d in dispatchers:
             assert isinstance(d, AdaptiveDispatchAttack)
-        # ...but they all share the same selector so learning is global.
+        # All dispatchers share the same selector so learning is global.
         selectors = {id(d._selector) for d in dispatchers}
         assert len(selectors) == 1
 
-    async def test_global_context_label_when_using_global_extractor(self, mock_objective_target, mock_objective_scorer):
-        groups = {
-            "violence": [_make_seed_group(value="obj-1", harm_categories=["violence"])],
-            "hate": [_make_seed_group(value="obj-2", harm_categories=["hate"])],
-        }
-        _scenario, attacks = await self._build_scenario_and_attacks(
-            mock_objective_target=mock_objective_target,
-            mock_objective_scorer=mock_objective_scorer,
-            seed_groups=groups,
-        )
-        for atomic in attacks:
-            assert atomic._memory_labels[ADAPTIVE_CONTEXT_LABEL] == GLOBAL_CONTEXT
-
-    async def test_harm_category_extractor_partitions_labels(self, mock_objective_target, mock_objective_scorer):
-        groups = {
-            "violence": [_make_seed_group(value="obj-v", harm_categories=["violence"])],
-            "hate": [_make_seed_group(value="obj-h", harm_categories=["hate"])],
-            "uncat": [_make_seed_group(value="obj-u", harm_categories=None)],
-        }
-        _scenario, attacks = await self._build_scenario_and_attacks(
-            mock_objective_target=mock_objective_target,
-            mock_objective_scorer=mock_objective_scorer,
-            seed_groups=groups,
-            context_extractor=harm_category_context,
-        )
-        contexts = {atomic._memory_labels[ADAPTIVE_CONTEXT_LABEL] for atomic in attacks}
-        # Each objective gets its own context bucket from harm_category_context.
-        assert contexts == {"violence", "hate", "_uncategorized"}
-
-    async def test_atomic_names_are_unique(self, mock_objective_target, mock_objective_scorer):
+    async def test_atomic_names_are_dataset_scoped(self, mock_objective_target, mock_objective_scorer):
         groups = {
             "violence": [_make_seed_group(value=f"obj-{i}", harm_categories=["violence"]) for i in range(5)],
+            "hate": [_make_seed_group(value=f"hate-{i}", harm_categories=["hate"]) for i in range(3)],
         }
         _scenario, attacks = await self._build_scenario_and_attacks(
             mock_objective_target=mock_objective_target,
             mock_objective_scorer=mock_objective_scorer,
             seed_groups=groups,
         )
-        names = [atomic.atomic_attack_name for atomic in attacks]
-        assert len(set(names)) == len(names)
+        names = {atomic.atomic_attack_name for atomic in attacks}
+        # One atomic name per dataset; the dataset name is embedded.
+        assert len(names) == len(groups)
+        assert all(any(ds in name for ds in groups) for name in names)
 
     async def test_display_group_is_dataset_name(self, mock_objective_target, mock_objective_scorer):
         groups = {
@@ -290,14 +259,13 @@ class TestTextAdaptiveAtomicAttacks:
             patch.object(SeedAttackGroup, "is_compatible_with_technique", return_value=True),
         ):
             scenario = TextAdaptive(objective_scorer=mock_objective_scorer)
-            with patch.object(
-                scenario,
-                "_get_attack_technique_factories",
-                return_value={"prompt_sending": plain_factory, "many_shot": seeded_factory},
-            ):
+            strategy_class = scenario.get_strategy_class()
+            factories = {"role_play": plain_factory, "many_shot": seeded_factory}
+            with patch.object(scenario, "_get_attack_technique_factories", return_value=factories):
                 await scenario.initialize_async(
                     objective_target=mock_objective_target,
                     include_baseline=False,
+                    scenario_strategies=[strategy_class("role_play"), strategy_class("many_shot")],
                 )
                 attacks = scenario._atomic_attacks
 
@@ -305,9 +273,10 @@ class TestTextAdaptiveAtomicAttacks:
         dispatcher = attacks[0]._attack_technique.attack
         assert isinstance(dispatcher, AdaptiveDispatchAttack)
         # Both factories survive; in particular the seeded one is no longer
-        # silently dropped.
-        assert "prompt_sending" in dispatcher._techniques
-        assert "many_shot" in dispatcher._techniques
+        # silently dropped. Keys are now eval hashes; check by bundle name.
+        technique_names = {b.name for b in dispatcher._techniques.values()}
+        assert "role_play" in technique_names
+        assert "many_shot" in technique_names
 
     async def test_incompatible_seed_technique_is_filtered_per_objective(
         self, mock_objective_target, mock_objective_scorer
@@ -324,23 +293,27 @@ class TestTextAdaptiveAtomicAttacks:
             patch.object(SeedAttackGroup, "is_compatible_with_technique", return_value=False),
         ):
             scenario = TextAdaptive(objective_scorer=mock_objective_scorer)
-            with patch.object(
-                scenario,
-                "_get_attack_technique_factories",
-                return_value={"prompt_sending": plain_factory, "many_shot": incompatible_factory},
-            ):
+            strategy_class = scenario.get_strategy_class()
+            factories = {"role_play": plain_factory, "many_shot": incompatible_factory}
+            with patch.object(scenario, "_get_attack_technique_factories", return_value=factories):
                 await scenario.initialize_async(
                     objective_target=mock_objective_target,
                     include_baseline=False,
+                    scenario_strategies=[strategy_class("role_play"), strategy_class("many_shot")],
                 )
                 attacks = scenario._atomic_attacks
 
         assert len(attacks) == 1
         dispatcher = attacks[0]._attack_technique.attack
-        # Only the plain technique survives; the seed_technique-bearing one is filtered out
-        # because is_compatible_with_technique returned False.
-        assert "prompt_sending" in dispatcher._techniques
-        assert "many_shot" not in dispatcher._techniques
+        # Under the one-atomic-per-dataset design, the full technique pool is
+        # shared by the dispatcher; per-call compatibility filtering now
+        # happens inside ``AdaptiveDispatchAttack._perform_async``. The seed
+        # group survived because the plain (no-seed_technique) factory keeps
+        # the compatible pool non-empty. Keys are now eval hashes; check by bundle name.
+        technique_names = {b.name for b in dispatcher._techniques.values()}
+        assert "role_play" in technique_names
+        assert "many_shot" in technique_names
+        assert len(attacks[0].seed_groups) == 1
 
     async def test_objective_skipped_when_no_compatible_techniques(
         self, mock_objective_target, mock_objective_scorer, caplog
@@ -364,10 +337,11 @@ class TestTextAdaptiveAtomicAttacks:
             patch.object(SeedAttackGroup, "is_compatible_with_technique", _selective_compat),
         ):
             scenario = TextAdaptive(objective_scorer=mock_objective_scorer)
+            strategy_class = scenario.get_strategy_class()
             with patch.object(
                 scenario,
                 "_get_attack_technique_factories",
-                return_value={"prompt_sending": seeded_factory},
+                return_value={"role_play": seeded_factory},
             ):
                 import logging
 
@@ -375,6 +349,7 @@ class TestTextAdaptiveAtomicAttacks:
                     await scenario.initialize_async(
                         objective_target=mock_objective_target,
                         include_baseline=False,
+                        scenario_strategies=[strategy_class("role_play")],
                     )
                     attacks = scenario._atomic_attacks
 
@@ -385,128 +360,13 @@ class TestTextAdaptiveAtomicAttacks:
 
 
 @pytest.mark.usefixtures(*FIXTURES)
-class TestTextAdaptiveSelectorRehydration:
-    """When resuming, prior dispatch trails should replay into the new selector."""
-
-    def _build_scenario_no_resume_id(self, *, scorer):
-        return TextAdaptive(objective_scorer=scorer)
-
-    def test_no_scenario_result_id_is_noop(self, mock_objective_scorer):
-        from pyrit.scenario.scenarios.adaptive.selector import AdaptiveTechniqueSelector
-
-        scenario = TextAdaptive(objective_scorer=mock_objective_scorer)
-        selector = AdaptiveTechniqueSelector()
-        # No scenario_result_id set -> early return, no errors, no replays.
-        scenario._rehydrate_selector_from_memory(selector=selector, known_techniques={"a", "b"})
-        assert selector.snapshot() == {}
-
-    def test_replays_attempts_from_metadata(self, mock_objective_scorer):
-        from pyrit.models import AttackResult
-        from pyrit.scenario.scenarios.adaptive.selector import AdaptiveTechniqueSelector
-
-        scenario = TextAdaptive(objective_scorer=mock_objective_scorer, scenario_result_id="rid")
-
-        prior_result = MagicMock()
-        prior_result.attack_results = {
-            "adaptive_violence_o1": [
-                AttackResult(
-                    conversation_id="c1",
-                    objective="o1",
-                    metadata={
-                        "adaptive_attempts": [
-                            {"technique": "a", "outcome": "failure"},
-                            {"technique": "b", "outcome": "success"},
-                        ],
-                        "adaptive_context": "violence",
-                    },
-                ),
-            ],
-            "adaptive_hate_o2": [
-                AttackResult(
-                    conversation_id="c2",
-                    objective="o2",
-                    metadata={
-                        "adaptive_attempts": [{"technique": "a", "outcome": "success"}],
-                        "adaptive_context": "hate",
-                    },
-                ),
-            ],
-        }
-
-        selector = AdaptiveTechniqueSelector()
-        with patch.object(scenario._memory, "get_scenario_results", return_value=[prior_result]):
-            scenario._rehydrate_selector_from_memory(selector=selector, known_techniques={"a", "b"})
-
-        # Trails replayed verbatim into the per-context table.
-        assert selector.counts(context="violence", technique="a") == (0, 1)
-        assert selector.counts(context="violence", technique="b") == (1, 1)
-        assert selector.counts(context="hate", technique="a") == (1, 1)
-
-    def test_skips_unknown_techniques(self, mock_objective_scorer):
-        from pyrit.models import AttackResult
-        from pyrit.scenario.scenarios.adaptive.selector import AdaptiveTechniqueSelector
-
-        scenario = TextAdaptive(objective_scorer=mock_objective_scorer, scenario_result_id="rid")
-        prior_result = MagicMock()
-        prior_result.attack_results = {
-            "x": [
-                AttackResult(
-                    conversation_id="c1",
-                    objective="o1",
-                    metadata={
-                        "adaptive_attempts": [
-                            {"technique": "removed_technique", "outcome": "success"},
-                            {"technique": "a", "outcome": "failure"},
-                        ],
-                        "adaptive_context": "ctx",
-                    },
-                ),
-            ],
-        }
-
-        selector = AdaptiveTechniqueSelector()
-        with patch.object(scenario._memory, "get_scenario_results", return_value=[prior_result]):
-            scenario._rehydrate_selector_from_memory(selector=selector, known_techniques={"a"})
-
-        # Only the known technique was recorded.
-        assert selector.counts(context="ctx", technique="a") == (0, 1)
-        assert selector.counts(context="ctx", technique="removed_technique") == (0, 0)
-
-    def test_ignores_results_without_adaptive_metadata(self, mock_objective_scorer):
-        from pyrit.models import AttackResult
-        from pyrit.scenario.scenarios.adaptive.selector import AdaptiveTechniqueSelector
-
-        scenario = TextAdaptive(objective_scorer=mock_objective_scorer, scenario_result_id="rid")
-        prior_result = MagicMock()
-        prior_result.attack_results = {
-            "baseline": [AttackResult(conversation_id="c", objective="o", metadata={})],
-        }
-
-        selector = AdaptiveTechniqueSelector()
-        with patch.object(scenario._memory, "get_scenario_results", return_value=[prior_result]):
-            scenario._rehydrate_selector_from_memory(selector=selector, known_techniques={"a"})
-        assert selector.snapshot() == {}
-
-    def test_memory_load_failure_is_swallowed(self, mock_objective_scorer):
-        from pyrit.scenario.scenarios.adaptive.selector import AdaptiveTechniqueSelector
-
-        scenario = TextAdaptive(objective_scorer=mock_objective_scorer, scenario_result_id="rid")
-
-        selector = AdaptiveTechniqueSelector()
-        with patch.object(scenario._memory, "get_scenario_results", side_effect=RuntimeError("db down")):
-            # Must not raise; selector remains empty.
-            scenario._rehydrate_selector_from_memory(selector=selector, known_techniques={"a"})
-        assert selector.snapshot() == {}
-
-
-@pytest.mark.usefixtures(*FIXTURES)
 class TestTextAdaptiveBaselinePolicy:
-    async def test_initialize_async_rejects_explicit_baseline(self, mock_objective_target, mock_objective_scorer):
+    async def test_initialize_async_accepts_explicit_baseline(self, mock_objective_target, mock_objective_scorer):
         groups = {"violence": [_make_seed_group(value="obj", harm_categories=["violence"])]}
         with patch.object(DatasetConfiguration, "get_seed_attack_groups", return_value=groups):
             scenario = TextAdaptive(objective_scorer=mock_objective_scorer)
-            with pytest.raises(ValueError):
-                await scenario.initialize_async(
-                    objective_target=mock_objective_target,
-                    include_baseline=True,
-                )
+            # Baseline is Enabled by default, so explicit include_baseline=True must not raise.
+            await scenario.initialize_async(
+                objective_target=mock_objective_target,
+                include_baseline=True,
+            )

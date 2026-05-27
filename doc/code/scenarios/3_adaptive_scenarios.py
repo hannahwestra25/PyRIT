@@ -49,7 +49,7 @@ from pathlib import Path
 from pyrit.registry import TargetRegistry
 from pyrit.scenario import DatasetConfiguration
 from pyrit.scenario.printer.console_printer import ConsoleScenarioResultPrinter
-from pyrit.scenario.scenarios.adaptive import TextAdaptive, harm_category_context
+from pyrit.scenario.scenarios.adaptive import TextAdaptive
 from pyrit.setup import initialize_from_config_async
 
 await initialize_from_config_async(config_path=Path("../../scanner/pyrit_conf.yaml"))  # type: ignore
@@ -60,7 +60,8 @@ printer = ConsoleScenarioResultPrinter()
 # %% [markdown]
 # ## Basic usage
 #
-# Defaults: `epsilon=0.2`, `max_attempts_per_objective=3`, the subclass's default datasets.
+# Defaults: `max_attempts_per_objective=3`, epsilon-greedy selector with `epsilon=0.2`,
+# the subclass's default datasets.
 
 # %%
 scenario = TextAdaptive()
@@ -74,32 +75,29 @@ await printer.write_async(result)  # type: ignore
 # %% [markdown]
 # ## Configuring a run
 #
-# All the knobs below are constructor or `initialize_async` arguments — combine whichever
-# you need on a single scenario instance:
-#
-# - **`epsilon`** — exploration probability. `0.0` is pure exploit, `1.0` is pure random,
-#   `0.2` (default) is 20% exploration.
 # - **`max_attempts_per_objective`** — caps techniques tried per objective. Higher means
-#   more chances to succeed and more API calls.
-# - **`context_extractor`** — partitions the success-rate table. The default
-#   `global_context` keeps one shared table; `harm_category_context` learns each harm
-#   category independently. Custom callables of type `Callable[[SeedAttackGroup], str]`
-#   are supported.
-# - **`seed`** — makes every selection decision deterministic.
+#   more chances to succeed and more API calls. Set via `set_params_from_args`.
+# - **`selector`** — a pre-built `TechniqueSelector` instance. Pass an
+#   `EpsilonGreedyTechniqueSelector(epsilon=..., random_seed=...)`
+#   to tune the selection algorithm. Defaults to an epsilon-greedy selector with
+#   `epsilon=0.2`.
 # - **`scenario_strategies`** (on `initialize_async`) — restricts which techniques the
 #   selector can pick from. Use `TextAdaptive.get_strategy_class()` to access the enum.
 #
 # The cell below exercises all of them at once.
 
 # %%
+from pyrit.scenario.scenarios.adaptive import EpsilonGreedyTechniqueSelector
+
 strategy_class = TextAdaptive.get_strategy_class()
 
 configured_scenario = TextAdaptive(
-    epsilon=0.3,
-    max_attempts_per_objective=5,
-    context_extractor=harm_category_context,
-    seed=42,
+    selector=EpsilonGreedyTechniqueSelector(
+        epsilon=0.3,
+        random_seed=42,
+    ),
 )
+configured_scenario.set_params_from_args(args={"max_attempts_per_objective": 5})
 
 await configured_scenario.initialize_async(  # type: ignore
     objective_target=objective_target,
@@ -116,17 +114,18 @@ await printer.write_async(configured_result)  # type: ignore
 # ## Resuming a run
 #
 # Adaptive scenarios are resumable — pass `scenario_result_id=...` to the `TextAdaptive`
-# constructor and the run picks up where it left off, with prior outcomes replayed into
-# the selector. Resume must use the same configuration as the original run.
+# constructor and the run picks up where it left off. Resume must use the same
+# configuration as the original run.
 
 # %%
 resumed_scenario = TextAdaptive(
-    epsilon=0.3,
-    max_attempts_per_objective=5,
-    context_extractor=harm_category_context,
-    seed=42,
+    selector=EpsilonGreedyTechniqueSelector(
+        epsilon=0.3,
+        random_seed=42,
+    ),
     scenario_result_id=str(configured_result.id),
 )
+resumed_scenario.set_params_from_args(args={"max_attempts_per_objective": 5})
 
 await resumed_scenario.initialize_async(  # type: ignore
     objective_target=objective_target,
@@ -144,7 +143,6 @@ await printer.write_async(resumed_result)  # type: ignore
 #
 # The dispatcher stamps every objective's `AttackResult.metadata` with:
 #
-# - `adaptive_context` — the bucket key from the `context_extractor`.
 # - `adaptive_attempts` — the ordered list of `{"technique", "outcome"}` dicts
 #   recording exactly which techniques the selector picked and what happened.
 #
@@ -173,3 +171,23 @@ for results in resumed_result.attack_results.values():
 print("\nTechnique             wins / picks   rate")
 for technique, n in picks.most_common():
     print(f"{technique:20s}  {wins[technique]:>4} / {n:<4}   {wins[technique] / n:.0%}")
+
+# %% [markdown]
+# ## Running from the scanner CLI
+#
+# You can run `TextAdaptive` directly from the `pyrit_scan` CLI without writing Python:
+#
+# ```bash
+# # Basic run with defaults
+# pyrit_scan --scenario TextAdaptive --target openai_chat
+#
+# # Tune max attempts and restrict strategies
+# pyrit_scan --scenario TextAdaptive --target openai_chat \
+#     --params max_attempts_per_objective=5 \
+#     --strategies single_turn
+#
+# # Use specific datasets and limit size
+# pyrit_scan --scenario TextAdaptive --target openai_chat \
+#     --datasets airt_hate airt_violence \
+#     --max-dataset-size 10
+# ```
