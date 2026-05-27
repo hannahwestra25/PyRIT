@@ -9,11 +9,15 @@ import hashlib
 import logging
 import random
 import struct
-from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
-from pyrit.analytics.result_analysis import AttackStats
 from pyrit.analytics.scenario_analysis import compute_technique_success_rates
 from pyrit.scenario.scenarios.adaptive.selectors.technique_selector import ADAPTIVE_TECHNIQUE_LABEL, SelectorScope
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from pyrit.analytics.result_analysis import AttackStats
 
 logger = logging.getLogger(__name__)
 
@@ -126,9 +130,7 @@ class EpsilonGreedyTechniqueSelector:
             if rng.random() < self._epsilon:
                 pick = rng.choice(remaining)
             else:
-                estimates = {
-                    t: self._estimate(technique=t, stats=stats) for t in remaining
-                }
+                estimates = {t: self._estimate(technique=t, stats=stats) for t in remaining}
                 best = max(estimates.values())
                 winners = [t for t, v in estimates.items() if v >= best - self._TIE_TOL]
                 pick = rng.choice(winners)

@@ -14,9 +14,6 @@ from pyrit.scenario.scenarios.adaptive.dispatcher import (
     AdaptiveDispatchParams,
     TechniqueBundle,
 )
-from pyrit.scenario.scenarios.adaptive.selectors import (
-    EpsilonGreedyTechniqueSelector,
-)
 
 
 def _make_bundle(*, name: str, outcomes: list[AttackOutcome], seed_technique=None) -> TechniqueBundle:
@@ -110,8 +107,6 @@ class TestInit:
                 objective_target=target,
                 techniques={},
                 selector=selector,
-
-
             )
 
     @pytest.mark.parametrize("bad_max", [0, -1])
@@ -122,8 +117,6 @@ class TestInit:
                 objective_target=target,
                 techniques={"a": _make_bundle(name="a", outcomes=[AttackOutcome.SUCCESS])},
                 selector=selector,
-
-
                 max_attempts_per_objective=bad_max,
             )
 
@@ -140,8 +133,6 @@ class TestPerform:
             objective_target=target,
             techniques=bundles,
             selector=selector,
-
-
             max_attempts_per_objective=5,
         )
         inner = _patch_inner(dispatcher=dispatcher, bundles=bundles)
@@ -162,8 +153,6 @@ class TestPerform:
             objective_target=target,
             techniques=bundles,
             selector=selector,
-
-
             max_attempts_per_objective=3,
         )
         inner = _patch_inner(dispatcher=dispatcher, bundles=bundles)
@@ -180,8 +169,6 @@ class TestPerform:
             objective_target=target,
             techniques=bundles,
             selector=selector,
-
-
         )
         inner = _patch_inner(dispatcher=dispatcher, bundles=bundles)
 
@@ -202,8 +189,6 @@ class TestPerform:
             objective_target=target,
             techniques=bundles,
             selector=selector,
-
-
             max_attempts_per_objective=3,
         )
         _patch_inner(dispatcher=dispatcher, bundles=bundles)
@@ -222,8 +207,6 @@ class TestPerform:
             objective_target=target,
             techniques=bundles,
             selector=selector,
-
-
         )
         inner_ids: list[str] = []
 
@@ -254,8 +237,6 @@ class TestValidate:
             objective_target=target,
             techniques={"a": _make_bundle(name="a", outcomes=[AttackOutcome.SUCCESS])},
             selector=selector,
-
-
         )
         with pytest.raises(ValueError, match="objective"):
             dispatcher._validate_context(context=_make_context(objective=bad_objective))
@@ -265,7 +246,5 @@ class TestValidate:
             objective_target=target,
             techniques={"a": _make_bundle(name="a", outcomes=[AttackOutcome.SUCCESS])},
             selector=selector,
-
-
         )
         dispatcher._validate_context(context=_make_context(objective="ok"))

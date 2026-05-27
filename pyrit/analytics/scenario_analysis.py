@@ -5,11 +5,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
 from pyrit.analytics.result_analysis import AttackStats, _compute_stats
 from pyrit.memory import CentralMemory
 from pyrit.models import AttackOutcome
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 
 def compute_technique_success_rates(
@@ -38,7 +41,6 @@ def compute_technique_success_rates(
         dict[str, AttackStats]: Stats per technique hash. Techniques with
             no history are omitted from the result.
     """
-
     memory = CentralMemory.get_memory_instance()
     results = memory.get_attack_results(
         labels={label_key: list(technique_hashes)},

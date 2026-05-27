@@ -8,7 +8,6 @@ import pytest
 from pyrit.analytics.scenario_analysis import compute_technique_success_rates
 from pyrit.models import AttackOutcome
 
-
 LABEL_KEY = "_adaptive_technique"
 
 
@@ -29,7 +28,6 @@ def _patch_memory():
 
 
 class TestComputeTechniqueSuccessRates:
-
     def test_empty_results_returns_empty(self, _patch_memory):
         stats = compute_technique_success_rates(technique_hashes=["a", "b"], label_key=LABEL_KEY)
         assert stats == {}
@@ -81,9 +79,7 @@ class TestComputeTechniqueSuccessRates:
         assert call_kwargs["scenario_result_id"] is None
 
     def test_passes_scenario_result_id_to_memory_query(self, _patch_memory):
-        compute_technique_success_rates(
-            technique_hashes=["x"], label_key=LABEL_KEY, scenario_result_id="run-123"
-        )
+        compute_technique_success_rates(technique_hashes=["x"], label_key=LABEL_KEY, scenario_result_id="run-123")
 
         call_kwargs = _patch_memory.get_attack_results.call_args[1]
         assert call_kwargs["scenario_result_id"] == "run-123"

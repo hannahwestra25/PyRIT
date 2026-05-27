@@ -110,9 +110,7 @@ class AdaptiveScenario(Scenario):
         techniques = self._build_techniques_dict(objective_target=self._objective_target)
 
         selector: TechniqueSelector = (
-            self._custom_selector
-            if self._custom_selector is not None
-            else EpsilonGreedyTechniqueSelector()
+            self._custom_selector if self._custom_selector is not None else EpsilonGreedyTechniqueSelector()
         )
 
         seed_groups_by_dataset = self._dataset_config.get_seed_attack_groups()
@@ -171,6 +169,7 @@ class AdaptiveScenario(Scenario):
                 attack_scoring_config=scoring_config,
             )
             eval_hash = technique.get_identifier().hash
+            assert eval_hash is not None, f"Technique {technique_name!r} produced no identifier hash"
             techniques[eval_hash] = TechniqueBundle(
                 attack=technique.attack,
                 name=technique_name,
@@ -251,4 +250,3 @@ class AdaptiveScenario(Scenario):
             memory_labels=dict(self._memory_labels),
             display_group=dataset_name,
         )
-

@@ -21,12 +21,10 @@ from pyrit.common.parameter import Parameter
 from pyrit.registry.tag_query import TagQuery
 from pyrit.scenario.core.dataset_configuration import DatasetConfiguration
 from pyrit.scenario.scenarios.adaptive.adaptive_scenario import AdaptiveScenario
-from pyrit.scenario.scenarios.adaptive.selectors import (
-    TechniqueSelector,
-)
 
 if TYPE_CHECKING:
     from pyrit.scenario.core.scenario_strategy import ScenarioStrategy
+    from pyrit.scenario.scenarios.adaptive.selectors import TechniqueSelector
     from pyrit.score import TrueFalseScorer
 
 logger = logging.getLogger(__name__)

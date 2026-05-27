@@ -1,7 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -62,13 +62,19 @@ class TestEpsilonGreedyTechniqueSelectorInit:
 
 
 class TestEpsilonGreedyTechniqueSelectorSelect:
-    @patch("pyrit.scenario.scenarios.adaptive.selectors.epsilon_greedy.compute_technique_success_rates", side_effect=_empty_rates)
+    @patch(
+        "pyrit.scenario.scenarios.adaptive.selectors.epsilon_greedy.compute_technique_success_rates",
+        side_effect=_empty_rates,
+    )
     async def test_select_empty_techniques_raises(self, _mock):
         selector = _seeded_selector()
         with pytest.raises(ValueError, match="technique_identifiers"):
             await selector.select_async(technique_identifiers=[], objective="obj")
 
-    @patch("pyrit.scenario.scenarios.adaptive.selectors.epsilon_greedy.compute_technique_success_rates", side_effect=_empty_rates)
+    @patch(
+        "pyrit.scenario.scenarios.adaptive.selectors.epsilon_greedy.compute_technique_success_rates",
+        side_effect=_empty_rates,
+    )
     async def test_select_all_unseen_ties_resolved_randomly(self, _mock):
         winners = set()
         for s in range(50):
@@ -88,32 +94,35 @@ class TestEpsilonGreedyTechniqueSelectorSelect:
             result = await selector.select_async(technique_identifiers=TECHNIQUES, objective="obj")
             assert result[0] == "b"
 
-    @patch("pyrit.scenario.scenarios.adaptive.selectors.epsilon_greedy.compute_technique_success_rates", side_effect=_empty_rates)
+    @patch(
+        "pyrit.scenario.scenarios.adaptive.selectors.epsilon_greedy.compute_technique_success_rates",
+        side_effect=_empty_rates,
+    )
     async def test_select_epsilon_one_is_pure_random(self, _mock):
         selector = _seeded_selector(epsilon=1.0)
         picks = set()
         for i in range(200):
-            result = await selector.select_async(
-                technique_identifiers=TECHNIQUES, objective=f"obj-{i}"
-            )
+            result = await selector.select_async(technique_identifiers=TECHNIQUES, objective=f"obj-{i}")
             picks.add(result[0])
         assert picks == set(TECHNIQUES)
 
-    @patch("pyrit.scenario.scenarios.adaptive.selectors.epsilon_greedy.compute_technique_success_rates", side_effect=_empty_rates)
+    @patch(
+        "pyrit.scenario.scenarios.adaptive.selectors.epsilon_greedy.compute_technique_success_rates",
+        side_effect=_empty_rates,
+    )
     async def test_select_returns_multiple_techniques(self, _mock):
         selector = _seeded_selector()
-        result = await selector.select_async(
-            technique_identifiers=TECHNIQUES, objective="obj", num_top_techniques=3
-        )
+        result = await selector.select_async(technique_identifiers=TECHNIQUES, objective="obj", num_top_techniques=3)
         assert len(result) == 3
         assert len(set(result)) == 3  # no duplicates
 
-    @patch("pyrit.scenario.scenarios.adaptive.selectors.epsilon_greedy.compute_technique_success_rates", side_effect=_empty_rates)
+    @patch(
+        "pyrit.scenario.scenarios.adaptive.selectors.epsilon_greedy.compute_technique_success_rates",
+        side_effect=_empty_rates,
+    )
     async def test_select_caps_at_available_techniques(self, _mock):
         selector = _seeded_selector()
-        result = await selector.select_async(
-            technique_identifiers=["a", "b"], objective="obj", num_top_techniques=5
-        )
+        result = await selector.select_async(technique_identifiers=["a", "b"], objective="obj", num_top_techniques=5)
         assert len(result) == 2
 
 
@@ -122,11 +131,6 @@ class TestEpsilonGreedyEstimate:
         assert EpsilonGreedyTechniqueSelector._estimate(technique="a", stats={}) == pytest.approx(1.0)
 
     def test_estimate_with_data(self):
-        stats = {
-            "a": AttackStats(
-                success_rate=0.6, total_decided=5, successes=3, failures=2, undetermined=0, errors=0
-            )
-        }
+        stats = {"a": AttackStats(success_rate=0.6, total_decided=5, successes=3, failures=2, undetermined=0, errors=0)}
         # (3 + 1) / (5 + 1) = 4/6 ≈ 0.6667
         assert EpsilonGreedyTechniqueSelector._estimate(technique="a", stats=stats) == pytest.approx(4 / 6)
-
