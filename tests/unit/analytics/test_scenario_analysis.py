@@ -23,7 +23,7 @@ def _make_result(*, technique: str, outcome: AttackOutcome) -> MagicMock:
 def _patch_memory():
     mock_memory = MagicMock()
     mock_memory.get_attack_results.return_value = []
-    with patch("pyrit.memory.CentralMemory") as cm:
+    with patch("pyrit.analytics.scenario_analysis.CentralMemory") as cm:
         cm.get_memory_instance.return_value = mock_memory
         yield mock_memory
 
