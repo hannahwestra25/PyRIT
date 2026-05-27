@@ -105,3 +105,54 @@ class TestComputeTechniqueSuccessRates:
         stats = compute_technique_success_rates(technique_hashes=["a"], label_key=LABEL_KEY)
 
         assert stats["a"].success_rate == pytest.approx(0.5)
+
+    def test_passes_attack_classes_to_memory_query(self, _patch_memory):
+        compute_technique_success_rates(
+            technique_hashes=["x"],
+            label_key=LABEL_KEY,
+            attack_classes=["TextAdaptive", "ImageAdaptive"],
+        )
+
+        call_kwargs = _patch_memory.get_attack_results.call_args[1]
+        assert call_kwargs["attack_classes"] == ["TextAdaptive", "ImageAdaptive"]
+
+    def test_passes_harm_categories_to_memory_query(self, _patch_memory):
+        compute_technique_success_rates(
+            technique_hashes=["x"],
+            label_key=LABEL_KEY,
+            targeted_harm_categories=["misinformation", "hate"],
+        )
+
+        call_kwargs = _patch_memory.get_attack_results.call_args[1]
+        assert call_kwargs["targeted_harm_categories"] == ["misinformation", "hate"]
+
+    def test_merges_extra_labels_with_technique_label(self, _patch_memory):
+        compute_technique_success_rates(
+            technique_hashes=["x"],
+            label_key=LABEL_KEY,
+            extra_labels={"experiment": "ablation_v3", "tier": ["a", "b"]},
+        )
+
+        call_kwargs = _patch_memory.get_attack_results.call_args[1]
+        assert call_kwargs["labels"] == {
+            LABEL_KEY: ["x"],
+            "experiment": "ablation_v3",
+            "tier": ["a", "b"],
+        }
+
+    def test_extra_labels_cannot_override_technique_label(self, _patch_memory):
+        compute_technique_success_rates(
+            technique_hashes=["x"],
+            label_key=LABEL_KEY,
+            extra_labels={LABEL_KEY: ["evil"], "other": "ok"},
+        )
+
+        call_kwargs = _patch_memory.get_attack_results.call_args[1]
+        assert call_kwargs["labels"] == {LABEL_KEY: ["x"], "other": "ok"}
+
+    def test_default_filter_kwargs_are_none(self, _patch_memory):
+        compute_technique_success_rates(technique_hashes=["x"], label_key=LABEL_KEY)
+
+        call_kwargs = _patch_memory.get_attack_results.call_args[1]
+        assert call_kwargs["attack_classes"] is None
+        assert call_kwargs["targeted_harm_categories"] is None

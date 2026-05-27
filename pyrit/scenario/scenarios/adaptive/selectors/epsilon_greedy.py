@@ -59,14 +59,15 @@ class EpsilonGreedyTechniqueSelector:
         self,
         *,
         epsilon: float = 0.2,
-        scope: SelectorScope = SelectorScope.ALL_RUNS,
+        scope: SelectorScope | None = None,
         random_seed: int | None = None,
     ) -> None:
         """
         Args:
             epsilon (float): Exploration probability in [0.0, 1.0]. Defaults to 0.2.
-            scope (SelectorScope): Whether to use all historical data or only
-                the current scenario run. Defaults to ``SelectorScope.ALL_RUNS``.
+            scope (SelectorScope | None): Filter describing which historical
+                ``AttackResult`` rows to use when estimating success rates.
+                Defaults to :meth:`SelectorScope.all_runs` (all history).
             random_seed (int | None): Base seed for deterministic per-decision RNG
                 derivation. Defaults to ``None`` (non-deterministic).
 
@@ -77,7 +78,7 @@ class EpsilonGreedyTechniqueSelector:
             raise ValueError(f"epsilon must be in [0.0, 1.0], got {epsilon}")
 
         self._epsilon = epsilon
-        self._scope = scope
+        self._scope = scope if scope is not None else SelectorScope.all_runs()
         self._seed = random_seed
 
     async def select_async(
@@ -95,8 +96,9 @@ class EpsilonGreedyTechniqueSelector:
             technique_identifiers (Sequence[str]): Available technique names.
             objective (str): The objective text for scoping the per-decision RNG.
             num_top_techniques (int): Max techniques to return. Defaults to 1.
-            scenario_result_id (str | None): If provided, restrict memory
-                queries to this scenario run. Defaults to ``None`` (all runs).
+            scenario_result_id (str | None): The current scenario run ID, supplied
+                by the dispatcher. Forwarded to memory only when the configured
+                ``scope.current_run_only`` is ``True``. Defaults to ``None``.
 
         Returns:
             Sequence[str]: Techniques in priority order. Fewer than
@@ -114,10 +116,14 @@ class EpsilonGreedyTechniqueSelector:
         decision_key = objective
         rng = _derive_rng(self._seed, decision_key)
 
+        effective_run_id = scenario_result_id if self._scope.current_run_only else None
         stats = compute_technique_success_rates(
             technique_hashes=technique_list,
             label_key=ADAPTIVE_TECHNIQUE_LABEL,
-            scenario_result_id=scenario_result_id if self._scope == SelectorScope.CURRENT_RUN else None,
+            scenario_result_id=effective_run_id,
+            attack_classes=self._scope.attack_classes,
+            targeted_harm_categories=self._scope.targeted_harm_categories,
+            extra_labels=self._scope.extra_labels,
         )
 
         chosen: list[str] = []

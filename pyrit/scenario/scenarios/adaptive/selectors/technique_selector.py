@@ -5,23 +5,67 @@
 
 from __future__ import annotations
 
-from enum import Enum
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
 
 
-# TODO: probably want to expand this to allow for more filtering options
-# (e.g. filter by scenario parameters, attack labels, etc.)
-class SelectorScope(str, Enum):
-    """Controls which historical data a selector queries."""
+@dataclass(frozen=True)
+class SelectorScope:
+    """
+    Filter describing which historical ``AttackResult`` rows a selector
+    queries when estimating technique success rates.
 
-    ALL_RUNS = "all_runs"
-    """Use technique success rates from all historical scenario runs."""
+    All fields default to "no restriction"; combine fields to narrow the
+    scope (e.g. current run only, same scenario class, same harm category).
+    Filter values flow through :func:`compute_technique_success_rates` to
+    :meth:`MemoryInterface.get_attack_results`.
 
-    CURRENT_RUN = "current_run"
-    """Use technique success rates only from the current scenario run."""
+    The scope is held by the selector at construction time. The per-call
+    ``scenario_result_id`` is supplied by the dispatcher and is forwarded
+    to memory only when ``current_run_only`` is set; otherwise the selector
+    queries across all runs.
+    """
+
+    current_run_only: bool = False
+    """Restrict to the dispatcher-supplied ``scenario_result_id`` for the
+    in-flight run. When ``False`` (default), query across all runs."""
+
+    attack_classes: Sequence[str] | None = None
+    """Filter to results emitted by these attack / scenario class names
+    (e.g. ``["TextAdaptive"]``). Useful to keep one modality's bandit from
+    being influenced by another's history. ``None`` means no class filter."""
+
+    targeted_harm_categories: Sequence[str] | None = None
+    """Filter to results whose prompts targeted these harm categories.
+    ``None`` means no harm-category filter."""
+
+    extra_labels: Mapping[str, str | Sequence[str]] | None = None
+    """Additional memory-label filters merged on top of the technique-hash
+    label that the selector adds internally. Use this as an escape hatch
+    for label-based filtering not covered by the named fields."""
+
+    @classmethod
+    def all_runs(cls) -> SelectorScope:
+        """
+        Build a scope that queries across all historical scenario runs (the default).
+
+        Returns:
+            SelectorScope: A scope with no restrictions.
+        """
+        return cls()
+
+    @classmethod
+    def current_run(cls) -> SelectorScope:
+        """
+        Build a scope restricted to the dispatcher-supplied scenario run.
+
+        Returns:
+            SelectorScope: A scope with ``current_run_only=True``.
+        """
+        return cls(current_run_only=True)
 
 
 ADAPTIVE_TECHNIQUE_LABEL: str = "_adaptive_technique"
@@ -56,8 +100,9 @@ class TechniqueSelector(Protocol):
             objective (str): The objective text for this selection.
             num_top_techniques (int): Max techniques to return. Defaults to 1.
             scenario_result_id (str | None): The current scenario run ID,
-                provided by the dispatcher. Selectors use this when their
-                scope is ``SelectorScope.CURRENT_RUN``.
+                provided by the dispatcher. Selectors forward this to
+                memory only when their :class:`SelectorScope` has
+                ``current_run_only=True``.
 
         Returns:
             Sequence[str]: Up to ``num_top_techniques`` technique names in
