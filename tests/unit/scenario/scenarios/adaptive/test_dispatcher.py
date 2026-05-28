@@ -1,10 +1,15 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
+from pyrit.executor.attack.compound.sequential_attack import (
+    SequentialAttack,
+    SequentialAttackResult,
+    SequentialChildAttack,
+)
 from pyrit.models import AttackOutcome, AttackResult, SeedAttackGroup, SeedObjective
 from pyrit.scenario.scenarios.adaptive.dispatcher import (
     ADAPTIVE_ATTEMPT_LABEL,
@@ -42,29 +47,45 @@ def _make_context(
     )
 
 
-def _patch_inner(
+def _patch_child_attack(
+    monkeypatch: pytest.MonkeyPatch,
     *,
-    dispatcher: AdaptiveDispatchAttack,
     bundles: dict[str, TechniqueBundle],
-) -> AsyncMock:
-    """Replace ``_run_inner_attack_async`` with a stub backed by per-bundle outcomes."""
+) -> list[dict]:
+    """
+    Replace ``SequentialAttack._run_child_attack_async`` with a stub backed
+    by per-bundle outcomes.
+
+    Each invocation records the merged ``memory_labels`` and the resulting
+    ``AttackResult`` so tests can inspect per-attempt routing and per-attempt
+    label stamping without monkey-patching ``AttackExecutor``.
+    """
     name_for_attack = {id(b.attack): name for name, b in bundles.items()}
     counters: dict[str, int] = dict.fromkeys(bundles, 0)
+    calls: list[dict] = []
 
-    async def _stub(*, bundle: TechniqueBundle, seed_group, attempt_labels: dict[str, str]) -> AttackResult:
-        name = name_for_attack[id(bundle.attack)]
+    async def _stub(self, *, child_attack: SequentialChildAttack, memory_labels: dict[str, str], attribution=None):
+        name = name_for_attack[id(child_attack.strategy)]
         idx = counters[name]
         counters[name] = idx + 1
-        outcome = bundle.attack._outcomes[idx]
-        return AttackResult(
+        outcome = child_attack.strategy._outcomes[idx]
+        result = AttackResult(
             conversation_id=f"conv-{name}-{idx}",
             objective="obj",
             outcome=outcome,
         )
+        calls.append(
+            {
+                "name": name,
+                "attempt_labels": dict(memory_labels),
+                "child_attack": child_attack,
+                "result": result,
+            }
+        )
+        return result
 
-    inner_mock = AsyncMock(side_effect=_stub)
-    dispatcher._run_inner_attack_async = inner_mock  # type: ignore[method-assign]
-    return inner_mock
+    monkeypatch.setattr(SequentialAttack, "_run_child_attack_async", _stub, raising=True)
+    return calls
 
 
 class _StubSelector:
@@ -123,7 +144,7 @@ class TestInit:
 
 @pytest.mark.usefixtures("patch_central_database")
 class TestPerform:
-    async def test_stops_on_first_success(self, target, seed_group):
+    async def test_stops_on_first_success(self, target, seed_group, monkeypatch):
         bundles = {
             "a": _make_bundle(name="a", outcomes=[AttackOutcome.SUCCESS]),
             "b": _make_bundle(name="b", outcomes=[AttackOutcome.SUCCESS]),
@@ -135,18 +156,19 @@ class TestPerform:
             selector=selector,
             max_attempts_per_objective=5,
         )
-        inner = _patch_inner(dispatcher=dispatcher, bundles=bundles)
+        calls = _patch_child_attack(monkeypatch, bundles=bundles)
 
         result = await dispatcher._perform_async(context=_make_context())
 
+        assert isinstance(result, SequentialAttackResult)
         assert result.outcome == AttackOutcome.SUCCESS
-        assert inner.call_count == 1
+        assert len(calls) == 1
 
-    async def test_retries_until_max_attempts_on_failure(self, target, seed_group):
+    async def test_retries_until_max_attempts_on_failure(self, target, seed_group, monkeypatch):
         bundles = {
-            "a": _make_bundle(name="a", outcomes=[AttackOutcome.FAILURE] * 3),
-            "b": _make_bundle(name="b", outcomes=[AttackOutcome.FAILURE] * 3),
-            "c": _make_bundle(name="c", outcomes=[AttackOutcome.FAILURE] * 3),
+            "a": _make_bundle(name="a", outcomes=[AttackOutcome.FAILURE]),
+            "b": _make_bundle(name="b", outcomes=[AttackOutcome.FAILURE]),
+            "c": _make_bundle(name="c", outcomes=[AttackOutcome.FAILURE]),
         }
         selector = _StubSelector(technique_order=["a", "b", "c"])
         dispatcher = AdaptiveDispatchAttack(
@@ -155,14 +177,14 @@ class TestPerform:
             selector=selector,
             max_attempts_per_objective=3,
         )
-        inner = _patch_inner(dispatcher=dispatcher, bundles=bundles)
+        calls = _patch_child_attack(monkeypatch, bundles=bundles)
 
         result = await dispatcher._perform_async(context=_make_context())
 
         assert result.outcome == AttackOutcome.FAILURE
-        assert inner.call_count == 3
+        assert len(calls) == 3
 
-    async def test_passes_attempt_labels_to_inner(self, target, seed_group):
+    async def test_passes_attempt_labels_to_inner(self, target, seed_group, monkeypatch):
         bundles = {"a": _make_bundle(name="a", outcomes=[AttackOutcome.SUCCESS])}
         selector = _StubSelector(technique_order=["a"])
         dispatcher = AdaptiveDispatchAttack(
@@ -170,16 +192,16 @@ class TestPerform:
             techniques=bundles,
             selector=selector,
         )
-        inner = _patch_inner(dispatcher=dispatcher, bundles=bundles)
+        calls = _patch_child_attack(monkeypatch, bundles=bundles)
 
         await dispatcher._perform_async(context=_make_context(labels={"foo": "bar"}))
 
-        labels = inner.call_args.kwargs["attempt_labels"]
+        labels = calls[0]["attempt_labels"]
         assert labels["foo"] == "bar"
         assert labels[ADAPTIVE_TECHNIQUE_LABEL] == "a"
         assert labels[ADAPTIVE_ATTEMPT_LABEL] == "1"
 
-    async def test_metadata_records_adaptive_trail(self, target, seed_group):
+    async def test_metadata_records_adaptive_trail(self, target, seed_group, monkeypatch):
         bundles = {
             "a": _make_bundle(name="a", outcomes=[AttackOutcome.FAILURE]),
             "b": _make_bundle(name="b", outcomes=[AttackOutcome.SUCCESS]),
@@ -191,7 +213,7 @@ class TestPerform:
             selector=selector,
             max_attempts_per_objective=3,
         )
-        _patch_inner(dispatcher=dispatcher, bundles=bundles)
+        _patch_child_attack(monkeypatch, bundles=bundles)
         result = await dispatcher._perform_async(context=_make_context())
 
         trail = result.metadata["adaptive_attempts"]
@@ -200,7 +222,7 @@ class TestPerform:
             {"technique": "b", "technique_hash": "b", "outcome": "success"},
         ]
 
-    async def test_returns_fresh_result_distinct_from_inner(self, target, seed_group):
+    async def test_envelope_is_distinct_from_child_and_owns_no_conversation(self, target, seed_group, monkeypatch):
         bundles = {"a": _make_bundle(name="a", outcomes=[AttackOutcome.SUCCESS])}
         selector = _StubSelector(technique_order=["a"])
         dispatcher = AdaptiveDispatchAttack(
@@ -208,24 +230,18 @@ class TestPerform:
             techniques=bundles,
             selector=selector,
         )
-        inner_ids: list[str] = []
-
-        async def _spy(*, bundle, seed_group, attempt_labels):
-            inner_result = AttackResult(
-                conversation_id="conv-a-0",
-                objective="obj",
-                outcome=AttackOutcome.SUCCESS,
-            )
-            inner_ids.append(inner_result.attack_result_id)
-            return inner_result
-
-        dispatcher._run_inner_attack_async = AsyncMock(side_effect=_spy)  # type: ignore[method-assign]
+        calls = _patch_child_attack(monkeypatch, bundles=bundles)
 
         result = await dispatcher._perform_async(context=_make_context())
 
-        assert len(inner_ids) == 1
-        assert result.attack_result_id != inner_ids[0]
+        assert len(calls) == 1
+        inner_result = calls[0]["result"]
+        # The envelope is a fresh wrapper owning no conversation; the inner
+        # attempt's row lives on child_attack_results.
+        assert result.attack_result_id != inner_result.attack_result_id
         assert result.outcome == AttackOutcome.SUCCESS
+        assert result.conversation_id == ""
+        assert result.child_attack_results == [inner_result]
         assert result.metadata["adaptive_attempts"] == [{"technique": "a", "technique_hash": "a", "outcome": "success"}]
 
 
