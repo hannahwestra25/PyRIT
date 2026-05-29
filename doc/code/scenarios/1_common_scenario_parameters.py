@@ -5,15 +5,15 @@
 #       extension: .py
 #       format_name: percent
 #       format_version: '1.3'
-#       jupytext_version: 1.18.1
+#       jupytext_version: 1.19.3
 # ---
 
 # %% [markdown]
 # # Common Scenario Parameters
 #
 # This guide covers the key parameters for configuring scenarios programmatically: datasets,
-# strategies, baseline execution, and custom scorers. All examples use `RedTeamAgent` but the
-# patterns apply to any scenario.
+# strategies, baseline execution, and custom scorers. Most examples use `RedTeamAgent` but the
+# patterns apply to any scenario — including [`RapidResponse`](#rapid-response-scenario).
 #
 # > **Two selection axes**: *Strategies* select attack techniques (*how* attacks run — e.g., prompt
 # > sending, role play, TAP). *Datasets* select objectives (*what* is tested — e.g., harm categories,
@@ -172,3 +172,33 @@ await custom_scenario.initialize_async(  # type: ignore
 )
 custom_result = await custom_scenario.run_async()  # type: ignore
 await output_scenario_async(custom_result)
+
+# %% [markdown]
+# ## Rapid Response Scenario
+#
+# `RapidResponse` is the content-harms testing scenario. It tests model behavior across multiple
+# harm categories (hate, fairness, violence, sexual, harassment, misinformation, leakage) using
+# selectable attack techniques (PromptSending, RolePlay, ManyShot, TAP). Unlike `RedTeamAgent`,
+# its results are grouped by **harm category** rather than by attack technique.
+#
+# The same parameter patterns from above — datasets, strategies, baseline, and custom scorers —
+# all work with `RapidResponse`.
+
+# %%
+from pyrit.scenario.scenarios.airt import RapidResponse, RapidResponseStrategy
+
+rapid_response = RapidResponse()
+
+# Use a focused dataset config — test only hate and fairness categories with 2 objectives each
+rapid_dataset_config = DatasetConfiguration(
+    dataset_names=["airt_hate", "airt_fairness"],
+    max_dataset_size=2,
+)
+
+await rapid_response.initialize_async(  # type: ignore
+    objective_target=objective_target,
+    scenario_strategies=[RapidResponseStrategy.prompt_sending],
+    dataset_config=rapid_dataset_config,
+)
+rapid_result = await rapid_response.run_async()  # type: ignore
+await output_scenario_async(rapid_result)
