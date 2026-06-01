@@ -24,9 +24,6 @@ from pyrit.registry.object_registries.attack_technique_registry import (
 from pyrit.registry.tag_query import TagQuery
 from pyrit.scenario.core.dataset_configuration import DatasetConfiguration
 from pyrit.scenario.scenarios.adaptive.adaptive_scenario import AdaptiveScenario
-from pyrit.setup.initializers.components.scenario_techniques import (
-    build_scenario_technique_factories,
-)
 
 if TYPE_CHECKING:
     from pyrit.scenario.core.scenario_strategy import ScenarioStrategy
@@ -48,6 +45,13 @@ def _build_text_adaptive_strategy() -> type[ScenarioStrategy]:
     Returns:
         type[ScenarioStrategy]: The dynamically-built strategy enum class.
     """
+    # Local import: ``scenario_techniques`` imports ``pyrit.scenario.core``,
+    # which transitively re-imports this module, so a top-level import would
+    # form a cycle during ``pyrit.scenario`` package initialization.
+    from pyrit.setup.initializers.components.scenario_techniques import (
+        build_scenario_technique_factories,
+    )
+
     factories = [
         factory for factory in build_scenario_technique_factories() if factory.name not in _EXCLUDED_TECHNIQUES
     ]

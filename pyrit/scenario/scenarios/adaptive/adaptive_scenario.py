@@ -17,6 +17,7 @@ comparison and is excluded from the adaptive technique pool.
 from __future__ import annotations
 
 import logging
+from abc import abstractmethod
 from typing import TYPE_CHECKING, ClassVar
 
 from pyrit.executor.attack import AttackScoringConfig
@@ -31,9 +32,6 @@ from pyrit.scenario.scenarios.adaptive.dispatcher import (
 from pyrit.scenario.scenarios.adaptive.selectors import (
     EpsilonGreedyTechniqueSelector,
     TechniqueSelector,
-)
-from pyrit.setup.initializers.components.scenario_techniques import (
-    build_scenario_technique_factories,
 )
 
 if TYPE_CHECKING:
@@ -63,16 +61,19 @@ class AdaptiveScenario(Scenario):
     _atomic_attack_prefix: ClassVar[str] = "adaptive"
 
     @classmethod
+    @abstractmethod
     def get_strategy_class(cls) -> type[ScenarioStrategy]:
         """Return the scenario's strategy enum (subclasses must override)."""
         raise NotImplementedError
 
     @classmethod
+    @abstractmethod
     def get_default_strategy(cls) -> ScenarioStrategy:
         """Return the scenario's default strategy aggregate (subclasses must override)."""
         raise NotImplementedError
 
     @classmethod
+    @abstractmethod
     def default_dataset_config(cls) -> DatasetConfiguration:
         """Return the scenario's default ``DatasetConfiguration`` (subclasses must override)."""
         raise NotImplementedError
@@ -120,6 +121,13 @@ class AdaptiveScenario(Scenario):
         Returns:
             dict[str, AttackTechniqueFactory]: Mapping of technique name to factory.
         """
+        # Local import: ``scenario_techniques`` imports ``pyrit.scenario.core``,
+        # which transitively re-imports this module, so a top-level import
+        # would form a cycle during ``pyrit.scenario`` package initialization.
+        from pyrit.setup.initializers.components.scenario_techniques import (
+            build_scenario_technique_factories,
+        )
+
         return {factory.name: factory for factory in build_scenario_technique_factories()}
 
     async def _get_atomic_attacks_async(self) -> list[AtomicAttack]:
