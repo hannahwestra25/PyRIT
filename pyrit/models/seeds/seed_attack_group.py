@@ -180,7 +180,11 @@ class SeedAttackGroup(SeedGroup):
         merged_seeds = base + technique_seeds if idx is None else base[:idx] + technique_seeds + base[idx:]
 
         # ``self`` and ``technique`` may be shared across multiple ``with_technique``
-        # calls. Deepcopy first so  the originals are untouched
+        # calls (e.g. the dispatcher reuses one ``bundle.seed_technique`` instance
+        # across every objective). Deepcopy first so the per-seed mutation below
+        # and the fresh group_id assigned by ``SeedAttackGroup.__init__`` only
+        # touch the returned group, leaving the originals untouched as the
+        # docstring promises.
         merged_seeds = [copy.deepcopy(seed) for seed in merged_seeds]
 
         # Clear group IDs so the new group assigns a fresh one.

@@ -20,7 +20,7 @@ import logging
 from typing import TYPE_CHECKING, ClassVar
 
 from pyrit.executor.attack import AttackScoringConfig
-from pyrit.identifiers import compute_inner_attack_eval_hash
+from pyrit.models.identifiers import compute_inner_attack_eval_hash
 from pyrit.scenario.core.atomic_attack import AtomicAttack
 from pyrit.scenario.core.attack_technique import AttackTechnique
 from pyrit.scenario.core.scenario import Scenario
@@ -32,11 +32,16 @@ from pyrit.scenario.scenarios.adaptive.selectors import (
     EpsilonGreedyTechniqueSelector,
     TechniqueSelector,
 )
+from pyrit.setup.initializers.components.scenario_techniques import (
+    build_scenario_technique_factories,
+)
 
 if TYPE_CHECKING:
     from pyrit.models import SeedAttackGroup
     from pyrit.prompt_target import PromptTarget
     from pyrit.scenario.core.attack_technique_factory import AttackTechniqueFactory
+    from pyrit.scenario.core.dataset_configuration import DatasetConfiguration
+    from pyrit.scenario.core.scenario_strategy import ScenarioStrategy
     from pyrit.score import TrueFalseScorer
 
 logger = logging.getLogger(__name__)
@@ -56,6 +61,21 @@ class AdaptiveScenario(Scenario):
 
     #: Prefix for per-objective atomic-attack names (e.g. ``"adaptive_text"``).
     _atomic_attack_prefix: ClassVar[str] = "adaptive"
+
+    @classmethod
+    def get_strategy_class(cls) -> type[ScenarioStrategy]:
+        """Return the scenario's strategy enum (subclasses must override)."""
+        raise NotImplementedError
+
+    @classmethod
+    def get_default_strategy(cls) -> ScenarioStrategy:
+        """Return the scenario's default strategy aggregate (subclasses must override)."""
+        raise NotImplementedError
+
+    @classmethod
+    def default_dataset_config(cls) -> DatasetConfiguration:
+        """Return the scenario's default ``DatasetConfiguration`` (subclasses must override)."""
+        raise NotImplementedError
 
     def __init__(
         self,
@@ -82,9 +102,25 @@ class AdaptiveScenario(Scenario):
         super().__init__(
             version=self.VERSION,
             strategy_class=self.get_strategy_class(),
+            default_strategy=self.get_default_strategy(),
+            default_dataset_config=self.default_dataset_config(),
             objective_scorer=objective_scorer,
             scenario_result_id=scenario_result_id,
         )
+
+    def _get_attack_technique_factories(self) -> dict[str, AttackTechniqueFactory]:
+        """
+        Build factories directly from the canonical scenario-techniques catalog.
+
+        Bypasses the global ``AttackTechniqueRegistry`` singleton so adaptive
+        scenarios resolve their pool from the same source list used by
+        ``_build_text_adaptive_strategy`` — no implicit dependency on registry
+        initialization order. Subclasses may override to add or replace factories.
+
+        Returns:
+            dict[str, AttackTechniqueFactory]: Mapping of technique name to factory.
+        """
+        return {factory.name: factory for factory in build_scenario_technique_factories()}
 
     async def _get_atomic_attacks_async(self) -> list[AtomicAttack]:
         """

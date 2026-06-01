@@ -18,9 +18,15 @@ from typing import TYPE_CHECKING, ClassVar
 
 from pyrit.common import apply_defaults
 from pyrit.common.parameter import Parameter
+from pyrit.registry.object_registries.attack_technique_registry import (
+    AttackTechniqueRegistry,
+)
 from pyrit.registry.tag_query import TagQuery
 from pyrit.scenario.core.dataset_configuration import DatasetConfiguration
 from pyrit.scenario.scenarios.adaptive.adaptive_scenario import AdaptiveScenario
+from pyrit.setup.initializers.components.scenario_techniques import (
+    build_scenario_technique_factories,
+)
 
 if TYPE_CHECKING:
     from pyrit.scenario.core.scenario_strategy import ScenarioStrategy
@@ -42,16 +48,13 @@ def _build_text_adaptive_strategy() -> type[ScenarioStrategy]:
     Returns:
         type[ScenarioStrategy]: The dynamically-built strategy enum class.
     """
-    from pyrit.registry.object_registries.attack_technique_registry import (
-        AttackTechniqueRegistry,
-    )
-    from pyrit.scenario.core.scenario_techniques import SCENARIO_TECHNIQUES
+    factories = [
+        factory for factory in build_scenario_technique_factories() if factory.name not in _EXCLUDED_TECHNIQUES
+    ]
 
-    filtered_specs = [spec for spec in SCENARIO_TECHNIQUES if spec.name not in _EXCLUDED_TECHNIQUES]
-
-    return AttackTechniqueRegistry.build_strategy_class_from_specs(  # type: ignore[return-value, ty:invalid-return-type]
+    return AttackTechniqueRegistry.build_strategy_class_from_factories(  # type: ignore[return-value, ty:invalid-return-type]
         class_name="TextAdaptiveStrategy",
-        specs=filtered_specs,
+        factories=factories,
         aggregate_tags={
             "default": TagQuery.any_of("default"),
             "single_turn": TagQuery.any_of("single_turn"),
