@@ -20,8 +20,8 @@ class SelectorScope:
 
     All fields default to "no restriction"; combine fields to narrow the
     scope (e.g. current run only, same scenario class, same harm category).
-    Filter values flow through :func:`compute_technique_success_rates` to
-    :meth:`MemoryInterface.get_attack_results`.
+    Filter values flow through ``compute_technique_stats`` to
+    ``MemoryInterface.get_attack_results``.
 
     The scope is held by the selector at construction time. The per-call
     ``scenario_result_id`` is supplied by the dispatcher and is forwarded
@@ -101,7 +101,7 @@ class TechniqueSelector(Protocol):
             num_top_techniques (int): Max techniques to return. Defaults to 1.
             scenario_result_id (str | None): The current scenario run ID,
                 provided by the dispatcher. Selectors forward this to
-                memory only when their :class:`SelectorScope` has
+                memory only when their ``SelectorScope`` has
                 ``current_run_only=True``.
 
         Returns:

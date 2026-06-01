@@ -11,8 +11,8 @@ import random
 import struct
 from typing import TYPE_CHECKING
 
-from pyrit.analytics.scenario_analysis import compute_technique_success_rates
-from pyrit.scenario.scenarios.adaptive.selectors.technique_selector import ADAPTIVE_TECHNIQUE_LABEL, SelectorScope
+from pyrit.analytics.technique_analysis import compute_technique_stats
+from pyrit.scenario.scenarios.adaptive.selectors.technique_selector import SelectorScope
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -67,7 +67,7 @@ class EpsilonGreedyTechniqueSelector:
             epsilon (float): Exploration probability in [0.0, 1.0]. Defaults to 0.2.
             scope (SelectorScope | None): Filter describing which historical
                 ``AttackResult`` rows to use when estimating success rates.
-                Defaults to :meth:`SelectorScope.all_runs` (all history).
+                Defaults to ``SelectorScope.all_runs()`` (all history).
             random_seed (int | None): Base seed for deterministic per-decision RNG
                 derivation. Defaults to ``None`` (non-deterministic).
 
@@ -117,9 +117,8 @@ class EpsilonGreedyTechniqueSelector:
         rng = _derive_rng(self._seed, decision_key)
 
         effective_run_id = scenario_result_id if self._scope.current_run_only else None
-        stats = compute_technique_success_rates(
-            technique_hashes=technique_list,
-            label_key=ADAPTIVE_TECHNIQUE_LABEL,
+        stats = compute_technique_stats(
+            technique_eval_hashes=technique_list,
             scenario_result_id=effective_run_id,
             attack_classes=self._scope.attack_classes,
             targeted_harm_categories=self._scope.targeted_harm_categories,

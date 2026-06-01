@@ -68,7 +68,7 @@ class AdaptiveScenario(Scenario):
             objective_scorer (TrueFalseScorer | None): Scorer used to judge each
                 response. Defaults to the composite scorer from the base class.
             selector (TechniqueSelector | None): Pre-built selector. When ``None``
-                (default) an :class:`EpsilonGreedyTechniqueSelector` is created
+                (default) an ``EpsilonGreedyTechniqueSelector`` is created
                 with default settings.
             scenario_result_id (str | None): ID of an existing ``ScenarioResult`` to resume.
         """

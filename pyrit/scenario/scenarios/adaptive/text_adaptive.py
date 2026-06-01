@@ -99,7 +99,7 @@ class TextAdaptive(AdaptiveScenario):
 
     @classmethod
     def default_dataset_config(cls) -> DatasetConfiguration:
-        """Return the default :class:`DatasetConfiguration` (required datasets, capped at 4 per dataset)."""
+        """Return the default ``DatasetConfiguration`` (required datasets, capped at 4 per dataset)."""
         return DatasetConfiguration(dataset_names=cls.required_datasets(), max_dataset_size=4)
 
     @classmethod
@@ -132,7 +132,7 @@ class TextAdaptive(AdaptiveScenario):
             objective_scorer (TrueFalseScorer | None): Scorer used to judge each
                 response. Defaults to the composite scorer from the base class.
             selector (TechniqueSelector | None): Pre-built selector. When ``None``
-                (default) an :class:`EpsilonGreedyTechniqueSelector` is created
+                (default) an ``EpsilonGreedyTechniqueSelector`` is created
                 with default settings. Pass a custom instance to tune
                 ``epsilon`` or ``random_seed``.
             scenario_result_id (str | None): ID of an existing ``ScenarioResult`` to resume.
