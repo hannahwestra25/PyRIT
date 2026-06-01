@@ -22,6 +22,7 @@ from pyrit.scenario.scenarios.adaptive.text_adaptive import TextAdaptive
 from pyrit.score import TrueFalseScorer
 
 _MOCK_MANY_SHOT_EXAMPLES = [{"question": f"q{i}", "answer": f"a{i}"} for i in range(100)]
+_FAKE_FACTORY_COUNTER = 0
 
 
 def _mock_id(name: str) -> ComponentIdentifier:
@@ -87,10 +88,20 @@ def _make_fake_factory(*, seed_technique=None, adversarial_chat=None, scoring_co
 
     Mocks the surface ``AdaptiveScenario._build_techniques_dict`` consumes
     (``factory.create(...)``, ``factory.adversarial_chat``, and
-    ``factory.scoring_config_type``).
+    ``factory.scoring_config_type``). Each call assigns a unique fake
+    attack identifier so the bundle dict keys (eval hashes) don't collide.
     """
+    global _FAKE_FACTORY_COUNTER
+    _FAKE_FACTORY_COUNTER += 1
+    fake_id = _FAKE_FACTORY_COUNTER
+
     fake_technique = MagicMock()
-    fake_technique.attack = MagicMock(name="fake-attack-strategy")
+    fake_attack = MagicMock(name=f"fake-attack-strategy-{fake_id}")
+    fake_attack.get_identifier.return_value = ComponentIdentifier(
+        class_name=f"FakeAttack{fake_id}",
+        class_module="test_text_adaptive",
+    )
+    fake_technique.attack = fake_attack
     fake_technique.seed_technique = seed_technique
     factory = MagicMock()
     factory.create.return_value = fake_technique

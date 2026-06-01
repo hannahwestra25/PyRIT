@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Sequence
 
 
 @dataclass(frozen=True)
@@ -19,33 +19,28 @@ class SelectorScope:
     queries when estimating technique success rates.
 
     All fields default to "no restriction"; combine fields to narrow the
-    scope (e.g. current run only, same scenario class, same harm category).
-    Filter values flow through ``compute_technique_stats`` to
+    scope (e.g. current run only, same harm category). Filter values flow
+    through ``compute_technique_stats`` to
     ``MemoryInterface.get_attack_results``.
 
     The scope is held by the selector at construction time. The per-call
     ``scenario_result_id`` is supplied by the dispatcher and is forwarded
     to memory only when ``current_run_only`` is set; otherwise the selector
     queries across all runs.
+
+    Per-technique disambiguation uses ``atomic_attack_identifier.eval_hash``
+    (auto-stamped on every persisted attack result), which already encodes
+    the attack class plus its behavior-relevant params. Class-based
+    narrowing is therefore unnecessary at this layer.
     """
 
     current_run_only: bool = False
     """Restrict to the dispatcher-supplied ``scenario_result_id`` for the
     in-flight run. When ``False`` (default), query across all runs."""
 
-    attack_classes: Sequence[str] | None = None
-    """Filter to results emitted by these attack / scenario class names
-    (e.g. ``["TextAdaptive"]``). Useful to keep one modality's bandit from
-    being influenced by another's history. ``None`` means no class filter."""
-
     targeted_harm_categories: Sequence[str] | None = None
     """Filter to results whose prompts targeted these harm categories.
     ``None`` means no harm-category filter."""
-
-    extra_labels: Mapping[str, str | Sequence[str]] | None = None
-    """Additional memory-label filters merged on top of the technique-hash
-    label that the selector adds internally. Use this as an escape hatch
-    for label-based filtering not covered by the named fields."""
 
     @classmethod
     def all_runs(cls) -> SelectorScope:
@@ -66,11 +61,6 @@ class SelectorScope:
             SelectorScope: A scope with ``current_run_only=True``.
         """
         return cls(current_run_only=True)
-
-
-ADAPTIVE_TECHNIQUE_LABEL: str = "_adaptive_technique"
-"""Memory-label key the dispatcher stamps on each attack result to record
-which technique was used."""
 
 
 @runtime_checkable
@@ -96,7 +86,8 @@ class TechniqueSelector(Protocol):
         Return techniques in priority order (try first, try second, …).
 
         Args:
-            technique_identifiers (Sequence[str]): Available technique names.
+            technique_identifiers (Sequence[str]): Available technique eval
+                hashes.
             objective (str): The objective text for this selection.
             num_top_techniques (int): Max techniques to return. Defaults to 1.
             scenario_result_id (str | None): The current scenario run ID,
@@ -105,7 +96,8 @@ class TechniqueSelector(Protocol):
                 ``current_run_only=True``.
 
         Returns:
-            Sequence[str]: Up to ``num_top_techniques`` technique names in
-                priority order. Fewer if not enough techniques are available.
+            Sequence[str]: Up to ``num_top_techniques`` technique eval hashes
+                in priority order. Fewer if not enough techniques are
+                available.
         """
         ...  # pragma: no cover

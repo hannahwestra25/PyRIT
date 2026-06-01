@@ -13,7 +13,6 @@ from pyrit.executor.attack.compound.sequential_attack import (
 from pyrit.models import AttackOutcome, AttackResult, SeedAttackGroup, SeedObjective
 from pyrit.scenario.scenarios.adaptive.dispatcher import (
     ADAPTIVE_ATTEMPT_LABEL,
-    ADAPTIVE_TECHNIQUE_LABEL,
     AdaptiveDispatchAttack,
     AdaptiveDispatchContext,
     AdaptiveDispatchParams,
@@ -200,8 +199,10 @@ class TestPerform:
 
         labels = calls[0]["attempt_labels"]
         assert labels["foo"] == "bar"
-        assert labels[ADAPTIVE_TECHNIQUE_LABEL] == "a"
         assert labels[ADAPTIVE_ATTEMPT_LABEL] == "1"
+        # The dispatcher no longer stamps a technique label — per-technique
+        # disambiguation lives on the persisted ``atomic_attack_identifier.eval_hash``.
+        assert "_adaptive_technique" not in labels
 
     async def test_metadata_records_adaptive_trail(self, target, seed_group, monkeypatch):
         bundles = {

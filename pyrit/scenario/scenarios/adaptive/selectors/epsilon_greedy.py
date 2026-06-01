@@ -120,9 +120,7 @@ class EpsilonGreedyTechniqueSelector:
         stats = compute_technique_stats(
             technique_eval_hashes=technique_list,
             scenario_result_id=effective_run_id,
-            attack_classes=self._scope.attack_classes,
             targeted_harm_categories=self._scope.targeted_harm_categories,
-            extra_labels=self._scope.extra_labels,
         )
 
         chosen: list[str] = []

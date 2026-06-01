@@ -20,6 +20,7 @@ import logging
 from typing import TYPE_CHECKING, ClassVar
 
 from pyrit.executor.attack import AttackScoringConfig
+from pyrit.identifiers import compute_inner_attack_eval_hash
 from pyrit.scenario.core.atomic_attack import AtomicAttack
 from pyrit.scenario.core.attack_technique import AttackTechnique
 from pyrit.scenario.core.scenario import Scenario
@@ -140,10 +141,13 @@ class AdaptiveScenario(Scenario):
         ``seed_technique`` and ``adversarial_chat`` so the dispatcher can
         reproduce the static ``AtomicAttack`` execution path per attempt.
 
-        Technique keys are eval hashes derived from the ``AttackTechnique``
-        identity (strategy + seed_technique configuration). This allows the
-        selector and analytics to track techniques by their behavioral
-        configuration rather than by name alone.
+        Technique keys are eval hashes derived from the inner attack strategy's
+        identifier (run through ``AtomicAttackEvaluationIdentifier`` so seeds,
+        scorers, and operational target params are excluded). The same hash is
+        auto-stamped on every persisted ``AttackResultEntry.atomic_attack_identifier``
+        by the executor, which lets the selector aggregate historical success
+        rates by behavioral configuration via
+        ``MemoryInterface.get_attack_results(atomic_attack_eval_hashes=...)``.
 
         For factories whose attack class narrows ``attack_scoring_config`` to a
         specific subtype (e.g. ``TAPAttackScoringConfig`` for TAP), this method
@@ -182,8 +186,7 @@ class AdaptiveScenario(Scenario):
                 skipped_incompatible[technique_name] = str(exc)
                 logger.warning(f"Skipping technique '{technique_name}': {type(exc).__name__}: {exc}")
                 continue
-            eval_hash = technique.get_identifier().hash
-            assert eval_hash is not None, f"Technique {technique_name!r} produced no identifier hash"
+            eval_hash = compute_inner_attack_eval_hash(attack=technique.attack)
             techniques[eval_hash] = TechniqueBundle(
                 attack=technique.attack,
                 name=technique_name,

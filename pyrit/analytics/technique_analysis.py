@@ -12,96 +12,73 @@ from pyrit.memory import CentralMemory
 from pyrit.models import AttackOutcome
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Sequence
 
     from pyrit.memory.memory_interface import MemoryInterface
-
-
-# Must match ``ADAPTIVE_TECHNIQUE_LABEL`` in
-# ``pyrit.scenario.scenarios.adaptive.selectors.technique_selector``. Kept inline
-# so the analytics layer doesn't import from the scenarios layer; a unit test
-# asserts the two stay in sync.
-_DEFAULT_TECHNIQUE_LABEL_KEY = "_adaptive_technique"
 
 
 def compute_technique_stats(
     *,
     technique_eval_hashes: Sequence[str],
-    label_key: str = _DEFAULT_TECHNIQUE_LABEL_KEY,
     scenario_result_id: str | None = None,
-    attack_classes: Sequence[str] | None = None,
     targeted_harm_categories: Sequence[str] | None = None,
-    extra_labels: Mapping[str, str | Sequence[str]] | None = None,
     memory: MemoryInterface | None = None,
 ) -> dict[str, AttackStats]:
     """
-    Query memory for historical outcome stats grouped by technique eval hash.
+    Compute per-technique outcome statistics from persisted attack results.
 
-    Fetches all ``AttackResult`` rows whose memory labels contain
-    ``label_key`` matching one of ``technique_eval_hashes``, then aggregates
-    outcomes into per-technique ``AttackStats``.
-
-    By default queries across all scenario runs. Pass any subset of the
-    optional filters to narrow the historical window.
+    Queries memory for all ``AttackResult`` rows whose
+    ``atomic_attack_identifier.eval_hash`` matches one of
+    ``technique_eval_hashes``, then aggregates outcomes into per-technique
+    ``AttackStats``. The eval hash is auto-stamped on every persisted result
+    by ``AtomicAttackEvaluationIdentifier`` and is the canonical primitive
+    for behavioral-equivalence aggregation (seeds excluded, scorer excluded,
+    only behavior-relevant target params included).
 
     Args:
-        technique_eval_hashes (Sequence[str]): Technique eval hashes to
-            aggregate. Returned dict is keyed by these.
-        label_key (str): Memory-label key that stores the technique hash.
-            Defaults to the key the adaptive dispatcher stamps
-            (``"_adaptive_technique"``); override only for custom callers.
+        technique_eval_hashes (Sequence[str]): Eval hashes to aggregate.
+            Returned dict is keyed by these.
         scenario_result_id (str | None): Restrict to a single scenario run.
             Defaults to ``None`` (aggregate across all runs).
-        attack_classes (Sequence[str] | None): Restrict to results emitted
-            by these attack / scenario class names. Forwarded to
-            ``memory.get_attack_results``. Defaults to ``None``.
         targeted_harm_categories (Sequence[str] | None): Restrict to results
-            whose prompts target these harm categories. Defaults to ``None``.
-        extra_labels (Mapping[str, str | Sequence[str]] | None): Additional
-            memory-label filters merged on top of the
-            ``{label_key: technique_eval_hashes}`` filter the function always
-            applies. Keys that collide with ``label_key`` are ignored
-            (the technique-hash filter wins). Defaults to ``None``.
+            whose prompts targeted these harm categories. Defaults to ``None``.
         memory (MemoryInterface | None): Memory backend to query. Defaults to
             ``CentralMemory.get_memory_instance()``.
 
     Returns:
-        dict[str, AttackStats]: Stats per technique eval hash. Techniques
-            with no matching history are omitted from the result.
+        dict[str, AttackStats]: Stats per technique eval hash. Hashes with no
+            historical results are omitted from the result.
     """
-    labels: dict[str, str | Sequence[str]] = {label_key: list(technique_eval_hashes)}
-    if extra_labels:
-        for key, value in extra_labels.items():
-            if key == label_key:
-                continue
-            labels[key] = value
+    if not technique_eval_hashes:
+        return {}
 
     if memory is None:
         memory = CentralMemory.get_memory_instance()
     results = memory.get_attack_results(
-        labels=labels,
+        atomic_attack_eval_hashes=list(technique_eval_hashes),
         scenario_result_id=scenario_result_id,
-        attack_classes=attack_classes,
         targeted_harm_categories=targeted_harm_categories,
     )
 
+    requested = set(technique_eval_hashes)
     counts: dict[str, tuple[int, int, int, int]] = {}
     for result in results:
-        technique = result.labels.get(label_key)
-        if not technique or technique not in technique_eval_hashes:
+        identifier = result.atomic_attack_identifier
+        eval_hash = identifier.eval_hash if identifier is not None else None
+        if eval_hash is None or eval_hash not in requested:
             continue
 
-        s, f, u, e = counts.get(technique, (0, 0, 0, 0))
+        s, f, u, e = counts.get(eval_hash, (0, 0, 0, 0))
         if result.outcome == AttackOutcome.SUCCESS:
-            counts[technique] = (s + 1, f, u, e)
+            counts[eval_hash] = (s + 1, f, u, e)
         elif result.outcome == AttackOutcome.FAILURE:
-            counts[technique] = (s, f + 1, u, e)
+            counts[eval_hash] = (s, f + 1, u, e)
         elif result.outcome == AttackOutcome.ERROR:
-            counts[technique] = (s, f, u, e + 1)
+            counts[eval_hash] = (s, f, u, e + 1)
         else:
-            counts[technique] = (s, f, u + 1, e)
+            counts[eval_hash] = (s, f, u + 1, e)
 
-    stats: dict[str, AttackStats] = {}
-    for technique, (s, f, u, e) in counts.items():
-        stats[technique] = _compute_stats(successes=s, failures=f, undetermined=u, errors=e)
-    return stats
+    return {
+        eval_hash: _compute_stats(successes=s, failures=f, undetermined=u, errors=e)
+        for eval_hash, (s, f, u, e) in counts.items()
+    }

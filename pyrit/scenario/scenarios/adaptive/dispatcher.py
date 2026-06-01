@@ -35,7 +35,6 @@ from pyrit.executor.attack.compound.sequential_attack import (
 )
 from pyrit.executor.attack.core.attack_parameters import AttackParameters
 from pyrit.executor.attack.core.attack_strategy import AttackContext, AttackStrategy
-from pyrit.scenario.scenarios.adaptive.selectors.technique_selector import ADAPTIVE_TECHNIQUE_LABEL
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -233,10 +232,14 @@ class AdaptiveDispatchAttack(AttackStrategy[AdaptiveDispatchContext, SequentialA
 
         Per chosen technique: merge ``bundle.seed_technique`` into
         ``seed_group`` (if any), and stamp the per-attempt
-        ``ADAPTIVE_TECHNIQUE_LABEL`` and ``ADAPTIVE_ATTEMPT_LABEL`` memory
-        labels. ``SequentialAttack`` further merges these with the
-        compound's own ``context.memory_labels`` at dispatch time, so the
-        outer caller's labels still propagate to every attempt.
+        ``ADAPTIVE_ATTEMPT_LABEL`` memory label. ``SequentialAttack``
+        further merges this with the compound's own ``context.memory_labels``
+        at dispatch time, so the outer caller's labels still propagate to
+        every attempt.
+
+        Per-technique disambiguation in analytics relies on the
+        auto-stamped ``atomic_attack_identifier.eval_hash`` on each
+        persisted attempt row, not a custom label.
 
         Args:
             seed_group (SeedAttackGroup): The seed group for this dispatch call.
@@ -262,7 +265,6 @@ class AdaptiveDispatchAttack(AttackStrategy[AdaptiveDispatchContext, SequentialA
                     adversarial_chat=bundle.adversarial_chat,
                     objective_scorer=self._objective_scorer,
                     memory_labels={
-                        ADAPTIVE_TECHNIQUE_LABEL: chosen,
                         ADAPTIVE_ATTEMPT_LABEL: str(attempt_idx + 1),
                     },
                 )

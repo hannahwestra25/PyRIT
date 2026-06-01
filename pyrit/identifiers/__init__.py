@@ -22,6 +22,7 @@ from pyrit.identifiers.evaluation_identifier import (
     EvaluationIdentifier,
     ScorerEvaluationIdentifier,
     compute_eval_hash,
+    compute_inner_attack_eval_hash,
 )
 from pyrit.identifiers.identifier_filters import IdentifierFilter, IdentifierType
 
@@ -33,6 +34,7 @@ __all__ = [
     "class_name_to_snake_case",
     "ComponentIdentifier",
     "compute_eval_hash",
+    "compute_inner_attack_eval_hash",
     "EvaluationIdentifier",
     "Identifiable",
     "REGISTRY_NAME_PATTERN",
