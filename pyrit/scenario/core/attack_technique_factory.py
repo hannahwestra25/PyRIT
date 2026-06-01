@@ -162,15 +162,7 @@ class AttackTechniqueFactory(Identifiable):
 
     @property
     def scoring_config_type(self) -> type | None:
-        """
-        The narrowed ``attack_scoring_config`` annotation declared by the attack class.
-
-        Returns the concrete subtype of ``AttackScoringConfig`` the attack's
-        constructor expects (e.g. ``TAPAttackScoringConfig`` for TAP), or ``None``
-        when the base type is accepted or the annotation cannot be resolved.
-        Callers can use this to build a config of the right shape before invoking
-        ``create``.
-        """
+        """The required ``attack_scoring_config`` subtype, or ``None`` if any config is accepted."""
         return self._get_scoring_config_type()
 
     def create(
