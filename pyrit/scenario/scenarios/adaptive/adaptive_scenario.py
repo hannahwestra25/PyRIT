@@ -35,6 +35,7 @@ from pyrit.scenario.scenarios.adaptive.selectors import (
 if TYPE_CHECKING:
     from pyrit.models import SeedAttackGroup
     from pyrit.prompt_target import PromptTarget
+    from pyrit.scenario.core.attack_technique_factory import AttackTechniqueFactory
     from pyrit.score import TrueFalseScorer
 
 logger = logging.getLogger(__name__)
@@ -144,6 +145,13 @@ class AdaptiveScenario(Scenario):
         selector and analytics to track techniques by their behavioral
         configuration rather than by name alone.
 
+        For factories whose attack class narrows ``attack_scoring_config`` to a
+        specific subtype (e.g. ``TAPAttackScoringConfig`` for TAP), this method
+        builds the matching subtype using the scenario's objective scorer.
+        Techniques whose factory rejects the scenario scorer at construction
+        time (e.g. TAP also requires a ``FloatScaleThresholdScorer`` at runtime)
+        are dropped with a warning so the rest of the pool continues to run.
+
         Returns:
             dict[str, TechniqueBundle]: Mapping from technique eval hash to its
                 bundle, in the order selected strategies were resolved.
@@ -154,20 +162,26 @@ class AdaptiveScenario(Scenario):
         """
         selected_techniques = sorted({s.value for s in self._scenario_strategies})
         factories = self._get_attack_technique_factories()
-        scoring_config = AttackScoringConfig(objective_scorer=self._objective_scorer)
 
         techniques: dict[str, TechniqueBundle] = {}
         skipped_no_factory: list[str] = []
+        skipped_incompatible: dict[str, str] = {}
         for technique_name in selected_techniques:
             factory = factories.get(technique_name)
             if factory is None:
                 skipped_no_factory.append(technique_name)
                 logger.warning(f"No factory for technique '{technique_name}', skipping.")
                 continue
-            technique = factory.create(
-                objective_target=objective_target,
-                attack_scoring_config=scoring_config,
-            )
+            scoring_config = self._build_scoring_config_for_factory(factory=factory)
+            try:
+                technique = factory.create(
+                    objective_target=objective_target,
+                    attack_scoring_config=scoring_config,
+                )
+            except (TypeError, ValueError) as exc:
+                skipped_incompatible[technique_name] = str(exc)
+                logger.warning(f"Skipping technique '{technique_name}': {type(exc).__name__}: {exc}")
+                continue
             eval_hash = technique.get_identifier().hash
             assert eval_hash is not None, f"Technique {technique_name!r} produced no identifier hash"
             techniques[eval_hash] = TechniqueBundle(
@@ -178,13 +192,42 @@ class AdaptiveScenario(Scenario):
             )
 
         if not techniques:
-            suffix = f" (skipped, no factory registered: {sorted(skipped_no_factory)})" if skipped_no_factory else ""
+            details: list[str] = []
+            if skipped_no_factory:
+                details.append(f"no factory registered: {sorted(skipped_no_factory)}")
+            if skipped_incompatible:
+                details.append(f"incompatible with scenario scorer: {sorted(skipped_incompatible)}")
+            suffix = f" ({'; '.join(details)})" if details else ""
             raise ValueError(
                 f"{type(self).__name__}: no usable techniques after resolving strategies. "
                 f"Check the --strategies selection.{suffix}"
             )
 
         return techniques
+
+    def _build_scoring_config_for_factory(self, *, factory: AttackTechniqueFactory) -> AttackScoringConfig:
+        """
+        Build the most specific scoring config the factory's attack class accepts.
+
+        When the attack's constructor narrows ``attack_scoring_config`` to a
+        subtype of ``AttackScoringConfig`` (e.g. TAP requires
+        ``TAPAttackScoringConfig``), construct that subtype directly so the
+        factory does not have to fall back to its WARN policy and silently
+        substitute an internal default scorer. When the subtype itself rejects
+        the scenario's objective scorer at construction, fall back to the base
+        ``AttackScoringConfig``; ``_build_techniques_dict`` will then catch the
+        constructor-time rejection and skip the technique.
+
+        Returns:
+            AttackScoringConfig: The most specific config that could be built.
+        """
+        required = factory.scoring_config_type
+        if required is None or required is AttackScoringConfig:
+            return AttackScoringConfig(objective_scorer=self._objective_scorer)
+        try:
+            return required(objective_scorer=self._objective_scorer)
+        except (TypeError, ValueError):
+            return AttackScoringConfig(objective_scorer=self._objective_scorer)
 
     def _build_atomic_for_dataset(
         self,

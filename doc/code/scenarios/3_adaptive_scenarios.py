@@ -146,31 +146,59 @@ await printer.write_async(resumed_result)  # type: ignore
 # - `adaptive_attempts` — the ordered list of `{"technique", "outcome"}` dicts
 #   recording exactly which techniques the selector picked and what happened.
 #
-# Walk that metadata to see the per-objective trail and aggregate counts.
+# Walk that metadata to see per-objective trails grouped by dataset, with a
+# per-technique success-rate table inside each group and a grand-total at the
+# bottom. Use `result.get_display_groups()` to aggregate `attack_results` by
+# the per-dataset display label set by the scenario.
 
 # %%
 from collections import Counter
 
-# Per-objective trail
-for results in resumed_result.attack_results.values():
+# Per-group: one line per objective (the envelope, carrying the technique trail)
+# plus a per-technique success-rate table within the group. Each adaptive run
+# persists both the per-objective envelope AND its per-attempt child rows; the
+# children are filtered out of the per-objective list so it stays one line per
+# objective. Aggregate across groups for a final grand-total table.
+display_groups = resumed_result.get_display_groups()
+
+total_picks: Counter[str] = Counter()
+total_wins: Counter[str] = Counter()
+
+for group_name, results in display_groups.items():
+    print(f"\n=== Group: {group_name} ===")
+
+    # Collect every child id referenced by any envelope in this group so we
+    # can skip the per-attempt child rows when printing per-objective lines.
+    # Baseline rows have no envelope and pass through untouched.
+    child_ids: set[str] = set()
     for r in results:
+        child_ids.update(r.metadata.get("child_attack_result_ids", []) or [])
+
+    for r in results:
+        if r.attack_result_id in child_ids:
+            continue
         attempts = r.metadata.get("adaptive_attempts", [])
         trail = " → ".join(f"{a['technique']}({a['outcome']})" for a in attempts)
-        print(f"[{r.outcome.value:7s}] {r.objective!r}: {trail}")
+        print(f"  [{r.outcome.value:7s}] {r.objective!r}: {trail}")
 
-# Aggregate per-technique pick counts and success rate across the run
-picks: Counter[str] = Counter()
-wins: Counter[str] = Counter()
-for results in resumed_result.attack_results.values():
+    picks: Counter[str] = Counter()
+    wins: Counter[str] = Counter()
     for r in results:
         for step in r.metadata.get("adaptive_attempts", []):
             picks[step["technique"]] += 1
+            total_picks[step["technique"]] += 1
             if step["outcome"] == "success":
                 wins[step["technique"]] += 1
+                total_wins[step["technique"]] += 1
 
-print("\nTechnique             wins / picks   rate")
-for technique, n in picks.most_common():
-    print(f"{technique:20s}  {wins[technique]:>4} / {n:<4}   {wins[technique] / n:.0%}")
+    print("\n  Technique             wins / picks   rate")
+    for technique, n in picks.most_common():
+        print(f"  {technique:20s}  {wins[technique]:>4} / {n:<4}   {wins[technique] / n:.0%}")
+
+print("\n=== Overall ===")
+print("Technique             wins / picks   rate")
+for technique, n in total_picks.most_common():
+    print(f"{technique:20s}  {total_wins[technique]:>4} / {n:<4}   {total_wins[technique] / n:.0%}")
 
 # %% [markdown]
 # ## Running from the scanner CLI

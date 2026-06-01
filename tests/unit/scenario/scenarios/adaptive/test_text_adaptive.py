@@ -82,11 +82,12 @@ def _make_seed_group(*, value: str, harm_categories: list[str] | None = None) ->
     return SeedAttackGroup(seeds=[SeedObjective(value=value, harm_categories=harm_categories)])
 
 
-def _make_fake_factory(*, seed_technique=None, adversarial_chat=None) -> MagicMock:
+def _make_fake_factory(*, seed_technique=None, adversarial_chat=None, scoring_config_type=None) -> MagicMock:
     """Return a stub attack-technique factory that produces a fake ``AttackTechnique``.
 
     Mocks the surface ``AdaptiveScenario._build_techniques_dict`` consumes
-    (``factory.create(...)`` and ``factory.adversarial_chat``).
+    (``factory.create(...)``, ``factory.adversarial_chat``, and
+    ``factory.scoring_config_type``).
     """
     fake_technique = MagicMock()
     fake_technique.attack = MagicMock(name="fake-attack-strategy")
@@ -94,6 +95,7 @@ def _make_fake_factory(*, seed_technique=None, adversarial_chat=None) -> MagicMo
     factory = MagicMock()
     factory.create.return_value = fake_technique
     factory.adversarial_chat = adversarial_chat
+    factory.scoring_config_type = scoring_config_type
     return factory
 
 
@@ -357,6 +359,101 @@ class TestTextAdaptiveAtomicAttacks:
         assert len(attacks) == 1
         # Skip was logged with the affected objective value.
         assert any("obj-skip" in record.getMessage() for record in caplog.records)
+
+    async def test_factory_with_narrowed_scoring_config_type_receives_subtype(
+        self, mock_objective_target, mock_objective_scorer
+    ):
+        """When a factory's attack class narrows ``attack_scoring_config`` to a
+        subtype, the scenario builds and passes that subtype to ``create``."""
+        from pyrit.executor.attack import AttackScoringConfig
+
+        class NarrowScoringConfig(AttackScoringConfig):
+            pass
+
+        groups = {"violence": [_make_seed_group(value="obj")]}
+        narrow_factory = _make_fake_factory(scoring_config_type=NarrowScoringConfig)
+        with (
+            patch.object(DatasetConfiguration, "get_seed_attack_groups", return_value=groups),
+            patch.object(SeedAttackGroup, "is_compatible_with_technique", return_value=True),
+        ):
+            scenario = TextAdaptive(objective_scorer=mock_objective_scorer)
+            strategy_class = scenario.get_strategy_class()
+            with patch.object(
+                scenario,
+                "_get_attack_technique_factories",
+                return_value={"role_play": narrow_factory},
+            ):
+                await scenario.initialize_async(
+                    objective_target=mock_objective_target,
+                    include_baseline=False,
+                    scenario_strategies=[strategy_class("role_play")],
+                )
+
+        narrow_factory.create.assert_called_once()
+        kwargs = narrow_factory.create.call_args.kwargs
+        passed_config = kwargs["attack_scoring_config"]
+        assert isinstance(passed_config, NarrowScoringConfig)
+        assert passed_config.objective_scorer is mock_objective_scorer
+
+    async def test_factory_create_failure_skips_technique(self, mock_objective_target, mock_objective_scorer, caplog):
+        """A factory whose ``create`` raises ``ValueError`` (e.g. the attack
+        rejects the scenario's objective scorer) is logged and skipped, while
+        sibling techniques still build successfully.
+        """
+        import logging
+
+        groups = {"violence": [_make_seed_group(value="obj")]}
+        good_factory = _make_fake_factory()
+        bad_factory = _make_fake_factory()
+        bad_factory.create.side_effect = ValueError("requires FloatScaleThresholdScorer")
+
+        with (
+            patch.object(DatasetConfiguration, "get_seed_attack_groups", return_value=groups),
+            patch.object(SeedAttackGroup, "is_compatible_with_technique", return_value=True),
+        ):
+            scenario = TextAdaptive(objective_scorer=mock_objective_scorer)
+            strategy_class = scenario.get_strategy_class()
+            factories = {"role_play": good_factory, "tap": bad_factory}
+            with patch.object(scenario, "_get_attack_technique_factories", return_value=factories):
+                with caplog.at_level(logging.WARNING):
+                    await scenario.initialize_async(
+                        objective_target=mock_objective_target,
+                        include_baseline=False,
+                        scenario_strategies=[strategy_class("role_play"), strategy_class("tap")],
+                    )
+                    attacks = scenario._atomic_attacks
+
+        assert len(attacks) == 1
+        dispatcher = attacks[0]._attack_technique.attack
+        assert isinstance(dispatcher, AdaptiveDispatchAttack)
+        technique_names = {b.name for b in dispatcher._techniques.values()}
+        assert technique_names == {"role_play"}
+        assert any("tap" in r.getMessage() and "Skipping" in r.getMessage() for r in caplog.records)
+
+    async def test_all_factories_failing_raises_with_reason(self, mock_objective_target, mock_objective_scorer):
+        """When every technique's ``create`` fails, ``_build_techniques_dict``
+        raises a ``ValueError`` that names the incompatible technique(s)."""
+        groups = {"violence": [_make_seed_group(value="obj")]}
+        bad_factory = _make_fake_factory()
+        bad_factory.create.side_effect = ValueError("requires FloatScaleThresholdScorer")
+
+        with (
+            patch.object(DatasetConfiguration, "get_seed_attack_groups", return_value=groups),
+            patch.object(SeedAttackGroup, "is_compatible_with_technique", return_value=True),
+        ):
+            scenario = TextAdaptive(objective_scorer=mock_objective_scorer)
+            strategy_class = scenario.get_strategy_class()
+            with patch.object(
+                scenario,
+                "_get_attack_technique_factories",
+                return_value={"tap": bad_factory},
+            ):
+                with pytest.raises(ValueError, match="incompatible with scenario scorer.*tap"):
+                    await scenario.initialize_async(
+                        objective_target=mock_objective_target,
+                        include_baseline=False,
+                        scenario_strategies=[strategy_class("tap")],
+                    )
 
 
 @pytest.mark.usefixtures(*FIXTURES)

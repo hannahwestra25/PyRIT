@@ -38,6 +38,8 @@ from pyrit.executor.attack.core.attack_strategy import AttackContext, AttackStra
 from pyrit.scenario.scenarios.adaptive.selectors.technique_selector import ADAPTIVE_TECHNIQUE_LABEL
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from pyrit.models import AttackResult, SeedAttackGroup, SeedAttackTechniqueGroup
     from pyrit.prompt_target import PromptTarget
     from pyrit.scenario.scenarios.adaptive.selectors import TechniqueSelector
@@ -224,7 +226,7 @@ class AdaptiveDispatchAttack(AttackStrategy[AdaptiveDispatchContext, SequentialA
         self,
         *,
         seed_group: SeedAttackGroup,
-        chosen_techniques: list[str],
+        chosen_techniques: Sequence[str],
     ) -> list[SequentialChildAttack]:
         """
         Build the ``SequentialChildAttack`` list handed to ``SequentialAttack``.
@@ -238,7 +240,7 @@ class AdaptiveDispatchAttack(AttackStrategy[AdaptiveDispatchContext, SequentialA
 
         Args:
             seed_group (SeedAttackGroup): The seed group for this dispatch call.
-            chosen_techniques (list[str]): Technique eval hashes returned by
+            chosen_techniques (Sequence[str]): Technique eval hashes returned by
                 the selector, in priority order.
 
         Returns:
@@ -270,7 +272,7 @@ class AdaptiveDispatchAttack(AttackStrategy[AdaptiveDispatchContext, SequentialA
     def _build_adaptive_trail(
         self,
         *,
-        chosen_techniques: list[str],
+        chosen_techniques: Sequence[str],
         child_results: list[AttackResult],
     ) -> list[dict[str, str]]:
         """
@@ -305,6 +307,11 @@ class AdaptiveDispatchAttack(AttackStrategy[AdaptiveDispatchContext, SequentialA
         with ``SequenceCompletionPolicy.FIRST_SUCCESS``, and delegates
         iteration + stop-on-success + envelope construction. Stamps the
         ``adaptive_attempts`` trail on the envelope before returning.
+
+        Drives the inner sequence via ``_perform_async`` (not
+        ``execute_async``) so the outer dispatcher remains the sole owner
+        of envelope persistence; ``_attribution`` is forwarded so child
+        rows keep the scenario linkage.
 
         Args:
             context (AdaptiveDispatchContext): Execution context whose
@@ -355,10 +362,17 @@ class AdaptiveDispatchAttack(AttackStrategy[AdaptiveDispatchContext, SequentialA
             completion_policy=SequenceCompletionPolicy.FIRST_SUCCESS,
         )
 
-        result: SequentialAttackResult = await sequential.execute_async(
+        # Call ``_perform_async`` directly; ``execute_async`` would persist the same
+        # envelope a second time and trip an IntegrityError. Forward ``_attribution``
+        # so child rows still carry the scenario linkage.
+        inner_params = sequential._params_type(
             objective=context.objective,
             memory_labels=dict(context.memory_labels),
         )
+        inner_context = sequential._context_type(params=inner_params)
+        inner_context._attribution = context._attribution
+
+        result: SequentialAttackResult = await sequential._perform_async(context=inner_context)
 
         result.metadata[self.ADAPTIVE_ATTEMPTS_KEY] = self._build_adaptive_trail(
             chosen_techniques=chosen_techniques,

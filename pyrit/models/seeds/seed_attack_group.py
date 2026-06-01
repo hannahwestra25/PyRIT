@@ -9,6 +9,7 @@ Extends SeedGroup to enforce exactly one objective is present.
 
 from __future__ import annotations
 
+import copy
 from typing import TYPE_CHECKING, Any, Union
 
 from pyrit.models.seeds.seed_group import SeedGroup
@@ -178,9 +179,13 @@ class SeedAttackGroup(SeedGroup):
         technique_seeds = list(technique.seeds)
         merged_seeds = base + technique_seeds if idx is None else base[:idx] + technique_seeds + base[idx:]
 
+        # ``self`` and ``technique`` may be shared across multiple ``with_technique``
+        # calls. Deepcopy first so  the originals are untouched
+        merged_seeds = [copy.deepcopy(seed) for seed in merged_seeds]
+
         # Clear group IDs so the new group assigns a fresh one.
-        # This mutates the seed objects, but _enforce_consistent_group_id
-        # in the constructor will immediately overwrite with a new UUID.
+        # ``_enforce_consistent_group_id`` in the constructor will overwrite
+        # all of them with a single new UUID.
         for seed in merged_seeds:
             seed.prompt_group_id = None
 
