@@ -16,7 +16,7 @@ from pyrit.registry.object_registries.attack_technique_registry import AttackTec
 from pyrit.scenario.core.dataset_configuration import DatasetConfiguration
 from pyrit.scenario.core.scenario import BaselineAttackPolicy
 from pyrit.scenario.scenarios.adaptive.dispatcher import (
-    AdaptiveDispatchAttack,
+    AdaptiveTechniqueDispatcher,
 )
 from pyrit.scenario.scenarios.adaptive.text_adaptive import TextAdaptive
 from pyrit.score import TrueFalseScorer
@@ -174,7 +174,7 @@ class TestTextAdaptiveAtomicAttacks:
             )
             return scenario, await scenario._get_atomic_attacks_async()
 
-    async def test_one_atomic_per_dataset(self, mock_objective_target, mock_objective_scorer):
+    async def test_one_atomic_per_objective(self, mock_objective_target, mock_objective_scorer):
         groups = {
             "violence": [
                 _make_seed_group(value="obj-v1", harm_categories=["violence"]),
@@ -189,36 +189,43 @@ class TestTextAdaptiveAtomicAttacks:
             mock_objective_scorer=mock_objective_scorer,
             seed_groups=groups,
         )
-        # One atomic per dataset, carrying all that dataset's seed groups.
-        assert len(attacks) == 2
-        total_seed_groups = sum(len(a.seed_groups) for a in attacks)
-        assert total_seed_groups == 3
+        # One atomic per objective; each carries exactly one seed group.
+        assert len(attacks) == 3
+        for a in attacks:
+            assert len(a.seed_groups) == 1
 
-    async def test_atomics_share_one_selector_across_dispatchers(self, mock_objective_target, mock_objective_scorer):
+    async def test_dispatchers_share_one_selector(self, mock_objective_target, mock_objective_scorer):
+        """All per-dataset dispatchers share one TechniqueSelector instance so
+        learning accumulates globally (selection is committed up-front but the
+        selector is still shared by reference across constructions).
+        """
+        selectors_seen: list = []
+        real_init = AdaptiveTechniqueDispatcher.__init__
+
+        def _spy_init(self, *args, **kwargs):
+            selectors_seen.append(kwargs["selector"])
+            return real_init(self, *args, **kwargs)
+
         groups = {
-            "violence": [
-                _make_seed_group(value="obj-v1", harm_categories=["violence"]),
-                _make_seed_group(value="obj-v2", harm_categories=["violence"]),
-            ],
-            "hate": [
-                _make_seed_group(value="obj-h1", harm_categories=["hate"]),
-            ],
+            "violence": [_make_seed_group(value="obj-v1", harm_categories=["violence"])],
+            "hate": [_make_seed_group(value="obj-h1", harm_categories=["hate"])],
         }
-        _scenario, attacks = await self._build_scenario_and_attacks(
-            mock_objective_target=mock_objective_target,
-            mock_objective_scorer=mock_objective_scorer,
-            seed_groups=groups,
-        )
-        dispatchers = [atomic._attack_technique.attack for atomic in attacks]
-        # One dispatcher per dataset (atomic).
-        assert len({id(d) for d in dispatchers}) == len(attacks)
-        for d in dispatchers:
-            assert isinstance(d, AdaptiveDispatchAttack)
-        # All dispatchers share the same selector so learning is global.
-        selectors = {id(d._selector) for d in dispatchers}
-        assert len(selectors) == 1
+        with patch.object(DatasetConfiguration, "get_seed_attack_groups", return_value=groups):
+            scenario = TextAdaptive(objective_scorer=mock_objective_scorer)
+            await scenario.initialize_async(
+                objective_target=mock_objective_target,
+                include_baseline=False,
+            )
+            # Only spy on the explicit invocation so the initialize_async call
+            # doesn't double-count dispatchers.
+            with patch.object(AdaptiveTechniqueDispatcher, "__init__", _spy_init):
+                await scenario._get_atomic_attacks_async()
 
-    async def test_atomic_names_are_dataset_scoped(self, mock_objective_target, mock_objective_scorer):
+        # One dispatcher per dataset; all share the same selector identity.
+        assert len(selectors_seen) == 2
+        assert len({id(s) for s in selectors_seen}) == 1
+
+    async def test_atomic_names_contain_dataset_and_objective_hash(self, mock_objective_target, mock_objective_scorer):
         groups = {
             "violence": [_make_seed_group(value=f"obj-{i}", harm_categories=["violence"]) for i in range(5)],
             "hate": [_make_seed_group(value=f"hate-{i}", harm_categories=["hate"]) for i in range(3)],
@@ -228,10 +235,11 @@ class TestTextAdaptiveAtomicAttacks:
             mock_objective_scorer=mock_objective_scorer,
             seed_groups=groups,
         )
-        names = {atomic.atomic_attack_name for atomic in attacks}
-        # One atomic name per dataset; the dataset name is embedded.
-        assert len(names) == len(groups)
-        assert all(any(ds in name for ds in groups) for name in names)
+        names = [atomic.atomic_attack_name for atomic in attacks]
+        # All names unique; each name embeds its dataset name.
+        assert len(set(names)) == len(names) == 8
+        for atomic in attacks:
+            assert any(ds in atomic.atomic_attack_name for ds in groups)
 
     async def test_display_group_is_dataset_name(self, mock_objective_target, mock_objective_scorer):
         groups = {
@@ -281,26 +289,28 @@ class TestTextAdaptiveAtomicAttacks:
                     scenario_strategies=[strategy_class("role_play"), strategy_class("many_shot")],
                 )
                 attacks = scenario._atomic_attacks
+                techniques = scenario._build_techniques_dict(objective_target=mock_objective_target)
 
+        # One atomic for the single objective.
         assert len(attacks) == 1
-        dispatcher = attacks[0]._attack_technique.attack
-        assert isinstance(dispatcher, AdaptiveDispatchAttack)
-        # Both factories survive; in particular the seeded one is no longer
-        # silently dropped. Keys are now eval hashes; check by bundle name.
-        technique_names = {b.name for b in dispatcher._techniques.values()}
+        # Both factories survive in the technique pool; in particular the
+        # seeded one is no longer silently dropped.
+        technique_names = {b.name for b in techniques.values()}
         assert "role_play" in technique_names
         assert "many_shot" in technique_names
 
     async def test_incompatible_seed_technique_is_filtered_per_objective(
         self, mock_objective_target, mock_objective_scorer
     ):
-        """Per-objective candidate pool drops techniques whose seed_technique
-        is incompatible with the seed group; compatible techniques remain.
+        """When one technique's ``seed_technique`` is incompatible but another
+        is universally compatible, the objective still produces an atomic that
+        uses only the compatible technique.
         """
         groups = {"violence": [_make_seed_group(value="obj")]}
         plain_factory = _make_fake_factory(seed_technique=None)
         incompatible_factory = _make_fake_factory(seed_technique=MagicMock(name="incompatible_seed_technique"))
 
+        # Only the plain factory (no seed_technique) is compatible.
         with (
             patch.object(DatasetConfiguration, "get_seed_attack_groups", return_value=groups),
             patch.object(SeedAttackGroup, "is_compatible_with_technique", return_value=False),
@@ -315,18 +325,17 @@ class TestTextAdaptiveAtomicAttacks:
                     scenario_strategies=[strategy_class("role_play"), strategy_class("many_shot")],
                 )
                 attacks = scenario._atomic_attacks
+                techniques = scenario._build_techniques_dict(objective_target=mock_objective_target)
 
+        # Atomic survives because the plain factory keeps the compatible pool non-empty.
         assert len(attacks) == 1
-        dispatcher = attacks[0]._attack_technique.attack
-        # Under the one-atomic-per-dataset design, the full technique pool is
-        # shared by the dispatcher; per-call compatibility filtering now
-        # happens inside ``AdaptiveDispatchAttack._perform_async``. The seed
-        # group survived because the plain (no-seed_technique) factory keeps
-        # the compatible pool non-empty. Keys are now eval hashes; check by bundle name.
-        technique_names = {b.name for b in dispatcher._techniques.values()}
+        assert len(attacks[0].seed_groups) == 1
+        # Both factories live in the pool; per-objective compatibility filtering
+        # inside the dispatcher (``AdaptiveTechniqueDispatcher.compatible_techniques``)
+        # then drops the incompatible one before selection.
+        technique_names = {b.name for b in techniques.values()}
         assert "role_play" in technique_names
         assert "many_shot" in technique_names
-        assert len(attacks[0].seed_groups) == 1
 
     async def test_objective_skipped_when_no_compatible_techniques(
         self, mock_objective_target, mock_objective_scorer, caplog
@@ -433,11 +442,10 @@ class TestTextAdaptiveAtomicAttacks:
                         scenario_strategies=[strategy_class("role_play"), strategy_class("tap")],
                     )
                     attacks = scenario._atomic_attacks
+                    techniques = scenario._build_techniques_dict(objective_target=mock_objective_target)
 
         assert len(attacks) == 1
-        dispatcher = attacks[0]._attack_technique.attack
-        assert isinstance(dispatcher, AdaptiveDispatchAttack)
-        technique_names = {b.name for b in dispatcher._techniques.values()}
+        technique_names = {b.name for b in techniques.values()}
         assert technique_names == {"role_play"}
         assert any("tap" in r.getMessage() and "Skipping" in r.getMessage() for r in caplog.records)
 

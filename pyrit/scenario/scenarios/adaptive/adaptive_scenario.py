@@ -20,13 +20,14 @@ import logging
 from abc import abstractmethod
 from typing import TYPE_CHECKING, ClassVar
 
+from pyrit.common.utils import to_sha256
 from pyrit.executor.attack import AttackScoringConfig
 from pyrit.models.identifiers import compute_inner_attack_eval_hash
 from pyrit.scenario.core.atomic_attack import AtomicAttack
 from pyrit.scenario.core.attack_technique import AttackTechnique
 from pyrit.scenario.core.scenario import Scenario
 from pyrit.scenario.scenarios.adaptive.dispatcher import (
-    AdaptiveDispatchAttack,
+    AdaptiveTechniqueDispatcher,
     TechniqueBundle,
 )
 from pyrit.scenario.scenarios.adaptive.selectors import (
@@ -132,19 +133,19 @@ class AdaptiveScenario(Scenario):
 
     async def _get_atomic_attacks_async(self) -> list[AtomicAttack]:
         """
-        Build one ``AtomicAttack`` per dataset, each carrying every objective
-        in that dataset as a separate ``SeedAttackGroup``.
+        Build one ``AtomicAttack`` per (dataset, compatible seed group) pair.
 
-        A single ``AdaptiveDispatchAttack`` is constructed per dataset and
-        shared across its seed groups; per-call seed-group routing and
-        per-call ``seed_technique`` compatibility filtering happen inside the
-        dispatcher (driven by ``AdaptiveDispatchParams.seed_group``). All
-        dispatchers across all datasets share one ``TechniqueSelector``
-        instance so learning accumulates globally.
+        For each dataset, construct a single ``AdaptiveTechniqueDispatcher``
+        shared across that dataset's seed groups. For each seed group, ask
+        the dispatcher to build its per-objective ``SequentialAttack`` and
+        wrap it in its own ``AtomicAttack``. All dispatchers across all
+        datasets share one ``TechniqueSelector`` instance so learning
+        accumulates globally; selection is committed up-front during
+        scenario initialization, before any execution starts.
 
         Returns:
-            list[AtomicAttack]: One ``AtomicAttack`` per dataset that has at
-                least one compatible seed group.
+            list[AtomicAttack]: One ``AtomicAttack`` per compatible
+                seed group across all datasets.
 
         Raises:
             ValueError: If ``self._objective_target`` is not set, or if
@@ -162,14 +163,14 @@ class AdaptiveScenario(Scenario):
         seed_groups_by_dataset = self._dataset_config.get_seed_attack_groups()
         atomic_attacks: list[AtomicAttack] = []
         for dataset_name, seed_groups in seed_groups_by_dataset.items():
-            atomic = self._build_atomic_for_dataset(
-                dataset_name=dataset_name,
-                seed_groups=seed_groups,
-                techniques=techniques,
-                selector=selector,
+            atomic_attacks.extend(
+                await self._build_atomics_for_dataset(
+                    dataset_name=dataset_name,
+                    seed_groups=seed_groups,
+                    techniques=techniques,
+                    selector=selector,
+                )
             )
-            if atomic is not None:
-                atomic_attacks.append(atomic)
 
         return atomic_attacks
 
@@ -276,54 +277,41 @@ class AdaptiveScenario(Scenario):
         except (TypeError, ValueError):
             return AttackScoringConfig(objective_scorer=self._objective_scorer)
 
-    def _build_atomic_for_dataset(
+    async def _build_atomics_for_dataset(
         self,
         *,
         dataset_name: str,
         seed_groups: list[SeedAttackGroup],
         techniques: dict[str, TechniqueBundle],
         selector: TechniqueSelector,
-    ) -> AtomicAttack | None:
+    ) -> list[AtomicAttack]:
         """
-        Build a single ``AtomicAttack`` for one dataset with all compatible
-        seed groups attached.
+        Build one ``AtomicAttack`` per seed group with at least one
+        compatible technique.
+
+        A single ``AdaptiveTechniqueDispatcher`` is constructed for this
+        dataset and used to build a fresh ``SequentialAttack`` per seed
+        group. Each returned atomic carries one seed group and one
+        pre-built attack whose children were selected up-front via the
+        dispatcher.
 
         Seed groups for which no technique in the pool is compatible are
-        dropped here with a warning so the dispatcher's per-call compatible
-        pool is guaranteed non-empty.
+        dropped here with a warning.
 
         Returns:
-            AtomicAttack | None: The constructed atomic attack, or ``None`` when
-                every seed group is incompatible with every technique.
+            list[AtomicAttack]: One atomic per compatible seed group.
+                Empty list when every seed group is incompatible with
+                every technique.
 
         Raises:
-            ValueError: If ``self._objective_target`` is not set (defensive
-                guard; ``_get_atomic_attacks_async`` enforces this earlier).
+            ValueError: If ``self._objective_target`` is not set
+                (defensive guard; ``_get_atomic_attacks_async`` enforces
+                this earlier).
         """
         if self._objective_target is None:  # pragma: no cover - defensive
             raise ValueError("objective_target must be set before creating attacks")
 
-        compatible_seed_groups: list[SeedAttackGroup] = []
-        for seed_group in seed_groups:
-            has_compatible = any(
-                bundle.seed_technique is None
-                or seed_group.is_compatible_with_technique(technique=bundle.seed_technique)
-                for bundle in techniques.values()
-            )
-            if has_compatible:
-                compatible_seed_groups.append(seed_group)
-            else:
-                logger.warning(
-                    "AdaptiveScenario: no compatible techniques for seed group in dataset '%s' "
-                    "(objective=%r); skipping.",
-                    dataset_name,
-                    seed_group.objective.value,
-                )
-
-        if not compatible_seed_groups:
-            return None
-
-        dispatcher = AdaptiveDispatchAttack(
+        dispatcher = AdaptiveTechniqueDispatcher(
             objective_target=self._objective_target,
             techniques=techniques,
             selector=selector,
@@ -332,11 +320,29 @@ class AdaptiveScenario(Scenario):
             scenario_result_id=self._scenario_result_id,
         )
 
-        return AtomicAttack(
-            atomic_attack_name=f"{self._atomic_attack_prefix}_{dataset_name}",
-            attack_technique=AttackTechnique(attack=dispatcher),
-            seed_groups=compatible_seed_groups,
-            objective_scorer=self._objective_scorer,
-            memory_labels=dict(self._memory_labels),
-            display_group=dataset_name,
-        )
+        atomics: list[AtomicAttack] = []
+        for seed_group in seed_groups:
+            if not dispatcher.compatible_techniques(seed_group=seed_group):
+                logger.warning(
+                    "AdaptiveScenario: no compatible techniques for seed group in dataset '%s' "
+                    "(objective=%r); skipping.",
+                    dataset_name,
+                    seed_group.objective.value,
+                )
+                continue
+
+            attack = await dispatcher.build_attack_async(seed_group=seed_group)
+            objective_sha = to_sha256(seed_group.objective.value)
+            atomic_attack_name = f"{self._atomic_attack_prefix}_{dataset_name}::{objective_sha[:12]}"
+            atomics.append(
+                AtomicAttack(
+                    atomic_attack_name=atomic_attack_name,
+                    attack_technique=AttackTechnique(attack=attack),
+                    seed_groups=[seed_group],
+                    objective_scorer=self._objective_scorer,
+                    memory_labels=dict(self._memory_labels),
+                    display_group=dataset_name,
+                )
+            )
+
+        return atomics

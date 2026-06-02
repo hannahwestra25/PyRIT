@@ -2,43 +2,39 @@
 # Licensed under the MIT license.
 
 """
-``AdaptiveDispatchAttack`` — picks inner techniques per objective via a
-``TechniqueSelector``, then runs them in priority order via a
-``SequentialAttack`` (stop on first success).
+``AdaptiveTechniqueDispatcher`` — selects inner techniques per objective via a
+``TechniqueSelector`` and builds a ``SequentialAttack`` to run them.
 
-The selector is stateless and async: it queries memory for historical
-success rates. The dispatcher pre-selects up to ``max_attempts_per_objective``
-techniques at the start of each objective, builds a per-call
-``SequentialAttack`` whose child attacks are the chosen techniques, and
-delegates iteration + stop-on-success + envelope construction to that
-compound attack.
+The dispatcher is a plain class, not an ``AttackStrategy``. It does not
+execute anything and does not persist anything. ``AdaptiveScenario`` calls
+``build_attack_async`` once per ``SeedAttackGroup`` during scenario
+initialization, wraps each returned attack in its own ``AtomicAttack``, and
+hands them to the scenario base for execution.
 
-Returned envelope is a ``SequentialAttackResult`` (an ``AttackResult``
-subclass) stamped with the adaptive trail under
-``metadata["adaptive_attempts"]``. Inner per-attempt results live on the
-envelope's ``child_attack_results`` and persist as their own DB rows; the
-envelope itself owns no conversation (``conversation_id == ""``).
+The returned attack is a plain ``SequentialAttack`` with
+``SequenceCompletionPolicy.FIRST_SUCCESS``. The per-attempt dispatch trail
+(which technique ran, with what outcome, in what order) is not stamped onto
+the envelope — every child ``AttackResult`` in
+``SequentialAttackResult.child_attack_results`` already carries its own
+``outcome`` and its own ``atomic_attack_identifier.eval_hash``, so callers
+reconstruct the trail by joining children against
+``AdaptiveScenario.technique_names_by_eval_hash``.
 """
 
 from __future__ import annotations
 
-import dataclasses
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Optional
 
 from pyrit.executor.attack.compound.sequential_attack import (
     SequenceCompletionPolicy,
     SequentialAttack,
-    SequentialAttackResult,
     SequentialChildAttack,
 )
-from pyrit.executor.attack.core.attack_parameters import AttackParameters
-from pyrit.executor.attack.core.attack_strategy import AttackContext, AttackStrategy
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
-
+    from pyrit.executor.attack.core.attack_strategy import AttackStrategy
     from pyrit.models import AttackResult, SeedAttackGroup, SeedAttackTechniqueGroup
     from pyrit.prompt_target import PromptTarget
     from pyrit.scenario.scenarios.adaptive.selectors import TechniqueSelector
@@ -47,7 +43,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-# Memory-label keys stamped onto persisted prompt rows so adaptive attempts
+# Memory-label key stamped onto persisted prompt rows so adaptive attempts
 # can be filtered/grouped after a run.
 ADAPTIVE_ATTEMPT_LABEL: str = "_adaptive_attempt"
 """1-based attempt index within the per-objective loop."""
@@ -60,107 +56,43 @@ class TechniqueBundle:
 
     Carries the inner attack strategy alongside the factory-supplied
     ``seed_technique`` (if any) and ``adversarial_chat`` (required when the
-    seed_technique contains a simulated-conversation config).
+    seed_technique contains a simulated-conversation config). ``name`` is the
+    factory-registration key; the dispatcher does not consume it, but it is
+    convenient for diagnostics and is preserved here so callers/tests can
+    cross-check which factory each bundle came from.
+
+    Notebook/report code that wants a human-readable label for a persisted
+    child ``AttackResult`` should read it from the child itself via
+    ``child.get_attack_strategy_identifier()`` — the executor already stamps
+    ``class_name`` and ``unique_name`` on every row, so there is no need to
+    publish a separate ``{eval_hash: name}`` map.
     """
 
     attack: AttackStrategy[Any, AttackResult]
     name: str = ""
-    seed_technique: SeedAttackTechniqueGroup | None = None
-    adversarial_chat: PromptTarget | None = None
+    seed_technique: Optional[SeedAttackTechniqueGroup] = None
+    adversarial_chat: Optional[PromptTarget] = None
 
 
-@dataclass(frozen=True)
-class AdaptiveDispatchParams(AttackParameters):
-    """Attack parameters for adaptive dispatch, carrying the original seed group."""
-
-    # The original SeedAttackGroup is preserved on the params so the
-    # dispatcher can apply per-attempt seed_technique merging and derive
-    # the per-call adaptive context. Captured by ``from_seed_group_async``;
-    # not user-supplied via overrides.
-    seed_group: Optional[SeedAttackGroup] = field(default=None, repr=False, compare=False)
-
-    @classmethod
-    async def from_seed_group_async(
-        cls,
-        *,
-        seed_group: SeedAttackGroup,
-        adversarial_chat: Optional[PromptTarget] = None,  # noqa: ARG003 — required by base class signature
-        objective_scorer: Optional[TrueFalseScorer] = None,  # noqa: ARG003 — required by base class signature
-        **overrides: Any,
-    ) -> AdaptiveDispatchParams:
-        """
-        Build params for a single dispatch and capture the original seed_group.
-
-        The dispatcher applies seed_technique merging itself per-attempt
-        (when constructing the per-call ``SequentialChildAttack``s), so we
-        deliberately bypass the base class's simulated-conversation
-        expansion / next_message extraction: each inner technique runs
-        through its own ``AttackExecutor`` call inside ``SequentialAttack``
-        which performs that work using the technique-merged seed_group.
-
-        Returns:
-            AdaptiveDispatchParams: The constructed parameters with the seed group attached.
-
-        Raises:
-            ValueError: If the seed_group's objective is not initialized or invalid overrides are passed.
-        """
-        if seed_group.objective is None:
-            raise ValueError("seed_group.objective is not initialized")
-        seed_group.validate()
-
-        valid_fields = {f.name for f in dataclasses.fields(cls)} - {"seed_group"}
-        invalid = set(overrides.keys()) - valid_fields
-        if invalid:
-            raise ValueError(f"{cls.__name__} does not accept parameters: {invalid}. Accepted: {valid_fields}")
-
-        return cls(
-            objective=seed_group.objective.value,
-            memory_labels=overrides.get("memory_labels") or {},
-            seed_group=seed_group,
-        )
-
-
-@dataclass
-class AdaptiveDispatchContext(AttackContext[AdaptiveDispatchParams]):
-    """Execution context for ``AdaptiveDispatchAttack`` (no extra state)."""
-
-
-class AdaptiveDispatchAttack(AttackStrategy[AdaptiveDispatchContext, SequentialAttackResult]):
+class AdaptiveTechniqueDispatcher:
     """
-    Attack that delegates each attempt to one of several inner techniques,
-    choosing per attempt via a ``TechniqueSelector``.
+    Selects inner techniques per objective and builds a ``SequentialAttack``.
 
-    For each objective: query the selector for the top
+    Not an ``AttackStrategy``: the dispatcher does not execute anything
+    and does not persist anything. It is a small factory used by
+    ``AdaptiveScenario`` at initialization to translate one
+    ``SeedAttackGroup`` (one objective) into one ready-to-run attack.
+
+    For each call: query the selector for the top
     ``max_attempts_per_objective`` techniques compatible with the seed
-    group, then hand the chosen techniques off to a per-call
-    ``SequentialAttack`` (with ``SequenceCompletionPolicy.FIRST_SUCCESS``)
-    which iterates through them, stops on the first success, and returns
-    one ``SequentialAttackResult`` envelope. The selector is shared by
-    reference across all dispatch calls in a scenario so learning
-    accumulates across objectives.
-
-    The seed group for a given dispatch is read from
-    ``context.params.seed_group`` (captured by
-    ``AdaptiveDispatchParams.from_seed_group_async``). When a chosen
-    technique declares a ``seed_technique``, that group is merged into the
-    seed group when building the per-attempt ``SequentialChildAttack``
-    (mirroring the static ``AtomicAttack`` path). Techniques whose
-    ``seed_technique`` is incompatible with the current seed group are
-    filtered out of the candidate pool for that call; if the pool is empty
-    the dispatcher raises so the per-call seed group is dropped by the
-    executor's partial-failure path rather than silently no-op'ing.
-
-    The returned envelope owns no conversation of its own
-    (``conversation_id == ""``): the inner per-attempt ``AttackResult``s
-    each persist their own row with the raw conversation, and are
-    reachable via ``result.child_attack_results`` (in-memory) or via
-    ``result.child_attack_result_ids`` (after a DB round-trip). The
-    envelope itself is persisted with the dispatch trail stamped onto
-    ``metadata["adaptive_attempts"]``.
+    group, then construct a ``SequentialAttack`` (with
+    ``SequenceCompletionPolicy.FIRST_SUCCESS``) whose children are the
+    chosen techniques in priority order. The selector is shared by
+    reference across all calls in a scenario so learning accumulates
+    across objectives — though all selections are committed up-front
+    during scenario initialization (see
+    ``AdaptiveScenario._get_atomic_attacks_async``).
     """
-
-    ADAPTIVE_ATTEMPTS_KEY: str = "adaptive_attempts"
-    """Metadata key under which the per-attempt dispatch trail is stamped on the envelope."""
 
     def __init__(
         self,
@@ -168,90 +100,103 @@ class AdaptiveDispatchAttack(AttackStrategy[AdaptiveDispatchContext, SequentialA
         objective_target: PromptTarget,
         techniques: dict[str, TechniqueBundle],
         selector: TechniqueSelector,
-        objective_scorer: TrueFalseScorer | None = None,
+        objective_scorer: Optional[TrueFalseScorer] = None,
         max_attempts_per_objective: int = 3,
         scenario_result_id: str | None = None,
     ) -> None:
         """
         Args:
             objective_target (PromptTarget): The target inner attacks run against.
-            techniques (dict[str, TechniqueBundle]): Mapping from technique eval hash to
-                its bundle (attack, name, seed_technique, adversarial_chat). Must be non-empty.
+            techniques (dict[str, TechniqueBundle]): Mapping from
+                technique eval hash to its bundle. Must be non-empty.
             selector (TechniqueSelector): Stateless technique selector.
-            objective_scorer (TrueFalseScorer | None): Scorer passed through to
-                techniques that generate simulated conversations.
-            max_attempts_per_objective (int): Max attempts per objective; >= 1.
-                Defaults to 3.
-            scenario_result_id (str | None): If provided, passed to the selector
-                to scope memory queries to this scenario run. Defaults to ``None``.
+            objective_scorer (TrueFalseScorer | None): Scorer forwarded
+                to inner attacks that generate simulated conversations.
+            max_attempts_per_objective (int): Maximum attempts per
+                objective; must be >= 1. Defaults to 3.
+            scenario_result_id (str | None): Passed to the selector to
+                scope memory queries to this scenario run. Defaults to
+                ``None``.
 
         Raises:
-            ValueError: If ``techniques`` is empty or ``max_attempts_per_objective`` < 1.
+            ValueError: If ``techniques`` is empty or
+                ``max_attempts_per_objective`` < 1.
         """
         if not techniques:
             raise ValueError("techniques must contain at least one attack technique")
         if max_attempts_per_objective < 1:
             raise ValueError(f"max_attempts_per_objective must be >= 1, got {max_attempts_per_objective}")
-
-        super().__init__(
-            objective_target=objective_target,
-            context_type=AdaptiveDispatchContext,
-            params_type=AdaptiveDispatchParams,
-            logger=logger,
-        )
+        self._objective_target = objective_target
         self._techniques = techniques
         self._selector = selector
         self._objective_scorer = objective_scorer
         self._max_attempts = max_attempts_per_objective
         self._scenario_result_id = scenario_result_id
 
-    def _validate_context(self, *, context: AdaptiveDispatchContext) -> None:
+    def compatible_techniques(self, *, seed_group: SeedAttackGroup) -> list[str]:
         """
-        Ensure the context carries a non-empty objective string.
+        Return technique hashes whose ``seed_technique`` is compatible with ``seed_group``.
 
-        Raises:
-            ValueError: If ``context.objective`` is empty or whitespace-only.
-        """
-        if not context.objective or context.objective.isspace():
-            raise ValueError("Attack objective must be provided and non-empty")
-
-    async def _setup_async(self, *, context: AdaptiveDispatchContext) -> None:
-        """No-op: per-attempt setup is owned by ``SequentialAttack`` / its executor."""
-
-    async def _teardown_async(self, *, context: AdaptiveDispatchContext) -> None:
-        """No-op: per-attempt teardown is owned by ``SequentialAttack`` / its executor."""
-
-    def _build_child_attacks(
-        self,
-        *,
-        seed_group: SeedAttackGroup,
-        chosen_techniques: Sequence[str],
-    ) -> list[SequentialChildAttack]:
-        """
-        Build the ``SequentialChildAttack`` list handed to ``SequentialAttack``.
-
-        Per chosen technique: merge ``bundle.seed_technique`` into
-        ``seed_group`` (if any), and stamp the per-attempt
-        ``ADAPTIVE_ATTEMPT_LABEL`` memory label. ``SequentialAttack``
-        further merges this with the compound's own ``context.memory_labels``
-        at dispatch time, so the outer caller's labels still propagate to
-        every attempt.
-
-        Per-technique disambiguation in analytics relies on the
-        auto-stamped ``atomic_attack_identifier.eval_hash`` on each
-        persisted attempt row, not a custom label.
-
-        Args:
-            seed_group (SeedAttackGroup): The seed group for this dispatch call.
-            chosen_techniques (Sequence[str]): Technique eval hashes returned by
-                the selector, in priority order.
+        Techniques with no ``seed_technique`` are universally compatible.
+        Used by ``AdaptiveScenario`` to drop seed groups with no usable
+        techniques before building atomic attacks.
 
         Returns:
-            list[SequentialChildAttack]: One child attack per chosen
-                technique, in dispatch order.
+            list[str]: Technique eval hashes in declaration order.
         """
+        return [
+            name
+            for name, bundle in self._techniques.items()
+            if bundle.seed_technique is None or seed_group.is_compatible_with_technique(technique=bundle.seed_technique)
+        ]
+
+    async def build_attack_async(self, *, seed_group: SeedAttackGroup) -> SequentialAttack:
+        """
+        Build a ``SequentialAttack`` for one ``SeedAttackGroup``.
+
+        Queries the selector for the top
+        ``max_attempts_per_objective`` techniques (filtered by per-call
+        seed-group compatibility) and wraps them in a
+        ``SequentialAttack`` with
+        ``SequenceCompletionPolicy.FIRST_SUCCESS``.
+
+        Args:
+            seed_group (SeedAttackGroup): The seed group for the
+                objective this attack will run against. Must carry a
+                non-None objective.
+
+        Returns:
+            SequentialAttack: The ready-to-run attack. Each child's
+                identity is captured by its own
+                ``atomic_attack_identifier.eval_hash`` after execution;
+                callers wanting the friendly technique name join those
+                hashes against
+                ``AdaptiveScenario.technique_names_by_eval_hash``.
+
+        Raises:
+            ValueError: If ``seed_group.objective`` is not initialized,
+                or if no techniques in the pool are compatible with the
+                seed group.
+        """
+        if seed_group.objective is None:
+            raise ValueError("seed_group.objective is not initialized")
+
+        compatible = self.compatible_techniques(seed_group=seed_group)
+        if not compatible:
+            raise ValueError(
+                f"AdaptiveTechniqueDispatcher: no compatible techniques for seed group "
+                f"(objective={seed_group.objective.value!r})."
+            )
+
+        chosen_hashes = await self._selector.select_async(
+            technique_identifiers=compatible,
+            objective=seed_group.objective.value,
+            num_top_techniques=self._max_attempts,
+            scenario_result_id=self._scenario_result_id,
+        )
+
         child_attacks: list[SequentialChildAttack] = []
-        for attempt_idx, chosen in enumerate(chosen_techniques):
+        for attempt_idx, chosen in enumerate(chosen_hashes):
             bundle = self._techniques[chosen]
             execution_group = (
                 seed_group.with_technique(technique=bundle.seed_technique)
@@ -264,120 +209,12 @@ class AdaptiveDispatchAttack(AttackStrategy[AdaptiveDispatchContext, SequentialA
                     seed_group=execution_group,
                     adversarial_chat=bundle.adversarial_chat,
                     objective_scorer=self._objective_scorer,
-                    memory_labels={
-                        ADAPTIVE_ATTEMPT_LABEL: str(attempt_idx + 1),
-                    },
+                    memory_labels={ADAPTIVE_ATTEMPT_LABEL: str(attempt_idx + 1)},
                 )
             )
-        return child_attacks
 
-    def _build_adaptive_trail(
-        self,
-        *,
-        chosen_techniques: Sequence[str],
-        child_results: list[AttackResult],
-    ) -> list[dict[str, str]]:
-        """
-        Build the per-attempt dispatch trail stamped onto the envelope.
-
-        ``chosen_techniques`` is the full pre-selected list; ``child_results``
-        contains only the attempts that actually ran (``FIRST_SUCCESS`` may
-        halt early). Trail length matches ``len(child_results)``.
-
-        Returns:
-            list[dict[str, str]]: One entry per executed attempt, in
-                dispatch order, each carrying ``technique`` (display name),
-                ``technique_hash`` (eval hash), and ``outcome``
-                (``AttackOutcome`` value).
-        """
-        return [
-            {
-                "technique": self._techniques[h].name,
-                "technique_hash": h,
-                "outcome": r.outcome.value,
-            }
-            for h, r in zip(chosen_techniques, child_results, strict=False)
-        ]
-
-    async def _perform_async(self, *, context: AdaptiveDispatchContext) -> SequentialAttackResult:
-        """
-        Run the per-objective adaptive loop via ``SequentialAttack``.
-
-        Queries the stateless selector for the top
-        ``max_attempts_per_objective`` techniques (filtered by per-call
-        seed-group compatibility), wraps them in a ``SequentialAttack``
-        with ``SequenceCompletionPolicy.FIRST_SUCCESS``, and delegates
-        iteration + stop-on-success + envelope construction. Stamps the
-        ``adaptive_attempts`` trail on the envelope before returning.
-
-        Drives the inner sequence via ``_perform_async`` (not
-        ``execute_async``) so the outer dispatcher remains the sole owner
-        of envelope persistence; ``_attribution`` is forwarded so child
-        rows keep the scenario linkage.
-
-        Args:
-            context (AdaptiveDispatchContext): Execution context whose
-                ``params.seed_group`` carries the seed group for this call.
-
-        Returns:
-            SequentialAttackResult: The envelope produced by the inner
-                ``SequentialAttack`` with the adaptive trail stamped onto
-                ``metadata["adaptive_attempts"]``.
-
-        Raises:
-            ValueError: If ``context.params.seed_group`` is missing, or if no
-                techniques in the pool are compatible with the seed group.
-        """
-        seed_group = context.params.seed_group
-        if seed_group is None:
-            raise ValueError(
-                "AdaptiveDispatchAttack requires AdaptiveDispatchParams.seed_group; "
-                "build params via AdaptiveDispatchParams.from_seed_group_async."
-            )
-
-        compatible_names = [
-            name
-            for name, bundle in self._techniques.items()
-            if bundle.seed_technique is None or seed_group.is_compatible_with_technique(technique=bundle.seed_technique)
-        ]
-        if not compatible_names:
-            raise ValueError(
-                f"AdaptiveDispatchAttack: no compatible techniques for seed group "
-                f"(objective={seed_group.objective.value!r})."
-            )
-
-        chosen_techniques = await self._selector.select_async(
-            technique_identifiers=compatible_names,
-            objective=context.objective,
-            num_top_techniques=self._max_attempts,
-            scenario_result_id=self._scenario_result_id,
-        )
-
-        child_attacks = self._build_child_attacks(
-            seed_group=seed_group,
-            chosen_techniques=chosen_techniques,
-        )
-
-        sequential = SequentialAttack(
+        return SequentialAttack(
             objective_target=self._objective_target,
             child_attacks=child_attacks,
             completion_policy=SequenceCompletionPolicy.FIRST_SUCCESS,
         )
-
-        # Call ``_perform_async`` directly; ``execute_async`` would persist the same
-        # envelope a second time and trip an IntegrityError. Forward ``_attribution``
-        # so child rows still carry the scenario linkage.
-        inner_params = sequential._params_type(
-            objective=context.objective,
-            memory_labels=dict(context.memory_labels),
-        )
-        inner_context = sequential._context_type(params=inner_params)
-        inner_context._attribution = context._attribution
-
-        result: SequentialAttackResult = await sequential._perform_async(context=inner_context)
-
-        result.metadata[self.ADAPTIVE_ATTEMPTS_KEY] = self._build_adaptive_trail(
-            chosen_techniques=chosen_techniques,
-            child_results=result.child_attack_results,
-        )
-        return result

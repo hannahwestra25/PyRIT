@@ -141,25 +141,42 @@ await printer.write_async(resumed_result)  # type: ignore
 # %% [markdown]
 # ## Inspecting which techniques were tried
 #
-# The dispatcher stamps every objective's `AttackResult.metadata` with:
+# Every adaptive run persists both the per-objective envelope (a
+# `SequentialAttackResult`) AND its per-attempt child rows. Each child row
+# carries its own `atomic_attack_identifier`, so the persisted data alone is
+# enough to reconstruct the per-attempt trail — no envelope-side metadata, no
+# scenario-side lookup tables needed.
 #
-# - `adaptive_attempts` — the ordered list of `{"technique", "outcome"}` dicts
-#   recording exactly which techniques the selector picked and what happened.
+# Walk the children via the envelope's `child_attack_result_ids` (joined
+# against the flat results list), then read each child's attack strategy
+# identifier with `child.get_attack_strategy_identifier()`. The returned
+# `ComponentIdentifier` exposes `class_name` (e.g. `"CrescendoAttack"`) and
+# `unique_name` (e.g. `"CrescendoAttack::a1b2c3d4"`), which uniquely
+# distinguishes two factories that wrap the same attack class with different
+# configurations.
 #
-# Walk that metadata to see per-objective trails grouped by dataset, with a
-# per-technique success-rate table inside each group and a grand-total at the
-# bottom. Use `result.get_display_groups()` to aggregate `attack_results` by
-# the per-dataset display label set by the scenario.
+# Use `result.get_display_groups()` to aggregate `attack_results` by the
+# per-dataset display label set by the scenario.
 
 # %%
 from collections import Counter
 
-# Per-group: one line per objective (the envelope, carrying the technique trail)
-# plus a per-technique success-rate table within the group. Each adaptive run
-# persists both the per-objective envelope AND its per-attempt child rows; the
-# children are filtered out of the per-objective list so it stays one line per
-# objective. Aggregate across groups for a final grand-total table.
+# Per-group: one line per objective (the envelope) showing the per-attempt
+# trail, plus a per-technique success-rate table within the group. The child
+# rows that compose each envelope are filtered out of the per-objective list so
+# it stays one line per objective. Aggregate across groups for a grand-total.
 display_groups = resumed_result.get_display_groups()
+
+# Flatten every persisted row across every group so we can look up a child
+# AttackResult by its attack_result_id when reconstructing per-envelope trails.
+results_by_id = {r.attack_result_id: r for results in display_groups.values() for r in results}
+
+
+def _technique_label(result) -> str:
+    """Display name for the attack strategy that produced ``result``."""
+    attack_id = result.get_attack_strategy_identifier()
+    return attack_id.unique_name if attack_id else "<unknown>"
+
 
 total_picks: Counter[str] = Counter()
 total_wins: Counter[str] = Counter()
@@ -177,28 +194,36 @@ for group_name, results in display_groups.items():
     for r in results:
         if r.attack_result_id in child_ids:
             continue
-        attempts = r.metadata.get("adaptive_attempts", [])
-        trail = " → ".join(f"{a['technique']}({a['outcome']})" for a in attempts)
+        child_id_list = r.metadata.get("child_attack_result_ids", []) or []
+        trail_parts: list[str] = []
+        for child_id in child_id_list:
+            child = results_by_id.get(child_id)
+            if child is None:
+                continue
+            trail_parts.append(f"{_technique_label(child)}({child.outcome.value})")
+        trail = " → ".join(trail_parts)
         print(f"  [{r.outcome.value:7s}] {r.objective!r}: {trail}")
 
     picks: Counter[str] = Counter()
     wins: Counter[str] = Counter()
     for r in results:
-        for step in r.metadata.get("adaptive_attempts", []):
-            picks[step["technique"]] += 1
-            total_picks[step["technique"]] += 1
-            if step["outcome"] == "success":
-                wins[step["technique"]] += 1
-                total_wins[step["technique"]] += 1
+        if r.attack_result_id not in child_ids:
+            continue
+        technique = _technique_label(r)
+        picks[technique] += 1
+        total_picks[technique] += 1
+        if r.outcome.value == "success":
+            wins[technique] += 1
+            total_wins[technique] += 1
 
-    print("\n  Technique             wins / picks   rate")
+    print("\n  Technique                                wins / picks   rate")
     for technique, n in picks.most_common():
-        print(f"  {technique:20s}  {wins[technique]:>4} / {n:<4}   {wins[technique] / n:.0%}")
+        print(f"  {technique:40s}  {wins[technique]:>4} / {n:<4}   {wins[technique] / n:.0%}")
 
 print("\n=== Overall ===")
-print("Technique             wins / picks   rate")
+print("Technique                                wins / picks   rate")
 for technique, n in total_picks.most_common():
-    print(f"{technique:20s}  {total_wins[technique]:>4} / {n:<4}   {total_wins[technique] / n:.0%}")
+    print(f"{technique:40s}  {total_wins[technique]:>4} / {n:<4}   {total_wins[technique] / n:.0%}")
 
 # %% [markdown]
 # ## Running from the scanner CLI
