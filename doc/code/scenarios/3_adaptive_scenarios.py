@@ -150,10 +150,10 @@ await printer.write_async(resumed_result)  # type: ignore
 # Walk the children via the envelope's `child_attack_result_ids` (joined
 # against the flat results list), then read each child's attack strategy
 # identifier with `child.get_attack_strategy_identifier()`. The returned
-# `ComponentIdentifier` exposes `class_name` (e.g. `"CrescendoAttack"`) and
-# `unique_name` (e.g. `"CrescendoAttack::a1b2c3d4"`), which uniquely
-# distinguishes two factories that wrap the same attack class with different
-# configurations.
+# `ComponentIdentifier` exposes `class_name` (e.g. `"CrescendoAttack"`) for a
+# human-readable label, and `unique_name` (e.g. `"CrescendoAttack::a1b2c3d4"`)
+# when you need to distinguish two factories that wrap the same attack class
+# with different configurations.
 #
 # Use `result.get_display_groups()` to aggregate `attack_results` by the
 # per-dataset display label set by the scenario.
@@ -175,7 +175,7 @@ results_by_id = {r.attack_result_id: r for results in display_groups.values() fo
 def _technique_label(result) -> str:
     """Display name for the attack strategy that produced ``result``."""
     attack_id = result.get_attack_strategy_identifier()
-    return attack_id.unique_name if attack_id else "<unknown>"
+    return attack_id.class_name if attack_id else "<unknown>"
 
 
 total_picks: Counter[str] = Counter()
