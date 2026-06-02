@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import uuid
+import warnings
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -530,4 +531,23 @@ class TestTextAdaptiveBaselinePolicy:
             await scenario.initialize_async(
                 objective_target=mock_objective_target,
                 include_baseline=True,
+            )
+
+    async def test_baseline_emitted_at_index_zero_by_default(self, mock_objective_target, mock_objective_scorer):
+        """
+        Under ``BASELINE_ATTACK_POLICY = Enabled`` (the default), the override
+        must explicitly prepend a baseline atomic at index 0 so the legacy
+        deprecation-rescue branch in ``Scenario.initialize_async`` (slated
+        for removal in 0.16.0) is bypassed and no DeprecationWarning fires.
+        """
+        groups = {"violence": [_make_seed_group(value="obj", harm_categories=["violence"])]}
+        with patch.object(DatasetConfiguration, "get_seed_attack_groups", return_value=groups):
+            scenario = TextAdaptive(objective_scorer=mock_objective_scorer)
+            with warnings.catch_warnings():
+                warnings.simplefilter("error", DeprecationWarning)
+                await scenario.initialize_async(objective_target=mock_objective_target)
+
+            assert scenario._atomic_attacks, "expected at least one atomic attack"
+            assert scenario._atomic_attacks[0].atomic_attack_name == "baseline", (
+                f"baseline must be prepended at index 0; got {[a.atomic_attack_name for a in scenario._atomic_attacks]}"
             )

@@ -195,3 +195,71 @@ class TestBuildAttackAsync:
         # The merged seed group is forwarded to the child attack.
         outer_sg.with_technique.assert_called_once_with(technique=seed_technique)
         assert attack._child_attacks[0].seed_group is merged_sg
+
+
+@pytest.mark.usefixtures("patch_central_database")
+class TestEvalHashRoundTrip:
+    """
+    Pin the load-bearing invariant that ``compute_inner_attack_eval_hash``
+    (used by ``AdaptiveScenario._build_techniques_dict`` to key the
+    ``techniques`` dict and by the selector to look up historical stats)
+    equals the ``eval_hash`` the executor stamps on persisted child rows.
+
+    If the prediction helper and the write path ever drift (e.g. a new
+    field is added to the eval-hash rule on one side only), the selector
+    silently reads zero history for every technique and epsilon-greedy
+    degrades to random with no error. This test runs a real
+    ``PromptSendingAttack`` through the dispatcher's ``SequentialAttack``
+    end-to-end and asserts the round-trip holds.
+    """
+
+    async def test_predicted_hash_matches_persisted_row(self, sqlite_instance):
+        from pyrit.executor.attack.single_turn.prompt_sending import PromptSendingAttack
+        from pyrit.memory.memory_models import AttackResultEntry
+        from pyrit.models import SeedAttackGroup, SeedObjective
+        from pyrit.models.identifiers import compute_inner_attack_eval_hash
+        from tests.unit.mocks import MockPromptTarget
+
+        live_target = MockPromptTarget()
+        attack = PromptSendingAttack(objective_target=live_target)
+        predicted_hash = compute_inner_attack_eval_hash(attack=attack)
+
+        bundles = {predicted_hash: TechniqueBundle(attack=attack, name="prompt_sending")}
+        dispatcher = AdaptiveTechniqueDispatcher(
+            objective_target=live_target,
+            techniques=bundles,
+            selector=_StubSelector(technique_order=[predicted_hash]),
+            max_attempts_per_objective=1,
+        )
+
+        sg = SeedAttackGroup(seeds=[SeedObjective(value="say hello")])
+        sequential = await dispatcher.build_attack_async(seed_group=sg)
+        await sequential.execute_async(objective="say hello")
+
+        with sqlite_instance.get_session() as session:
+            rows = session.query(AttackResultEntry).all()
+
+        # Drill into the persisted envelope to find rows whose inner attack is PromptSendingAttack,
+        # then assert the eval_hash on those rows matches what the selector predicted.
+        matching_rows = [
+            r
+            for r in rows
+            if r.atomic_attack_identifier
+            and r.atomic_attack_identifier.get("children", {})
+            .get("attack_technique", {})
+            .get("children", {})
+            .get("attack", {})
+            .get("class_name")
+            == "PromptSendingAttack"
+        ]
+        assert matching_rows, (
+            f"Expected at least one persisted row whose inner attack is PromptSendingAttack; "
+            f"found rows: {[(r.id, r.atomic_attack_identifier) for r in rows]}"
+        )
+        for row in matching_rows:
+            stamped_hash = row.atomic_attack_identifier["eval_hash"]
+            assert stamped_hash == predicted_hash, (
+                f"Selector-side eval_hash ({predicted_hash}) drifted from executor-stamped "
+                f"eval_hash ({stamped_hash}) on persisted row {row.id}. "
+                f"compute_inner_attack_eval_hash and build_atomic_attack_identifier must agree."
+            )

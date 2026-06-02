@@ -50,7 +50,14 @@ class EpsilonGreedyTechniqueSelector:
     All outcome data comes from the memory database via
     ``_compute_success_rates``. Calling ``select_async`` with the same
     arguments produces the same result (deterministic given memory
-    contents and ``random_seed``).
+    contents, ``random_seed``, and ``scenario_result_id``).
+
+    When ``random_seed`` is set, the per-decision RNG is also keyed on the
+    ``scenario_result_id`` argument so that two distinct scenario runs over
+    the same objective explore differently while a resume (which reuses the
+    same ``scenario_result_id``) reproduces the original picks. When
+    ``random_seed`` is ``None``, the RNG is unseeded and naturally diverges
+    across calls regardless of arguments.
     """
 
     _TIE_TOL: float = 1e-12
@@ -97,8 +104,11 @@ class EpsilonGreedyTechniqueSelector:
             objective (str): The objective text for scoping the per-decision RNG.
             num_top_techniques (int): Max techniques to return. Defaults to 1.
             scenario_result_id (str | None): The current scenario run ID, supplied
-                by the dispatcher. Forwarded to memory only when the configured
-                ``scope.current_run_only`` is ``True``. Defaults to ``None``.
+                by the dispatcher. Folded into the per-decision RNG key so distinct
+                runs diverge while resumes (same ``scenario_result_id``) reproduce
+                the original picks; also forwarded to memory only when the
+                configured ``scope.current_run_only`` is ``True``. Defaults to
+                ``None``.
 
         Returns:
             Sequence[str]: Techniques in priority order. Fewer than
@@ -113,7 +123,9 @@ class EpsilonGreedyTechniqueSelector:
 
         num_top_techniques = min(num_top_techniques, len(technique_list))
 
-        decision_key = objective
+        # Fold scenario_result_id into the RNG key so two different scenario runs
+        # over the same objective explore differently.
+        decision_key = f"{objective}|{scenario_result_id or ''}"
         rng = _derive_rng(self._seed, decision_key)
 
         effective_run_id = scenario_result_id if self._scope.current_run_only else None

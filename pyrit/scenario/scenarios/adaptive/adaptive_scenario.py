@@ -171,9 +171,14 @@ class AdaptiveScenario(Scenario):
         accumulates globally; selection is committed up-front during
         scenario initialization, before any execution starts.
 
+        When ``self._include_baseline`` is true (the default under
+        ``BASELINE_ATTACK_POLICY = Enabled``), a baseline ``AtomicAttack``
+        named ``"baseline"`` is prepended at index 0.
+
         Returns:
             list[AtomicAttack]: One ``AtomicAttack`` per compatible
-                seed group across all datasets.
+                seed group across all datasets, with the baseline (when
+                enabled) prepended at index 0.
 
         Raises:
             ValueError: If ``self._objective_target`` is not set, or if
@@ -195,6 +200,10 @@ class AdaptiveScenario(Scenario):
                     selector=self._selector,
                 )
             )
+
+        if self._include_baseline:
+            all_seed_groups = [g for groups in seed_groups_by_dataset.values() for g in groups]
+            atomic_attacks.insert(0, self._build_baseline_atomic_attack(seed_groups=all_seed_groups))
 
         return atomic_attacks
 
