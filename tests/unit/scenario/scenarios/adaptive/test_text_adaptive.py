@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import uuid
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -22,7 +23,6 @@ from pyrit.scenario.scenarios.adaptive.text_adaptive import TextAdaptive
 from pyrit.score import TrueFalseScorer
 
 _MOCK_MANY_SHOT_EXAMPLES = [{"question": f"q{i}", "answer": f"a{i}"} for i in range(100)]
-_FAKE_FACTORY_COUNTER = 0
 
 
 def _mock_id(name: str) -> ComponentIdentifier:
@@ -89,11 +89,11 @@ def _make_fake_factory(*, seed_technique=None, adversarial_chat=None, scoring_co
     Mocks the surface ``AdaptiveScenario._build_techniques_dict`` consumes
     (``factory.create(...)``, ``factory.adversarial_chat``, and
     ``factory.scoring_config_type``). Each call assigns a unique fake
-    attack identifier so the bundle dict keys (eval hashes) don't collide.
+    attack identifier (via a fresh UUID) so the bundle dict keys (eval
+    hashes) don't collide across calls — no shared mutable test state, so
+    test execution order doesn't shift hash values.
     """
-    global _FAKE_FACTORY_COUNTER
-    _FAKE_FACTORY_COUNTER += 1
-    fake_id = _FAKE_FACTORY_COUNTER
+    fake_id = uuid.uuid4().hex[:8]
 
     fake_technique = MagicMock()
     fake_attack = MagicMock(name=f"fake-attack-strategy-{fake_id}")
@@ -414,6 +414,51 @@ class TestTextAdaptiveAtomicAttacks:
         passed_config = kwargs["attack_scoring_config"]
         assert isinstance(passed_config, NarrowScoringConfig)
         assert passed_config.objective_scorer is mock_objective_scorer
+
+    async def test_factory_with_incompatible_narrowed_scoring_config_is_skipped(
+        self, mock_objective_target, mock_objective_scorer, caplog
+    ):
+        """When the narrowed ``attack_scoring_config`` subtype rejects the
+        scenario's objective scorer, the technique is skipped with a warning
+        rather than silently falling back to the base config (which could let
+        a WARN-policy factory substitute its internal default scorer)."""
+        import logging
+
+        from pyrit.executor.attack import AttackScoringConfig
+
+        class StrictScoringConfig(AttackScoringConfig):
+            def __init__(self, *, objective_scorer):
+                raise ValueError("StrictScoringConfig requires FloatScaleThresholdScorer")
+
+        groups = {"violence": [_make_seed_group(value="obj")]}
+        good_factory = _make_fake_factory()
+        strict_factory = _make_fake_factory(scoring_config_type=StrictScoringConfig)
+
+        with (
+            patch.object(DatasetConfiguration, "get_seed_attack_groups", return_value=groups),
+            patch.object(SeedAttackGroup, "is_compatible_with_technique", return_value=True),
+        ):
+            scenario = TextAdaptive(objective_scorer=mock_objective_scorer)
+            strategy_class = scenario.get_strategy_class()
+            factories = {"role_play": good_factory, "tap": strict_factory}
+            with patch.object(scenario, "_get_attack_technique_factories", return_value=factories):
+                with caplog.at_level(logging.WARNING):
+                    await scenario.initialize_async(
+                        objective_target=mock_objective_target,
+                        include_baseline=False,
+                        scenario_strategies=[strategy_class("role_play"), strategy_class("tap")],
+                    )
+                    techniques = scenario._build_techniques_dict(objective_target=mock_objective_target)
+
+        # Strict factory's create is never called — incompatibility surfaces
+        # before construction, not via the factory's override policy.
+        strict_factory.create.assert_not_called()
+        # Only the compatible technique remains in the pool.
+        technique_names = {b.name for b in techniques.values()}
+        assert technique_names == {"role_play"}
+        # The skip reason mentions the required config type so operators can
+        # diagnose the mismatch.
+        assert any("tap" in r.getMessage() and "StrictScoringConfig" in r.getMessage() for r in caplog.records)
 
     async def test_factory_create_failure_skips_technique(self, mock_objective_target, mock_objective_scorer, caplog):
         """A factory whose ``create`` raises ``ValueError`` (e.g. the attack

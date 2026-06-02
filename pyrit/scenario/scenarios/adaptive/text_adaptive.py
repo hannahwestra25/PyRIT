@@ -44,6 +44,12 @@ def _build_text_adaptive_strategy() -> type[ScenarioStrategy]:
 
     Returns:
         type[ScenarioStrategy]: The dynamically-built strategy enum class.
+
+    Logs a warning if any name in ``_EXCLUDED_TECHNIQUES`` is not present
+    in the current catalog. The exclusion is defensive — when the catalog
+    does not contain the named technique, the filter is a no-op, and we
+    surface that so a stale entry in the exclusion list (or a renamed
+    catalog entry) doesn't silently break the intended exclusion.
     """
     # Local import: ``scenario_techniques`` imports ``pyrit.scenario.core``,
     # which transitively re-imports this module, so a top-level import would
@@ -52,9 +58,19 @@ def _build_text_adaptive_strategy() -> type[ScenarioStrategy]:
         build_scenario_technique_factories,
     )
 
-    factories = [
-        factory for factory in build_scenario_technique_factories() if factory.name not in _EXCLUDED_TECHNIQUES
-    ]
+    all_factories = list(build_scenario_technique_factories())
+    catalog_names = {factory.name for factory in all_factories}
+    unmatched = _EXCLUDED_TECHNIQUES - catalog_names
+    if unmatched:
+        logger.warning(
+            "TextAdaptive: _EXCLUDED_TECHNIQUES entries %s are not in the current "
+            "scenario-techniques catalog %s; the exclusion is a no-op for those entries. "
+            "Remove stale entries or update the catalog.",
+            sorted(unmatched),
+            sorted(catalog_names),
+        )
+
+    factories = [factory for factory in all_factories if factory.name not in _EXCLUDED_TECHNIQUES]
 
     return AttackTechniqueRegistry.build_strategy_class_from_factories(  # type: ignore[return-value, ty:invalid-return-type]
         class_name="TextAdaptiveStrategy",
@@ -77,6 +93,11 @@ class TextAdaptive(AdaptiveScenario):
     """
 
     _cached_strategy_class: ClassVar[type[ScenarioStrategy] | None] = None
+
+    @classmethod
+    def _atomic_attack_prefix(cls) -> str:
+        """Return the prefix for per-objective atomic-attack names."""
+        return "adaptive_text"
 
     @classmethod
     def get_strategy_class(cls) -> type[ScenarioStrategy]:

@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Optional, Union
 from tinytag import TinyTag
 
 from pyrit.common.path import PATHS_DICT
-from pyrit.models import DataTypeSerializer
+from pyrit.models.data_type_serializer import DataTypeSerializer
 from pyrit.models.seeds.seed import Seed
 
 if TYPE_CHECKING:

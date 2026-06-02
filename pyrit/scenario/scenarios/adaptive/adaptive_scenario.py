@@ -51,15 +51,24 @@ class AdaptiveScenario(Scenario):
     Abstract base for adaptive (epsilon-greedy) scenarios.
 
     Subclasses must implement the standard ``Scenario`` class-method overrides
-    and declare ``_atomic_attack_prefix``. Selector wiring
+    and implement ``_atomic_attack_prefix``. Selector wiring
     and dispatcher construction are handled here.
     """
 
     #: Scenario version for memory bookkeeping.
     VERSION: ClassVar[int] = 1
 
-    #: Prefix for per-objective atomic-attack names (e.g. ``"adaptive_text"``).
-    _atomic_attack_prefix: ClassVar[str] = "adaptive"
+    @classmethod
+    @abstractmethod
+    def _atomic_attack_prefix(cls) -> str:
+        """
+        Return the prefix for per-objective atomic-attack names (e.g. ``"adaptive_text"``).
+
+        Must be unique across adaptive subclasses — different modalities
+        emitting the same prefix would collide on ``atomic_attack_name`` and
+        merge their resume bookkeeping silently.
+        """
+        raise NotImplementedError
 
     @classmethod
     @abstractmethod
@@ -99,7 +108,7 @@ class AdaptiveScenario(Scenario):
             objective_scorer = self._get_default_objective_scorer()
         self._objective_scorer: TrueFalseScorer = objective_scorer
 
-        self._custom_selector = selector
+        self._selector: TechniqueSelector = selector if selector is not None else EpsilonGreedyTechniqueSelector()
 
         super().__init__(
             version=self.VERSION,
@@ -112,12 +121,23 @@ class AdaptiveScenario(Scenario):
 
     def _get_attack_technique_factories(self) -> dict[str, AttackTechniqueFactory]:
         """
-        Build factories directly from the canonical scenario-techniques catalog.
+        Build factories from the canonical scenario-techniques catalog,
+        augmented with any factory currently in the global
+        ``AttackTechniqueRegistry``.
 
-        Bypasses the global ``AttackTechniqueRegistry`` singleton so adaptive
-        scenarios resolve their pool from the same source list used by
-        ``_build_text_adaptive_strategy`` — no implicit dependency on registry
-        initialization order. Subclasses may override to add or replace factories.
+        The catalog defines the deterministic baseline pool — it is also the
+        source of truth for the strategy enum's valid values, so iteration
+        order and presence of techniques do not depend on registry
+        initialization order. Registry-registered factories whose name
+        matches a catalog entry **override** the catalog default, letting
+        operators swap in tuned configurations (custom adversarial chat,
+        different converter chain, etc.) without editing core. Factories
+        registered only in the registry (no matching strategy enum value)
+        are returned too but the scenario will only consume those whose
+        names appear in ``self._scenario_strategies``. When the registry
+        has not been initialized yet, the catalog alone is used.
+
+        Subclasses may override to further customize the pool.
 
         Returns:
             dict[str, AttackTechniqueFactory]: Mapping of technique name to factory.
@@ -129,7 +149,15 @@ class AdaptiveScenario(Scenario):
             build_scenario_technique_factories,
         )
 
-        return {factory.name: factory for factory in build_scenario_technique_factories()}
+        catalog = {factory.name: factory for factory in build_scenario_technique_factories()}
+        try:
+            registry_overrides = super()._get_attack_technique_factories()
+        except RuntimeError:
+            # Registry not initialized yet (e.g. bare CLI parse before
+            # ScenarioTechniqueInitializer has run). Catalog alone is the
+            # safe fallback and matches the strategy enum's value set.
+            registry_overrides = {}
+        return {**catalog, **registry_overrides}
 
     async def _get_atomic_attacks_async(self) -> list[AtomicAttack]:
         """
@@ -156,10 +184,6 @@ class AdaptiveScenario(Scenario):
 
         techniques = self._build_techniques_dict(objective_target=self._objective_target)
 
-        selector: TechniqueSelector = (
-            self._custom_selector if self._custom_selector is not None else EpsilonGreedyTechniqueSelector()
-        )
-
         seed_groups_by_dataset = self._dataset_config.get_seed_attack_groups()
         atomic_attacks: list[AtomicAttack] = []
         for dataset_name, seed_groups in seed_groups_by_dataset.items():
@@ -168,7 +192,7 @@ class AdaptiveScenario(Scenario):
                     dataset_name=dataset_name,
                     seed_groups=seed_groups,
                     techniques=techniques,
-                    selector=selector,
+                    selector=self._selector,
                 )
             )
 
@@ -222,6 +246,12 @@ class AdaptiveScenario(Scenario):
                 logger.warning(f"No factory for technique '{technique_name}', skipping.")
                 continue
             scoring_config = self._build_scoring_config_for_factory(factory=factory)
+            if scoring_config is None:
+                required_name = factory.scoring_config_type.__name__  # type: ignore[union-attr]
+                reason = f"scenario scorer is incompatible with required {required_name}"
+                skipped_incompatible[technique_name] = reason
+                logger.warning(f"Skipping technique '{technique_name}': {reason}")
+                continue
             try:
                 technique = factory.create(
                     objective_target=objective_target,
@@ -253,7 +283,7 @@ class AdaptiveScenario(Scenario):
 
         return techniques
 
-    def _build_scoring_config_for_factory(self, *, factory: AttackTechniqueFactory) -> AttackScoringConfig:
+    def _build_scoring_config_for_factory(self, *, factory: AttackTechniqueFactory) -> AttackScoringConfig | None:
         """
         Build the most specific scoring config the factory's attack class accepts.
 
@@ -261,13 +291,21 @@ class AdaptiveScenario(Scenario):
         subtype of ``AttackScoringConfig`` (e.g. TAP requires
         ``TAPAttackScoringConfig``), construct that subtype directly so the
         factory does not have to fall back to its WARN policy and silently
-        substitute an internal default scorer. When the subtype itself rejects
-        the scenario's objective scorer at construction, fall back to the base
-        ``AttackScoringConfig``; ``_build_techniques_dict`` will then catch the
-        constructor-time rejection and skip the technique.
+        substitute an internal default scorer.
+
+        Returns ``None`` when the required subtype itself rejects the
+        scenario's ``objective_scorer`` (e.g. TAP requires a
+        ``FloatScaleThresholdScorer`` while the scenario provides a
+        ``TrueFalseScorer``). ``None`` signals that no scenario-scorer-
+        preserving config exists for this technique — the caller drops the
+        technique rather than relying on the factory's override policy to
+        react (under WARN/SKIP the factory would silently substitute its
+        internal default scorer, masking the incompatibility).
 
         Returns:
-            AttackScoringConfig: The most specific config that could be built.
+            AttackScoringConfig | None: The most specific config that could
+                be built, or ``None`` if the technique is incompatible with
+                the scenario scorer.
         """
         required = factory.scoring_config_type
         if required is None or required is AttackScoringConfig:
@@ -275,7 +313,7 @@ class AdaptiveScenario(Scenario):
         try:
             return required(objective_scorer=self._objective_scorer)
         except (TypeError, ValueError):
-            return AttackScoringConfig(objective_scorer=self._objective_scorer)
+            return None
 
     async def _build_atomics_for_dataset(
         self,
@@ -316,13 +354,14 @@ class AdaptiveScenario(Scenario):
             techniques=techniques,
             selector=selector,
             objective_scorer=self._objective_scorer,
-            max_attempts_per_objective=self.params["max_attempts_per_objective"],
+            max_attempts_per_objective=self.params.get("max_attempts_per_objective", 3),
             scenario_result_id=self._scenario_result_id,
         )
 
         atomics: list[AtomicAttack] = []
         for seed_group in seed_groups:
-            if not dispatcher.compatible_techniques(seed_group=seed_group):
+            compatible = dispatcher.compatible_techniques(seed_group=seed_group)
+            if not compatible:
                 logger.warning(
                     "AdaptiveScenario: no compatible techniques for seed group in dataset '%s' "
                     "(objective=%r); skipping.",
@@ -331,9 +370,9 @@ class AdaptiveScenario(Scenario):
                 )
                 continue
 
-            attack = await dispatcher.build_attack_async(seed_group=seed_group)
+            attack = await dispatcher.build_attack_async(seed_group=seed_group, compatible=compatible)
             objective_sha = to_sha256(seed_group.objective.value)
-            atomic_attack_name = f"{self._atomic_attack_prefix}_{dataset_name}::{objective_sha[:12]}"
+            atomic_attack_name = f"{self._atomic_attack_prefix()}_{dataset_name}::{objective_sha}"
             atomics.append(
                 AtomicAttack(
                     atomic_attack_name=atomic_attack_name,

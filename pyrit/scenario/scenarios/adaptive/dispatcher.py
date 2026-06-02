@@ -16,16 +16,18 @@ The returned attack is a plain ``SequentialAttack`` with
 (which technique ran, with what outcome, in what order) is not stamped onto
 the envelope — every child ``AttackResult`` in
 ``SequentialAttackResult.child_attack_results`` already carries its own
-``outcome`` and its own ``atomic_attack_identifier.eval_hash``, so callers
-reconstruct the trail by joining children against
-``AdaptiveScenario.technique_names_by_eval_hash``.
+``outcome`` and its own ``atomic_attack_identifier.eval_hash``. Callers that
+want a human-readable technique label per child read it directly from the
+child via ``child.get_attack_strategy_identifier().unique_name`` (the
+executor auto-stamps ``class_name`` and ``unique_name`` on every persisted
+row), so there is no separate ``{eval_hash: name}`` map to consult.
 """
 
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from pyrit.executor.attack.compound.sequential_attack import (
     SequenceCompletionPolicy,
@@ -70,8 +72,8 @@ class TechniqueBundle:
 
     attack: AttackStrategy[Any, AttackResult]
     name: str = ""
-    seed_technique: Optional[SeedAttackTechniqueGroup] = None
-    adversarial_chat: Optional[PromptTarget] = None
+    seed_technique: SeedAttackTechniqueGroup | None = None
+    adversarial_chat: PromptTarget | None = None
 
 
 class AdaptiveTechniqueDispatcher:
@@ -100,7 +102,7 @@ class AdaptiveTechniqueDispatcher:
         objective_target: PromptTarget,
         techniques: dict[str, TechniqueBundle],
         selector: TechniqueSelector,
-        objective_scorer: Optional[TrueFalseScorer] = None,
+        objective_scorer: TrueFalseScorer | None = None,
         max_attempts_per_objective: int = 3,
         scenario_result_id: str | None = None,
     ) -> None:
@@ -150,7 +152,12 @@ class AdaptiveTechniqueDispatcher:
             if bundle.seed_technique is None or seed_group.is_compatible_with_technique(technique=bundle.seed_technique)
         ]
 
-    async def build_attack_async(self, *, seed_group: SeedAttackGroup) -> SequentialAttack:
+    async def build_attack_async(
+        self,
+        *,
+        seed_group: SeedAttackGroup,
+        compatible: list[str] | None = None,
+    ) -> SequentialAttack:
         """
         Build a ``SequentialAttack`` for one ``SeedAttackGroup``.
 
@@ -164,14 +171,20 @@ class AdaptiveTechniqueDispatcher:
             seed_group (SeedAttackGroup): The seed group for the
                 objective this attack will run against. Must carry a
                 non-None objective.
+            compatible (list[str] | None): Precomputed result of
+                ``compatible_techniques(seed_group=...)``. When ``None``
+                (default) the dispatcher computes it itself. Callers that
+                already filter empty pools out via ``compatible_techniques``
+                should pass the result through to avoid re-scanning the
+                technique map.
 
         Returns:
             SequentialAttack: The ready-to-run attack. Each child's
                 identity is captured by its own
                 ``atomic_attack_identifier.eval_hash`` after execution;
-                callers wanting the friendly technique name join those
-                hashes against
-                ``AdaptiveScenario.technique_names_by_eval_hash``.
+                callers wanting the friendly technique name read it
+                directly from the child via
+                ``child.get_attack_strategy_identifier().unique_name``.
 
         Raises:
             ValueError: If ``seed_group.objective`` is not initialized,
@@ -181,7 +194,8 @@ class AdaptiveTechniqueDispatcher:
         if seed_group.objective is None:
             raise ValueError("seed_group.objective is not initialized")
 
-        compatible = self.compatible_techniques(seed_group=seed_group)
+        if compatible is None:
+            compatible = self.compatible_techniques(seed_group=seed_group)
         if not compatible:
             raise ValueError(
                 f"AdaptiveTechniqueDispatcher: no compatible techniques for seed group "
