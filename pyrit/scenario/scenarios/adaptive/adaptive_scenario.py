@@ -26,6 +26,7 @@ from pyrit.models.identifiers import compute_inner_attack_eval_hash
 from pyrit.scenario.core.atomic_attack import AtomicAttack
 from pyrit.scenario.core.attack_technique import AttackTechnique
 from pyrit.scenario.core.scenario import Scenario
+from pyrit.scenario.core.scenario_target_defaults import get_default_adversarial_target
 from pyrit.scenario.scenarios.adaptive.dispatcher import (
     AdaptiveTechniqueDispatcher,
     TechniqueBundle,
@@ -262,11 +263,14 @@ class AdaptiveScenario(Scenario):
                 logger.warning(f"Skipping technique '{technique_name}': {type(exc).__name__}: {exc}")
                 continue
             eval_hash = compute_inner_attack_eval_hash(attack=technique.attack)
+            adversarial_chat = factory.adversarial_chat
+            if adversarial_chat is None and factory.uses_adversarial:
+                adversarial_chat = get_default_adversarial_target()
             techniques[eval_hash] = TechniqueBundle(
                 attack=technique.attack,
                 name=technique_name,
                 seed_technique=technique.seed_technique,
-                adversarial_chat=factory.adversarial_chat,
+                adversarial_chat=adversarial_chat,
             )
 
         if not techniques:
