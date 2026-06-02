@@ -94,6 +94,8 @@ class TextAdaptive(AdaptiveScenario):
 
     _cached_strategy_class: ClassVar[type[ScenarioStrategy] | None] = None
 
+    VERSION: int = 1
+
     @classmethod
     def _atomic_attack_prefix(cls) -> str:
         """Return the prefix for per-objective atomic-attack names."""

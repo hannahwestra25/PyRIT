@@ -55,8 +55,7 @@ class AdaptiveScenario(Scenario):
     and dispatcher construction are handled here.
     """
 
-    #: Scenario version for memory bookkeeping.
-    VERSION: ClassVar[int] = 1
+    VERSION: ClassVar[int]
 
     @classmethod
     @abstractmethod
@@ -247,7 +246,8 @@ class AdaptiveScenario(Scenario):
                 continue
             scoring_config = self._build_scoring_config_for_factory(factory=factory)
             if scoring_config is None:
-                required_name = factory.scoring_config_type.__name__  # type: ignore[union-attr]
+                required_type = factory.scoring_config_type
+                required_name = required_type.__name__ if required_type is not None else "AttackScoringConfig"
                 reason = f"scenario scorer is incompatible with required {required_name}"
                 skipped_incompatible[technique_name] = reason
                 logger.warning(f"Skipping technique '{technique_name}': {reason}")
