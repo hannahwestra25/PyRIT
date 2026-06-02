@@ -143,7 +143,7 @@ class TextAdaptive(AdaptiveScenario):
         return [
             Parameter(
                 name="max_attempts_per_objective",
-                description="Max techniques tried per objective.",
+                description="Max techniques tried per objective. Defaults to 3.",
                 param_type=int,
                 default=3,
             ),
