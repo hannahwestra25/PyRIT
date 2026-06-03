@@ -193,7 +193,7 @@ class AdaptiveScenario(Scenario):
         atomic_attacks: list[AtomicAttack] = []
         for dataset_name, seed_groups in seed_groups_by_dataset.items():
             atomic_attacks.extend(
-                await self._build_atomics_for_dataset(
+                await self._build_atomics_for_dataset_async(
                     dataset_name=dataset_name,
                     seed_groups=seed_groups,
                     techniques=techniques,
@@ -328,7 +328,7 @@ class AdaptiveScenario(Scenario):
         except (TypeError, ValueError):
             return None
 
-    async def _build_atomics_for_dataset(
+    async def _build_atomics_for_dataset_async(
         self,
         *,
         dataset_name: str,
