@@ -157,6 +157,10 @@ await printer.write_async(resumed_result)  # type: ignore
 #
 # Use `result.get_display_groups()` to aggregate `attack_results` by the
 # per-dataset display label set by the scenario.
+#
+# If the trail of attacks attempted is shorter than `max_attempts_per_objective`,
+# the compatible-technique pool for that seed group was smaller than the cap —
+# the run exhausted the pool.
 
 # %%
 from collections import Counter
