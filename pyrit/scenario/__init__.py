@@ -21,7 +21,7 @@ from pyrit.scenario.core import (
     AtomicAttack,
     AttackTechnique,
     AttackTechniqueFactory,
-    BaselinePolicy,
+    BaselineAttackPolicy,
     DatasetConfiguration,
     Scenario,
     ScenarioCompositeStrategy,
@@ -31,17 +31,20 @@ from pyrit.scenario.core import (
 # Import scenario submodules directly and register them as virtual subpackages
 # This allows: from pyrit.scenario.airt import ContentHarms
 # without needing separate pyrit/scenario/airt/ directories
+from pyrit.scenario.scenarios import adaptive as _adaptive_module
 from pyrit.scenario.scenarios import airt as _airt_module
 from pyrit.scenario.scenarios import benchmark as _benchmark_module
 from pyrit.scenario.scenarios import foundry as _foundry_module
 from pyrit.scenario.scenarios import garak as _garak_module
 
+sys.modules["pyrit.scenario.adaptive"] = _adaptive_module
 sys.modules["pyrit.scenario.airt"] = _airt_module
 sys.modules["pyrit.scenario.benchmark"] = _benchmark_module
 sys.modules["pyrit.scenario.garak"] = _garak_module
 sys.modules["pyrit.scenario.foundry"] = _foundry_module
 
 # Also expose as attributes for IDE support
+adaptive = _adaptive_module
 airt = _airt_module
 benchmark = _benchmark_module
 garak = _garak_module
@@ -51,7 +54,7 @@ __all__ = [
     "AtomicAttack",
     "AttackTechnique",
     "AttackTechniqueFactory",
-    "BaselinePolicy",
+    "BaselineAttackPolicy",
     "DatasetConfiguration",
     "Parameter",
     "Scenario",
@@ -59,6 +62,7 @@ __all__ = [
     "ScenarioStrategy",
     "ScenarioIdentifier",
     "ScenarioResult",
+    "adaptive",
     "airt",
     "benchmark",
     "garak",

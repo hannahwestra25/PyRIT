@@ -19,6 +19,7 @@ from pyrit.prompt_target.common.discover_target_capabilities import (
 )
 from pyrit.prompt_target.common.prompt_chat_target import PromptChatTarget
 from pyrit.prompt_target.common.prompt_target import PromptTarget
+from pyrit.prompt_target.common.realtime_audio import ServerVadConfig
 from pyrit.prompt_target.common.target_capabilities import (
     CapabilityHandlingPolicy,
     CapabilityName,
@@ -48,6 +49,7 @@ from pyrit.prompt_target.openai.openai_video_target import OpenAIVideoTarget
 from pyrit.prompt_target.playwright_copilot_target import CopilotType, PlaywrightCopilotTarget
 from pyrit.prompt_target.playwright_target import PlaywrightTarget
 from pyrit.prompt_target.prompt_shield_target import PromptShieldTarget
+from pyrit.prompt_target.round_robin_target import RoundRobinTarget
 from pyrit.prompt_target.text_target import TextTarget
 from pyrit.prompt_target.websocket_copilot_target import WebSocketCopilotTarget
 
@@ -101,6 +103,8 @@ __all__ = [
     "PromptShieldTarget",
     "PromptTarget",
     "RealtimeTarget",
+    "ServerVadConfig",
+    "RoundRobinTarget",
     "TargetCapabilities",
     "TargetConfiguration",
     "TargetRequirements",

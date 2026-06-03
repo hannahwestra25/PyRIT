@@ -6,6 +6,7 @@ import logging
 
 from PIL import Image
 
+from pyrit.common.deprecation import print_deprecation_message
 from pyrit.common.notebook_utils import is_in_ipython_session
 from pyrit.memory import CentralMemory
 from pyrit.models import AzureBlobStorageIO, DiskStorageIO, MessagePiece
@@ -13,7 +14,7 @@ from pyrit.models import AzureBlobStorageIO, DiskStorageIO, MessagePiece
 logger = logging.getLogger(__name__)
 
 
-async def display_image_response(response_piece: MessagePiece) -> None:
+async def display_image_response_async(response_piece: MessagePiece) -> None:
     """
     Display response images if running in notebook environment.
 
@@ -34,12 +35,12 @@ async def display_image_response(response_piece: MessagePiece) -> None:
         try:
             if memory.results_storage_io is None:
                 raise RuntimeError("Storage IO not initialized")
-            image_bytes = await memory.results_storage_io.read_file(image_location)
+            image_bytes = await memory.results_storage_io.read_file_async(image_location)
         except Exception as e:
             if isinstance(memory.results_storage_io, AzureBlobStorageIO):
                 try:
                     # Fallback to reading from disk if the storage IO fails
-                    image_bytes = await DiskStorageIO().read_file(image_location)
+                    image_bytes = await DiskStorageIO().read_file_async(image_location)
                 except Exception as exc:
                     logger.error(f"Failed to read image from {image_location}. Full exception: {str(exc)}")
                     return
@@ -54,3 +55,13 @@ async def display_image_response(response_piece: MessagePiece) -> None:
         display(image)  # type: ignore[ty:unresolved-reference] # noqa: F821
     if response_piece.response_error == "blocked":
         logger.info("---\nContent blocked, cannot show a response.\n---")
+
+
+async def display_image_response(response_piece: MessagePiece) -> None:  # pyrit-async-suffix-exempt
+    """Delegate to ``display_image_response_async`` (deprecated alias)."""
+    print_deprecation_message(
+        old_item="pyrit.common.display_response.display_image_response",
+        new_item="pyrit.common.display_response.display_image_response_async",
+        removed_in="0.16.0",
+    )
+    await display_image_response_async(response_piece)
