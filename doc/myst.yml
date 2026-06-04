@@ -228,6 +228,7 @@ project:
         - file: api/pyrit_show_versions.md
     - file: blog/README.md
       children:
+        - file: blog/2026_06_04_scenarios.md
         - file: blog/2026_04_14_scoring_scorers.md
         - file: blog/2025_06_06.md
         - file: blog/2025_03_03.md
