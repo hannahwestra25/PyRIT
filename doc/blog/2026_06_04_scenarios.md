@@ -2,52 +2,94 @@
 
 <small>4 Jun 2026 - Hannah Westra</small>
 
-When we first introduced scenarios in PyRIT, the pitch was simple: most of our users were assembling the same set of pieces — a target, a curated dataset of objectives, a few attack strategies, a scorer — and running them in a loop. Doing that by hand worked, but it didn't compose well. Two people running the "same" red-teaming pass could end up with subtly different setups, and there was no clean unit of work to point at when you wanted to say, "run this configuration, then compare it against that one." Scenarios were our answer: a single object that bundles objectives plus attack strategies plus scoring, that you can run end-to-end with `await scenario.run_async()` and that produces a `ScenarioResult` you can save, share, and diff.
+When we first introduced scenarios in PyRIT a few releases back, the pitch was pretty simple: most of the operators we talked to were assembling the same set of pieces — a target, a curated dataset of objectives, a few attack strategies, a scorer — and running them in a loop. The framework gave them all the right Lego bricks, but every team was clicking those bricks together by hand. Two people running the "same" red-teaming pass against the same model could end up with subtly different setups. There was no clean unit of work to point at when you wanted to say, "run this exact configuration, then compare it against that one."
 
-The first scenarios — `FoundryScenario` (now `RedTeamAgent`), `Encoding`, and a starter `ContentHarms` — shipped around v0.10.0 / v0.11.0, alongside the `Scenario`, `AtomicAttack`, and `ScenarioStrategy` core. Since then we haven't really paused to write about scenarios on the blog, even though a lot has changed under the hood. This post is the catch-up.
+Scenarios were our answer. A scenario is a **pre-packaged red-teaming playbook** — a single object that bundles a curated set of objectives, a set of attack techniques to try against them, and the scoring + reporting logic to make sense of the results. You point one at a target and call `await scenario.run_async()`. Out comes a `ScenarioResult` that you can save, share, and diff. The first batch — `RedTeamAgent` (originally `FoundryScenario`), `Encoding`, and a starter `ContentHarms` — shipped around v0.10.0 / v0.11.0.
 
-## Sharpening the core (v0.13.0)
+We haven't really paused to write about scenarios on the blog since then, even though a *lot* has changed. This post is the catch-up: what scenarios look like today, what got sharpened in v0.13.0 and v0.14.0, and the new adaptive scenarios that landed in v0.14.0.
 
-A lot of the work in v0.13.0 was making the scenario primitives behave the same way the rest of PyRIT does — fewer special cases, more shared infrastructure, and a clearer separation between *what an attack is* and *how it's wired into a scenario*.
+## Where scenarios fit: framework, scanner, GUI
 
-**`AttackTechnique` is the new unit of composition.** Previously, an `AtomicAttack` wrapped a fully-constructed attack strategy and an `AtomicAttack` was the thing scenarios composed. That worked, but it conflated "the strategy" with "everything you need to instantiate the strategy" — every scenario had to know how to build its own attacks from raw configuration. The [`AttackTechnique` abstraction](https://github.com/microsoft/PyRIT/pull/1592) splits those apart. A technique now carries the attack strategy plus its `seed_technique` configuration as one self-describing bundle, and the scenario composes techniques rather than re-implementing the wiring each time. This is a breaking change — if you had your own scenario subclass calling `AtomicAttack(attack=...)`, the `attack=` keyword is now deprecated in favor of `attack_technique=`. The old signature still works through v0.16.0.
+It helps to put scenarios in context with the rest of PyRIT first. There are three layers:
 
-**`AttackTechniqueRegistry` is the catalog.** Once techniques are first-class objects, they need a place to live so the CLI, the scenario, and your notebook can all discover them the same way. [PR #1611](https://github.com/microsoft/PyRIT/pull/1611) introduced `AttackTechniqueRegistry`: a central, tag-queryable catalog of every attack technique known to PyRIT. Scenarios pick from it (via `TagQuery.any_of("default")`, for example), the CLI lists from it, and you can register your own. The registry is what lets new scenarios declare *what techniques they support* in a single line instead of hand-rolling an enum.
+1. **The framework** — the Python library. Targets, attacks, converters, scorers, memory. Maximum flexibility; every knob exposed.
+2. **The scanner** — a CLI layer on top of the framework, with two commands: `pyrit_scan` and `pyrit_shell`. The whole idea is to abstract the framework knobs away for the common case. Operators repeat the same workflows constantly, and the scanner makes that repetition trivial. There are three things you pass it: a **scenario**, a **target**, and an optional **config**.
+3. **The GUI** — the newest layer, currently focused on chat, conversation analytics, and converter exploration.
 
-**Attack arguments are standardized.** [PR #1608](https://github.com/microsoft/PyRIT/pull/1608) was a follow-up cleanup: every attack strategy now takes the same shape of constructor args, which is why composing them inside techniques actually feels boring instead of bespoke.
+Scenarios are the unit of work that the scanner is built around. You run
 
-**Smaller polish** that's worth knowing about:
+```
+pyrit_scan airt.rapid_response --target my_model --strategies default
+```
 
-- `include_baseline` moved from the `Scenario` constructor to `initialize_async` ([#1700](https://github.com/microsoft/PyRIT/pull/1700)) — you decide whether to run the baseline at run time, not at construction time.
-- `BASELINE_POLICY` was renamed to `BASELINE_ATTACK_POLICY` ([#1763](https://github.com/microsoft/PyRIT/pull/1763)) so the name actually says what it controls.
-- The `FoundryScenario` alias is gone ([#1623](https://github.com/microsoft/PyRIT/pull/1623)); use `RedTeamAgent`.
-- And finally — possibly the most useful change for new users — we added [scenario doc pages for the seven scenarios that didn't have them](https://github.com/microsoft/PyRIT/pull/1558), and migrated the old cookbooks into the main docs tree. There's now a clean landing surface at [`doc/code/scenarios/`](../code/scenarios/0_scenarios.ipynb).
+and the scanner picks up the rapid-response scenario, applies the configuration, runs it against your target, and shows you the results. But the same scenario works fine straight from the framework — you can instantiate it in a notebook and call `run_async()` directly. That symmetry is what makes scenarios useful: the operator running the CLI and the developer iterating in a notebook are running the *same code path*, against the same datasets, with the same scoring.
 
-## Better reporting (v0.14.0)
+## What's in a scenario
 
-v0.14.0 builds on that foundation and pushes on what you actually *see* after a scenario finishes.
+Cracking one open, every scenario bundles four things:
 
-**Attribution that survives resumes.** [Better Scenario Tracking](https://github.com/microsoft/PyRIT/pull/1758) ties every persisted `AttackResult` row back to the scenario run that produced it, with a proper attribution model in memory. The practical payoff: if you stop a long-running scenario and resume it with `scenario_result_id=...`, the analytics line up. Re-runs don't double-count. Cross-run comparisons stop being a manual labeling exercise.
+- **Techniques — the *how*.** How are we going to attack? Maybe we just send the prompt directly. Maybe we wrap it in a role-play scenario. Maybe we escalate over multiple turns with Crescendo or TAP. Techniques include the attack strategy plus its converters, jailbreak templates, and adversarial-chat configuration — basically all the knobs that affect how the attack is crafted and delivered.
+- **Datasets — the *what*.** What harmful content are we testing for? Hate speech, violence, fairness, leakage, scam content. Each scenario ships with curated datasets that match its scope.
+- **Scoring and reporting.** Every response flows through scoring, and the printer rolls everything up into a readable summary.
+- **Memory persistence.** Every prompt, response, and result gets persisted so you can come back later, compare runs, or pick up where you left off.
 
-**Sorted per-group breakdown.** Scenario printers now [sort the per-group results by success rate](https://github.com/microsoft/PyRIT/pull/1809), so the categories the target is most vulnerable on float to the top of the report instead of being buried mid-list.
+The whole point is that you don't have to wire any of this up yourself. Pick a scenario, point it at a target, and the scenario handles the rest.
 
-**`SequentialAttack` as a compound primitive.** A new building block ([#1819](https://github.com/microsoft/PyRIT/pull/1819)) that runs a list of attacks in order with a configurable `SequenceCompletionPolicy` — try them all, or stop on the first success / first decisive result. Handy any time you want to stack attacks in priority order (e.g. try a cheap one first and only escalate to an expensive multi-turn one if needed).
+## The scenarios you can run today
 
-## Adaptive scenarios (also v0.14.0)
+There are four flavors in the catalog right now. You can also bring your own — the abstractions are designed to be subclassed.
 
-This is the section that's been a long time coming.
+🟢 **Foundry — `RedTeamAgent`.** The integration with [Azure AI Foundry's red-teaming library](https://learn.microsoft.com/en-us/azure/ai-foundry/responsible-ai/openai/red-team-tools). Organized by complexity (easy / moderate / difficult) rather than harm type. Easy = converters like Base64, ROT13. Difficult = multi-turn attacks like TAP and Crescendo. Built on HarmBench with 25+ techniques. The "throw everything at the wall" approach.
 
-### The problem with running everything against everything
+🟣 **Garak — `Encoding`.** Inspired by the [Garak](https://github.com/leondz/garak) project. Very focused: can the model be tricked into decoding and repeating harmful content? Tests 17 encoding schemes (Base64, Braille, Morse, Leet Speak, …) against slur terms and XSS payloads. Single-turn only, with a custom `DecodingScorer`. Niche but important for encoding-bypass vulnerabilities.
 
-The existing scenarios are exhaustive by design: pick N techniques and M objectives, and you run `N × M` attacks. That's the right default when you're benchmarking — you want to know how every technique fares on every objective. But it's also expensive, and in real red-teaming operations it doesn't match how we actually think. We *know* certain techniques tend to dominate for certain harm categories. Spending the same budget on techniques that have never landed against a given category, on every single objective, is mostly burning tokens to re-confirm what we already knew.
+🟡 **Benchmark — `AdversarialBenchmark`.** Not about testing a target — about comparing adversarial models. Feed it multiple red-teaming models and it measures which is most effective at generating attacks. No baseline run. Useful for "which adversarial model should we use?"
 
-The trick is doing something about it without giving up reproducibility, without bolting in a custom scheduler, and without breaking the scenario abstraction that everything else in PyRIT relies on.
+🔴 **AIRT — seven scenarios** built by the AI Red Team for real-world harm testing, each focused on one domain:
 
-### Enter `TextAdaptive`
+- `Jailbreak` — jailbreak templates (skeleton key, role-play, many-shot)
+- `Cyber` — malware generation
+- `Leakage` — PII, training-data, IP leaks
+- `Psychosocial` — mental-health crisis, fake-therapist scenarios
+- `Scam` — phishing and fraud generation
+- `ContentHarms` — general-purpose; covers hate, violence, fairness, sexual content
+- `RapidResponse` — the urgent-question scenario, worth its own paragraph
 
-`TextAdaptive` is a new scenario that, for each objective, picks up to `max_attempts_per_objective` techniques in priority order, runs them one at a time, and stops as soon as one succeeds. Budget goes from `O(techniques × objectives)` to `O(max_attempts × objectives)` — and you choose `max_attempts`.
+### A closer look: `RapidResponse`
 
-Concretely: say you select five techniques (`prompt_sending`, `crescendo`, `tap`, `pair`, `encoding`) against a dataset of misinformation objectives. Today, every technique runs against every objective. With `TextAdaptive` and `max_attempts_per_objective=3`, for each new misinformation objective the bandit asks memory which of those techniques have been working lately on similar runs, picks the top three (with some exploration), and stops as soon as one of them succeeds. Techniques that have historically failed against misinformation slide to the back of the queue without you maintaining a hand-written priority list.
+`RapidResponse` is the scenario you're most likely to reach for when something urgent comes up — a new vulnerability drops, a new jailbreak is trending on Twitter, and leadership wants to know whether the model is exposed.
+
+It crosses two axes: **techniques × harm categories**. The technique side pulls from seven core techniques (`prompt_sending`, `role_play`, `many_shot`, `TAP`, `crescendo_simulated`, `red_teaming`, `context_compliance`). The harm side covers seven AIRT datasets (`airt_hate`, `airt_fairness`, `airt_violence`, `airt_sexual`, `airt_harassment`, `airt_misinformation`, `airt_leakage`). By default it sends four prompts per dataset, configurable with `--max-dataset-size`.
+
+It runs a **baseline** first — raw prompts, no converters, no tricks — as the control group. Then it crosses every selected technique with every selected dataset and runs them in parallel through the execution engine. Results are grouped by harm category rather than by technique, because when leadership asks "are we exposed to hate speech?", you want the answer organized that way.
+
+Strategies are also tagged for convenience: `default` is `prompt_sending + many_shot` (quick check), `single_turn` and `multi_turn` carve out the obvious subsets, and `light` is a fast sweep across five mostly-cheap techniques. So `pyrit_scan airt.rapid_response --target my_model --strategies default` gives you a quick two-technique pass across all seven harm categories; `--strategies multi_turn` hits the harder stuff.
+
+## What's improved in v0.13.0 and v0.14.0
+
+A lot of the recent work has been less about new scenarios and more about making the underlying machinery sharper, so adding scenarios (and adding the *next* layer of capability on top of them) doesn't require rewriting the last one.
+
+**A real registry for techniques.** v0.13.0 introduced [`AttackTechnique`](https://github.com/microsoft/PyRIT/pull/1592) as a first-class abstraction (the attack strategy plus its `seed_technique` configuration as one bundle) and [`AttackTechniqueRegistry`](https://github.com/microsoft/PyRIT/pull/1611) as a central, tag-queryable catalog. Scenarios pick techniques from the registry via tag queries like `TagQuery.any_of("default")`, the CLI lists from it, and you can register your own. This is the foundation that everything below builds on. Attack arguments were [standardized in the same release](https://github.com/microsoft/PyRIT/pull/1608), which is what makes composing techniques inside scenarios feel boring instead of bespoke.
+
+**Better reporting in v0.14.0.** [Better Scenario Tracking](https://github.com/microsoft/PyRIT/pull/1758) ties every persisted `AttackResult` row back to the scenario run that produced it, so resumes and re-runs line up correctly and cross-run comparisons stop being a manual labeling exercise. Scenario printers now [sort the per-group breakdown by success rate](https://github.com/microsoft/PyRIT/pull/1809), so the harm categories the target is most vulnerable on float to the top of the report. And [`SequentialAttack`](https://github.com/microsoft/PyRIT/pull/1819) shipped as a compound primitive — useful any time you want to stack attacks in priority order (try a cheap one first, escalate to expensive multi-turn only if needed).
+
+**Smaller polish worth knowing about.** `include_baseline` moved from the `Scenario` constructor to `initialize_async` ([#1700](https://github.com/microsoft/PyRIT/pull/1700)) so you decide at run time, not construction time. `BASELINE_POLICY` was renamed to `BASELINE_ATTACK_POLICY` ([#1763](https://github.com/microsoft/PyRIT/pull/1763)) so the name says what it controls. The `FoundryScenario` alias was removed in favor of `RedTeamAgent` ([#1623](https://github.com/microsoft/PyRIT/pull/1623)). And — possibly the most useful change for new users — [scenario doc pages for the seven scenarios that didn't have them](https://github.com/microsoft/PyRIT/pull/1558) finally exist.
+
+## Adaptive scenarios (v0.14.0)
+
+`RapidResponse` is thorough — but it's brute force. It runs every technique against every objective, and most of those attempts are wasted. Maybe Crescendo works great on your target and `prompt_sending` never gets through. You're paying for the wasted ones anyway.
+
+v0.14.0 ships a new family of scenarios — **adaptive scenarios** — that fix exactly this. Today it's just one: `TextAdaptive`. Image and audio variants are scaffolded by a modality-agnostic base and will follow once their technique pools are deep enough to be useful.
+
+The idea is simple: instead of running every technique against every objective, the scenario **picks which technique to try next per-objective, learns from what's worked, and stops as soon as one succeeds**. Budget goes from `O(techniques × objectives)` down to `O(max_attempts × objectives)`, where `max_attempts` defaults to 3.
+
+Three pieces make it work:
+
+- **The registry** — the same `AttackTechniqueRegistry` from v0.13.0. It's the catalog of available techniques the scenario can pick from.
+- **The selector** — the brain. `EpsilonGreedyTechniqueSelector` decides what to try next using an explore/exploit tradeoff: most of the time it picks the technique with the best historical success rate; some of the time it tries something random to make sure it isn't missing a better option. New techniques get a fair shot before the selector settles on favorites.
+- **Attack success rate (ASR)** — the feedback loop. Every attempt gets persisted to memory with a label identifying which technique ran. Next time the selector is asked to pick, it queries memory for those rows and ranks techniques by their track record.
+
+The genuinely powerful part is that **it learns across runs**. The selector is stateless — it doesn't hold counts in memory, it queries `MemoryInterface` every time. If you ran `RapidResponse` last week and TAP worked 60% of the time, the adaptive scenario knows that on day one. It doesn't rediscover what you already learned. Every scan your org runs makes the next adaptive scan smarter. `SelectorScope` is the escape hatch when you want to narrow the scope — restrict to the current run, a specific scenario class, or a specific set of harm categories.
 
 ```python
 from pyrit.scenario.scenarios.adaptive import (
@@ -63,62 +105,20 @@ await scenario.initialize_async(objective_target=target)
 result = await scenario.run_async()
 ```
 
-The interesting part is *how* the techniques get picked.
+`prompt_sending` is excluded from the adaptive pool and runs as the baseline comparison instead (via `BASELINE_ATTACK_POLICY=Enabled`), so you still see the honest "no-attack" number alongside the adaptive number in the report.
 
-### The selector: epsilon-greedy, Laplace-smoothed, optimistic on new techniques
-
-`EpsilonGreedyTechniqueSelector` is a small bandit. For each objective it asks: *given what we've seen historically, which techniques should I try first?*
-
-- With probability ε it **explores** — picks uniformly at random from the available techniques. Default ε is 0.2.
-- Otherwise it **exploits** — picks the technique with the best Laplace-smoothed estimate, `(successes + 1) / (decided + 1)`. The +1 smoothing means an unseen technique starts at an optimistic `1.0` instead of an undefined `0/0`, so brand-new techniques are eligible to be tried instead of getting permanently ranked below techniques with any history.
-- Ties are broken by random choice over the tied winners (using the same per-decision RNG), so the selector doesn't keep deterministically picking the first-listed technique when several look equally good.
-
-If you supply a `random_seed`, picks are deterministic for a given objective and run context: a per-decision RNG is derived from `SHA-256(seed | objective)`, so resumes pick up where they left off without re-shuffling. Without a seed, exploration is intentionally nondeterministic.
-
-### Stateless, memory-backed, and resumable
-
-The thing that makes this approach feel native to PyRIT, rather than tacked on, is that the **selector doesn't hold counts in memory**. It queries `MemoryInterface` for the historical `AttackResult` rows that match its scope, computes success rates on the fly, and forgets them. That sounds expensive but it's the right call for three reasons:
-
-1. **Learning accumulates across runs by default.** Each adaptive attempt is persisted to memory with a label identifying which technique ran. The next run — yours or someone else's against the same memory backend — reads those rows when scoring techniques, so over time the bandit's estimates reflect what's actually been working in your environment.
-2. **Resumes use the same machinery.** Hand a `scenario_result_id` to an existing run and the regular scenario-resume flow skips objectives that already completed. For the objectives that haven't, the selector reads memory the same way it would on a fresh run, so a seeded resume picks the same techniques it would have picked originally.
-3. **You decide what the selector learns from.** A `SelectorScope` controls whether to query across all history (the default), the current run only, results from a specific set of scenario / attack classes (`attack_classes`), a specific set of `targeted_harm_categories`, or any extra label filter you want to add. If you want to keep image and text bandits independent down the road, pin `attack_classes`. If you want every run to start fresh, use `SelectorScope.current_run()`.
-
-One thing worth being explicit about: the selector picks all `max_attempts_per_objective` techniques up front for each objective, before the first attempt runs. So within a single objective, attempt 2 isn't re-ranked based on attempt 1's outcome. Online re-ranking between attempts in the same objective would be a reasonable next step; today, the granularity is per-objective.
-
-### Baseline is preserved
-
-Adaptive selection makes results harder to compare against "just send the prompt" if you don't think about it carefully — the bandit's job is to look better than random. To keep an honest comparison point, `prompt_sending` is **excluded from the adaptive technique pool** and instead runs as the baseline via `BASELINE_ATTACK_POLICY=Enabled`. By default, you see the no-attack number alongside the adaptive number, so the lift the adaptive scenario is actually buying you is right there in the report. (You can still opt out per-run with `initialize_async(include_baseline=False)` if you don't want it.)
-
-### How the pieces fit together
-
-```{mermaid}
-flowchart LR
-    SCENARIO["TextAdaptive (Scenario)"]
-    DISPATCHER["AdaptiveDispatchAttack (one per dataset, shared selector)"]
-    TECH["AttackTechnique[]"]
-    MEMORY[("MemoryInterface (AttackResult rows)")]
-    SELECTOR["EpsilonGreedyTechniqueSelector (stateless)"]
-
-    SCENARIO -->|one AtomicAttack per dataset| DISPATCHER
-    DISPATCHER -->|ask for top-K per objective| SELECTOR
-    SELECTOR -.->|query historical success rates| MEMORY
-    DISPATCHER -->|run chosen techniques in priority order, stop on success| TECH
-    TECH -->|persist results with technique label| MEMORY
-    MEMORY -.->|feed future selections| SELECTOR
-```
-
-The dispatcher (`AdaptiveDispatchAttack`) is a regular `AttackStrategy`: per-objective it asks the selector for the ordered technique list, then loops through them in priority order with its own per-attempt logic — merging the technique's `seed_technique` into the seed group, stamping a memory label for the chosen technique, and breaking out as soon as one attempt succeeds. The outer `AttackResult` it returns is a fresh copy of the winning inner result with the per-attempt trail stamped onto `metadata`, so the adaptive trail is recoverable without inventing a new result type. Inner techniques persist their own raw rows the way they always have. That last part is the important one: adaptive runs look like normal runs in memory and in your dashboards. Everything that already works with scenarios (the printers, the analytics, the CLI, the resume flow) keeps working without changes.
-
-### What's not in this release
-
-`AdaptiveScenario` is modality-agnostic on purpose. The text subclass is the one shipping in v0.14.0 — image and audio variants are scaffolded and on the roadmap, but they need their own attack-technique catalogs to be useful, and we'd rather ship them when the technique pool is there than have a one-attack adaptive run that doesn't really *have* anything to adapt. If you want to experiment with your own modality or your own selector strategy in the meantime, `TechniqueSelector` is a small protocol with one method — building a contextual bandit, a Thompson sampler, or whatever else you want to try is a hundred-or-so lines.
+Bottom line: **`RapidResponse` tells you "here's how every technique did" against this target. `TextAdaptive` tells you "here's the fastest path to breaking this model."** Both are useful; you reach for them at different moments.
 
 ## Where to go next
 
 - The scenarios docs landing page: [`doc/code/scenarios/`](../code/scenarios/0_scenarios.ipynb).
-- The walkthroughs for running scenarios end-to-end: [`pyrit_scan`](../scanner/1_pyrit_scan.ipynb) and [`pyrit_shell`](../scanner/2_pyrit_shell.md).
-- The adaptive scenarios notebook (shipped alongside `TextAdaptive`) is the fastest way to see the bandit in action with a real target.
+- The end-to-end walkthroughs from the scanner side: [`pyrit_scan`](../scanner/1_pyrit_scan.ipynb) and [`pyrit_shell`](../scanner/2_pyrit_shell.md).
+- The adaptive scenarios notebook (shipped alongside `TextAdaptive`) is the fastest way to see the bandit in action against a real target.
 
-If you've got ideas for new techniques to register, a selector strategy you want to try, or a scenario for a modality we don't cover yet — those are all great places to contribute. The whole point of the v0.13.0 / v0.14.0 work was making scenarios composable enough that adding the next thing doesn't require rewriting the last one.
+A few things on the roadmap that are worth flagging:
 
-Thanks for reading!
+- **Scenarios in the GUI.** Today scenarios run from the framework or the scanner. We're working on bringing scenario configuration and result browsing into the PyRIT GUI so non-CLI users can run scans, inspect results, and compare runs visually.
+- **More adaptive modalities.** `ImageAdaptive` and `AudioAdaptive` are scaffolded but waiting on their attack-technique catalogs to be deep enough that there's something meaningful to adapt over.
+- **Bring-your-own selectors and techniques.** `TechniqueSelector` is a small protocol with one method — building a contextual bandit, a Thompson sampler, or whatever else you want is a hundred-or-so lines. New techniques register into `AttackTechniqueRegistry` the same way the built-in ones do.
+
+That's the catch-up. Thanks for reading!
