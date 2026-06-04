@@ -28,17 +28,6 @@ Concretely, the simplest run to create a RapidResponse scenario from the CLI loo
 pyrit_scan airt.rapid_response --target my_target
 ```
 
-<!-- TODO IMAGE: Capture a terminal session running `pyrit_scan airt.rapid_response
-     --target my_target` (or a similar short scenario). The most useful frame
-     shows the command at the top, the initializer log lines loading
-     techniques / targets / datasets, and the first technique progress bars
-     starting up. The final summary is already captured in
-     2026_06_04_rapid_response_output.png — this image is about the
-     "what does it look like to kick one off" moment. Save to
-     doc/blog/2026_06_04_scan_run_scenario.png and uncomment the line below.
-![pyrit_scan launching a scenario from the CLI](2026_06_04_scan_run_scenario.png)
--->
-
 That one command does a lot. Before the scenario itself runs, **initializers** (`PyRITInitializer` subclasses such as `ScenarioTechniqueInitializer`, `TargetInitializer`, and `LoadDefaultDatasets`) populate the registries — every technique factory lands in `AttackTechniqueRegistry`, every configured target in `TargetRegistry`, every default dataset for the chosen scenario in memory. Only then does the CLI look up `airt.rapid_response` in the scenario registry, resolve `my_target` against `TargetRegistry`, instantiate `RapidResponse`, and call `run_async()`. You get back a `ScenarioResult` persisted to memory and pretty-printed at the end. No notebook glue required, and the same scenario class is what you'd `await` in a notebook if you preferred to drive it from Python.
 
 ## The scenarios you can run today
