@@ -2,7 +2,7 @@
 
 <small>4 Jun 2026 - Hannah Westra</small>
 
-When we first introduced scenarios in PyRIT a few releases back, the pitch was pretty simple: most of the operators we talked to were assembling the same set of pieces — a target, a curated dataset of objectives, a few attack strategies, a scorer — and running them in a loop. The framework gave them all the right Lego bricks, but every team was clicking those bricks together by hand. There was no clean unit of work to point at when you wanted to say, "run this exact configuration, then compare it against that one."
+When we first introduced scenarios in PyRIT a few releases back, the pitch was pretty simple: most of the red teamers we talked to were assembling the same set of pieces — a target, a curated dataset of objectives, a few attack strategies, a scorer — and running them in a loop. The framework gave them all the right Lego bricks, but every team was clicking those bricks together by hand. That made the everyday workflow harder than it needed to be: there was no clean unit of work to rerun after a model update, hand to a teammate, or diff against last quarter's results.
 
 Enter scenarios. A scenario is a **pre-packaged red-teaming playbook** — a single object that bundles a curated set of objectives, a set of attack techniques to try against them, and the scoring + reporting logic to make sense of the results. You can run a scenario two ways: instantiate it in a notebook and `await scenario.run_async()` directly through the framework, or invoke it from the scanner CLI with `pyrit_scan` (or `pyrit_shell` for interactive exploration). Either way you get back a `ScenarioResult` you can save, share, and diff. The first batch — `RedTeamAgent` (originally `FoundryScenario`), `Encoding`, and a starter `ContentHarms` — shipped around v0.10.0 / v0.11.0.
 
@@ -12,15 +12,34 @@ We haven't really paused to write about scenarios on the blog since then, even t
 
 Cracking one open, every scenario bundles five things:
 
-- **Techniques — the *how*.** How are we going to attack? Maybe we just send the prompt directly. Maybe we wrap it in a role-play scenario. Maybe we escalate over multiple turns with Crescendo or TAP. Techniques include the attack strategy plus its converters, jailbreak templates, and adversarial-chat configuration — basically all the knobs that affect how the attack is crafted and delivered.
+- **Techniques — the *how*.** How are we going to attack? Maybe we just send the prompt directly. Maybe we wrap it in a role-play prompt template. Maybe we escalate over multiple turns with Crescendo or TAP. Techniques include the attack strategy plus its converters, jailbreak templates, and adversarial-chat configuration — basically all the knobs that affect how the attack is crafted and delivered.
 - **Datasets — the *what*.** What harmful content are we testing for? Hate speech, violence, fairness, leakage, scam content. Each scenario ships with curated datasets that match its scope.
-- **Strategies — the runtime knob.** Each scenario exposes a named set of strategies (e.g. `default`, `single_turn`, `multi_turn`, `light`) that pick which techniques actually run on this invocation. `--strategies default` is how an operator says "just the quick subset"; `--strategies multi_turn` is how they say "give me the harder ones." Strategies are built dynamically from the technique registry per-scenario, so adding a new tagged technique just shows up under the right strategies automatically — no scenario edit needed.
+- **Strategies — the runtime knob.** Each scenario exposes a named set of strategies (e.g. `default`, `single_turn`, `multi_turn`, `light`) that pick which techniques actually run on this invocation. `--strategies default` is how a red teamer says "just the quick subset"; `--strategies multi_turn` is how they say "give me the harder ones." Strategies are built dynamically from the technique registry per-scenario, so adding a new tagged technique just shows up under the right strategies automatically — no scenario edit needed.
 - **Scoring and reporting.** Every response flows through scoring, and the printer rolls everything up into a readable summary.
 - **Memory persistence.** Every prompt, response, and result gets persisted so you can come back later, compare runs, or pick up where you left off.
 
 Scenarios can also opt in to running a **baseline pass** — sending the raw, unmodified prompts as a control group so the report can show "what the model does without any attack" next to "what the model does once attacked." Baseline behavior is generic to the `Scenario` base class (toggled per run via `include_baseline` and governed by `BASELINE_ATTACK_POLICY`); individual scenarios just decide whether it makes sense for their workload.
 
 The whole point is that you don't have to wire any of this up yourself. Pick a scenario, point it at a target, and the scenario handles the rest.
+
+Concretely, the simplest run from the CLI looks like:
+
+```bash
+pyrit_scan airt.rapid_response --target my_target
+```
+
+<!-- TODO IMAGE: Capture a terminal session running `pyrit_scan airt.rapid_response
+     --target my_target` (or a similar short scenario). The most useful frame
+     shows the command at the top, the initializer log lines loading
+     techniques / targets / datasets, and the first technique progress bars
+     starting up. The final summary is already captured in
+     2026_06_04_rapid_response_output.png — this image is about the
+     "what does it look like to kick one off" moment. Save to
+     doc/blog/2026_06_04_scan_run_scenario.png and uncomment the line below.
+![pyrit_scan launching a scenario from the CLI](2026_06_04_scan_run_scenario.png)
+-->
+
+That one command does a lot. Before the scenario itself runs, **initializers** (`PyRITInitializer` subclasses such as `ScenarioTechniqueInitializer`, `TargetInitializer`, and `LoadDefaultDatasets`) populate the registries — every technique factory lands in `AttackTechniqueRegistry`, every configured target in `TargetRegistry`, every default dataset for the chosen scenario in memory. Only then does the CLI look up `airt.rapid_response` in the scenario registry, resolve `my_target` against `TargetRegistry`, instantiate `RapidResponse`, and call `run_async()`. You get back a `ScenarioResult` persisted to memory and pretty-printed at the end. No notebook glue required, and the same scenario class is what you'd `await` in a notebook if you preferred to drive it from Python.
 
 ## The scenarios you can run today
 
@@ -53,11 +72,11 @@ There are five flavors in the catalog right now. You can also bring your own —
 
 ### A closer look: `RapidResponse`
 
-`RapidResponse` is the broadest of the AIRT scenarios — a comprehensive sweep across the most common techniques and the full AIRT harm-category catalog. It's a natural jumping-off point: you run it to get a wide, shallow read on which categories the target handles well and which ones come back concerning, then pivot to the more focused AIRT scenarios (or to `TextAdaptive`) to dig into whatever came back interesting.
+`RapidResponse` is the broadest of the AIRT scenarios — a comprehensive sweep across the most common techniques and the full AIRT harm-category catalog. It exists for the moment when you've onboarded a new model (or a new model release ships, or a new vulnerability hits the news) and the first question is "where are we exposed?" — not "which specific technique works." It's a natural jumping-off point: you run it to get a wide, shallow read on which categories the target handles well and which ones come back concerning, then pivot to the more focused AIRT scenarios (or to `TextAdaptive`) to dig into whatever came back interesting.
 
-The technique side pulls from seven core techniques (`prompt_sending`, `role_play`, `many_shot`, `TAP`, `crescendo_simulated`, `red_teaming`, `context_compliance`). The dataset side covers seven AIRT datasets (`airt_hate`, `airt_fairness`, `airt_violence`, `airt_sexual`, `airt_harassment`, `airt_misinformation`, `airt_leakage`). By default it sends four prompts per dataset, configurable with `--max-dataset-size`.
+It runs seven core techniques (`prompt_sending`, `role_play`, `many_shot`, `TAP`, `crescendo_simulated`, `red_teaming`, `context_compliance`) across seven AIRT datasets (`airt_hate`, `airt_fairness`, `airt_violence`, `airt_sexual`, `airt_harassment`, `airt_misinformation`, `airt_leakage`). By default it sends four prompts per dataset, configurable with `--max-dataset-size`.
 
-Like other scenarios it can run a baseline pass first (`include_baseline=True`, the default) — the raw prompts with no converters or wrapping techniques — so the report has a control group sitting next to the attacked numbers. Then it runs every selected technique against every selected dataset, in parallel, through the execution engine. The thing that's specific to `RapidResponse` is the *grouping*: results roll up by harm category rather than by technique, because when leadership asks "are we exposed to hate speech?", you want the answer organized that way.
+The thing that's distinctive about `RapidResponse` is how it groups results in the printer. The base `Scenario` class defaults to grouping by technique — most scenarios print one block per technique ("crescendo_simulated: 14/50 succeeded, role_play: 7/50, …"), which is the right framing when you're asking "which attack is hitting?" `RapidResponse` overrides that to group by harm category instead — one block per dataset ("airt_hate: 21/100, airt_violence: 4/100, …"), summed across all techniques — because when leadership asks "are we exposed to hate speech?", that's the rollup they want. Same `AttackResult` rows in memory, different axis on the way out.
 
 Its strategy tags are worth knowing about: `default` is `prompt_sending + many_shot` (quick check), `single_turn` and `multi_turn` carve out the obvious subsets, and `light` is a fast sweep across five mostly-cheap techniques. So `pyrit_scan airt.rapid_response --target my_model --strategies default` gives you a quick two-technique pass across all seven harm categories; `--strategies multi_turn` hits the harder stuff.
 
@@ -78,31 +97,31 @@ A lot of the recent work has been less about building out our scenario library a
 
 **A real abstraction for "an attack you can drop into a scenario."** Before v0.13.0 a scenario glued attacks together by hand, knowing how to construct each one and what arguments it needed. `AttackTechnique` replaced that with a single bundle: the attack strategy class, the `seed_technique` configuration that tells the attack how to mutate prompts (jailbreak template, encoding, role-play wrapper, etc.), plus any technique-specific defaults like which adversarial chat to use. A scenario now composes a *list* of `AttackTechnique`s and hands them to the executor — the scenario doesn't need to know the internals of TAP versus Crescendo versus a converter-based attack, just that it has techniques to run. Standardized attack arguments shipped in the same release, which is what lets every technique constructor speak the same dialect.
 
-**A catalog those techniques live in.** `AttackTechniqueRegistry` is where techniques register themselves with metadata: name, description, tags like `default` / `single_turn` / `multi_turn` / `light`, modality, what kinds of targets they work against. Scenarios pull techniques out via tag queries — `TagQuery.any_of("default")`, `TagQuery.all_of("multi_turn", "text")` — instead of importing each one by name. The scanner CLI uses the same registry to list and describe what's available. And to add your own, you write a factory and register it with a tag; every scenario that queries by that tag picks it up for free.
+**A catalog those techniques live in.** `AttackTechniqueRegistry` is where techniques register themselves with metadata: name, description, tags like `default` / `single_turn` / `multi_turn` / `light`, modality, what kinds of targets they work against. Scenarios pull techniques out via tag queries — `TagQuery.any_of("default")`, `TagQuery.all_of("multi_turn", "text")` — instead of importing each one by name. The scanner CLI uses the same registry to list and describe what's available. Population of the registry itself is handled by initializers (the canonical one is `ScenarioTechniqueInitializer`); to add your own technique, you write a factory and register it with a tag, and every scenario that queries by that tag picks it up for free.
 
-The full path from a single technique to a scenario run looks like:
+The full path — from an executable attack algorithm all the way to a `ScenarioResult` — looks like this:
 
 ```mermaid
-flowchart LR
-    subgraph Reg["AttackTechniqueRegistry — the catalog"]
-        direction TB
-        T1["prompt_sending<br/>tags: default, single_turn, light"]
-        T2["many_shot<br/>tags: default, single_turn, light"]
-        T3["crescendo_simulated<br/>tags: multi_turn"]
-        T4["tap<br/>tags: multi_turn"]
-        T5["role_play<br/>tags: single_turn"]
-        T6["..."]
-    end
+flowchart TB
+    AS["AttackStrategy<br/>(the executable algorithm:<br/>PromptSendingAttack,<br/>CrescendoAttack, TAPAttack, ...)"]
+    SC["seed configuration<br/>(jailbreak template, converters,<br/>adversarial-chat target, ...)"]
+    AT["AttackTechnique<br/>(strategy + seed config bundle)"]
+    AS --> AT
+    SC --> AT
 
-    Reg -->|"TagQuery selects subsets"| Strat["ScenarioStrategy<br/>(default, single_turn,<br/>multi_turn, light, ...)"]
+    AT -->|"registered with tags by<br/>ScenarioTechniqueInitializer"| Reg["AttackTechniqueRegistry"]
 
-    Strat -->|"--strategies multi_turn"| Sc["Scenario<br/>e.g. RapidResponse"]
-    DS[("scenario datasets")] --> Sc
+    Reg -->|"TagQuery selects subsets"| Strat["ScenarioStrategy<br/>(default · single_turn ·<br/>multi_turn · light · ...)"]
 
-    Sc --> Res["ScenarioResult"]
+    Strat -->|"--strategies multi_turn picks one"| Sc["Scenario<br/>(e.g. RapidResponse)"]
+    DS[("scenario datasets<br/>(SeedAttackGroups)")] --> Sc
+
+    Sc -->|"pairs each selected technique<br/>with each dataset"| AA["AtomicAttack<br/>(one technique × one dataset —<br/>the unit of execution)"]
+
+    AA -->|"AttackExecutor runs<br/>many in parallel"| Res["ScenarioResult"]
 ```
 
-Each scenario builds its own `ScenarioStrategy` enum from the registry at import time, so the strategy names you see on `--strategies` are always in sync with whatever techniques are currently tagged for that scenario.
+A few things worth pulling out: `AttackStrategy` is the *executable* attack class (e.g. `CrescendoAttack`) — the algorithm itself. `AttackTechnique` wraps a strategy *plus* its seed configuration (templates, converters, adversarial chat) into the unit the registry tracks. `AtomicAttack` is the runnable pairing of one technique with one dataset — what the executor actually executes — and is also the unit at which results get tracked, resumed, and labeled in memory. Each scenario builds its own `ScenarioStrategy` enum from the registry at import time, so the strategy names you see on `--strategies` are always in sync with whatever techniques are currently tagged for that scenario.
 
 **Configuration from the CLI and from YAML.** v0.14 added a generic mechanism for setting scenario parameters at run time — both from `pyrit_scan` arguments (`--max-dataset-size 10 --strategies multi_turn`) and from YAML config files passed with `--config`. The same `set_params_from_args` plumbing is exposed in Python too, so a notebook user can stash their parameters in YAML and load the same config the CLI does. This is what made parameter-heavy scenarios like `TextAdaptive` (selector, epsilon, max attempts per objective, scope) feasible to drive from the CLI.
 
@@ -116,7 +135,7 @@ When you resume a partially-completed scenario (via `scenario_result_id`), the f
 
 ## Adaptive scenarios (v0.14.0)
 
-`RapidResponse` is thorough — but it's brute force. It runs every technique against every objective, and most of those attempts are wasted. Maybe Crescendo works great on your target and `prompt_sending` never gets through. You're paying for the wasted ones anyway.
+`RapidResponse` is thorough — but it's brute force. It runs every technique against every objective, and most of those attempts are wasted: maybe Crescendo works great on your target and `prompt_sending` never gets through. You're paying for the misses anyway in latency, API rate-limit budget, and adversarial-chat tokens — and on a wide scan against a real target those costs are not theoretical.
 
 v0.14.0 ships a new family of scenarios — **adaptive scenarios** — that fix exactly this by leaning on the per-technique **attack success rate (ASR)** the framework already records in memory. Today it's just one: `TextAdaptive`. Image and audio variants are scaffolded by a modality-agnostic base and will follow once their technique pools are deep enough to be useful.
 
