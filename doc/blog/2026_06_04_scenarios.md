@@ -26,6 +26,13 @@ The whole point is that you don't have to wire any of this up yourself. Pick a s
 
 There are five flavors in the catalog right now. You can also bring your own — the abstractions are designed to be subclassed.
 
+<!-- TODO IMAGE: Run `pyrit_scan list-scenarios` and screenshot the output, which
+     shows the full catalog (Foundry, Garak, Benchmark, AIRT, Adaptive) with
+     descriptions. Save to doc/blog/2026_06_04_scan_list_scenarios.png and
+     uncomment the line below.
+![pyrit_scan list-scenarios output](2026_06_04_scan_list_scenarios.png)
+-->
+
 **Foundry — `RedTeamAgent`.** The integration with [Azure AI Foundry's red-teaming library](https://learn.microsoft.com/en-us/azure/ai-foundry/responsible-ai/openai/red-team-tools). Organized by complexity (easy / moderate / difficult) rather than harm type. Easy = converters like Base64, ROT13. Difficult = multi-turn attacks like TAP and Crescendo. Built on HarmBench with 25+ techniques. The "throw everything at the wall" approach.
 
 **Garak — `Encoding`.** Inspired by the [Garak](https://github.com/leondz/garak) project. Very focused: can the model be tricked into decoding and repeating harmful content? Tests 17 encoding schemes (Base64, Braille, Morse, Leet Speak, …) against slur terms and XSS payloads. Single-turn only, with a custom `DecodingScorer`. Niche but important for encoding-bypass vulnerabilities.
@@ -53,6 +60,17 @@ The technique side pulls from seven core techniques (`prompt_sending`, `role_pla
 Like other scenarios it can run a baseline pass first (`include_baseline=True`, the default) — the raw prompts with no converters or wrapping techniques — so the report has a control group sitting next to the attacked numbers. Then it runs every selected technique against every selected dataset, in parallel, through the execution engine. The thing that's specific to `RapidResponse` is the *grouping*: results roll up by harm category rather than by technique, because when leadership asks "are we exposed to hate speech?", you want the answer organized that way.
 
 Its strategy tags are worth knowing about: `default` is `prompt_sending + many_shot` (quick check), `single_turn` and `multi_turn` carve out the obvious subsets, and `light` is a fast sweep across five mostly-cheap techniques. So `pyrit_scan airt.rapid_response --target my_model --strategies default` gives you a quick two-technique pass across all seven harm categories; `--strategies multi_turn` hits the harder stuff.
+
+<!-- TODO IMAGE: Run RapidResponse against a target end-to-end (e.g.
+     `pyrit_scan airt.rapid_response --target my_model --strategies default`)
+     and screenshot the final ConsoleScenarioResultPrinter summary. The ideal
+     screenshot shows the baseline column next to the attacked columns and the
+     per-harm-category breakdown sorted by success rate — that one image
+     captures the RR output shape, the new sorted breakdown, and the
+     harm-category grouping discussed in this section all at once. Save to
+     doc/blog/2026_06_04_rapid_response_output.png and uncomment the line below.
+![RapidResponse printer output: per-harm-category breakdown sorted by success rate](2026_06_04_rapid_response_output.png)
+-->
 
 ## What's improved in v0.13.0 and v0.14.0
 
@@ -111,6 +129,19 @@ scenario.set_params_from_args(args={"max_attempts_per_objective": 5})
 await scenario.initialize_async(objective_target=target)
 result = await scenario.run_async()
 ```
+
+<!-- TODO IMAGE: Run the code block above (or cell 4/5 in
+     doc/code/scenarios/3_adaptive_scenarios.ipynb) and screenshot the
+     ConsoleScenarioResultPrinter output for TextAdaptive. The most valuable
+     thing to capture is the per-objective trail of techniques the bandit
+     picked (e.g. "tap -> crescendo_simulated [SUCCESS]" vs
+     "role_play -> many_shot -> red_teaming [FAILURE]") plus the
+     wins / picks / rate summary by technique near the bottom. That image
+     makes the explore/exploit + ASR story land in a way the prose can't.
+     Save to doc/blog/2026_06_04_text_adaptive_output.png and uncomment the
+     line below.
+![TextAdaptive bandit picking techniques per objective and the wins/picks summary](2026_06_04_text_adaptive_output.png)
+-->
 
 `prompt_sending` is intentionally excluded from the adaptive technique pool — since baseline is a generic scenario feature, `TextAdaptive` reuses it as the no-attack control (via `BASELINE_ATTACK_POLICY=Enabled`) so the report still shows the honest "no-attack" number alongside the adaptive results.
 
