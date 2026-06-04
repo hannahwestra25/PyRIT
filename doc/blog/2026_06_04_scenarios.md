@@ -80,21 +80,35 @@ A lot of the recent work has been less about building out our scenario library a
 
 **A catalog those techniques live in.** `AttackTechniqueRegistry` is where techniques register themselves with metadata: name, description, tags like `default` / `single_turn` / `multi_turn` / `light`, modality, what kinds of targets they work against. Scenarios pull techniques out via tag queries — `TagQuery.any_of("default")`, `TagQuery.all_of("multi_turn", "text")` — instead of importing each one by name. The scanner CLI uses the same registry to list and describe what's available. And to add your own, you write a factory and register it with a tag; every scenario that queries by that tag picks it up for free.
 
+The full path from a single technique to a scenario run looks like:
+
+```mermaid
+flowchart LR
+    subgraph Reg["AttackTechniqueRegistry — the catalog"]
+        direction TB
+        T1["prompt_sending<br/>tags: default, single_turn, light"]
+        T2["many_shot<br/>tags: default, single_turn, light"]
+        T3["crescendo_simulated<br/>tags: multi_turn"]
+        T4["tap<br/>tags: multi_turn"]
+        T5["role_play<br/>tags: single_turn"]
+        T6["..."]
+    end
+
+    Reg -->|"TagQuery selects subsets"| Strat["ScenarioStrategy<br/>(default, single_turn,<br/>multi_turn, light, ...)"]
+
+    Strat -->|"--strategies multi_turn"| Sc["Scenario<br/>e.g. RapidResponse"]
+    DS[("scenario datasets")] --> Sc
+
+    Sc --> Res["ScenarioResult"]
+```
+
+Each scenario builds its own `ScenarioStrategy` enum from the registry at import time, so the strategy names you see on `--strategies` are always in sync with whatever techniques are currently tagged for that scenario.
+
 **Configuration from the CLI and from YAML.** v0.14 added a generic mechanism for setting scenario parameters at run time — both from `pyrit_scan` arguments (`--max-dataset-size 10 --strategies multi_turn`) and from YAML config files passed with `--config`. The same `set_params_from_args` plumbing is exposed in Python too, so a notebook user can stash their parameters in YAML and load the same config the CLI does. This is what made parameter-heavy scenarios like `TextAdaptive` (selector, epsilon, max attempts per objective, scope) feasible to drive from the CLI.
 
 **Parallel execution within a scenario.** v0.14 reworked how atomic attacks fan out inside a single scenario run so independent objectives, techniques, and datasets actually run concurrently against the target (respecting the target's rate limits and the scenario's concurrency caps). For wide scenarios like `RapidResponse` — 7 techniques × 7 harm categories × N prompts — this is the difference between watching a progress bar for an hour and finishing in minutes.
 
-**Attribution that survives runs.** Better Scenario Tracking added a scenario-run ID that gets stamped onto every `AttackResult` row the run produces. That sounds small but unlocks a lot:
-
-```mermaid
-flowchart LR
-    R["scenario.run_async()"] -->|stamps scenario_run_id| AR["AttackResult rows"]
-    AR --> M[("MemoryInterface")]
-    M --> RE["Resume:<br/>skip completed objectives"]
-    M --> AN["Cross-run analytics:<br/>filter by run / scenario class"]
-    M --> P["Printer:<br/>scope rollup to this run"]
-    M --> SE["Adaptive selector:<br/>scoped ASR history"]
-```
+**Attribution that survives runs.** Better Scenario Tracking added a scenario-run ID that gets stamped onto every `AttackResult` row the run produces. That sounds small but unlocks a lot.
 
 When you resume a partially-completed scenario (via `scenario_result_id`), the framework can ask memory "which objectives already have results for *this* run?" and skip them without double-counting. Cross-run analytics like "how did `RedTeamAgent` do on this target across our last ten scans?" stop needing manual labeling. The printer can roll results up to the correct scenario invocation instead of mixing in unrelated history sitting in the same database. And this is what makes the adaptive selector's cross-run learning trustworthy — it can scope its history queries cleanly through `SelectorScope`.
 
