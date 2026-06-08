@@ -20,6 +20,10 @@ export const useNavigationStyles = makeStyles({
     '&[data-active="true"]': {
       backgroundColor: tokens.colorBrandBackground2,
       borderRadius: tokens.borderRadiusMedium,
+      color: tokens.colorBrandForeground1,
+      borderLeftWidth: '3px',
+      borderLeftStyle: 'solid',
+      borderLeftColor: tokens.colorBrandForeground1,
     },
   },
   spacer: {

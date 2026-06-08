@@ -23,6 +23,17 @@ describe("Navigation", () => {
     jest.clearAllMocks();
   });
 
+  it("marks only the current view button as active", () => {
+    renderWithProvider(
+      <Navigation {...defaultProps} currentView="config" />
+    );
+
+    expect(screen.getByTitle("Configuration")).toHaveAttribute("data-active", "true");
+    expect(screen.getByTitle("Home")).toHaveAttribute("data-active", "false");
+    expect(screen.getByTitle("Chat")).toHaveAttribute("data-active", "false");
+    expect(screen.getByTitle("Attack History")).toHaveAttribute("data-active", "false");
+  });
+
   it("renders the home button", () => {
     renderWithProvider(<Navigation {...defaultProps} />);
 
