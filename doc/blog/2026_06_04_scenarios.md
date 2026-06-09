@@ -102,7 +102,7 @@ A few things worth pulling out:
 
 ### Parallel execution within a scenario
 
-0.14.0 reworked how atomic attacks fan out inside a single scenario run so independent objectives, techniques, and datasets actually run concurrently against the target (respecting the target's rate limits and the scenario's concurrency caps). For wide scenarios like `RapidResponse` — 7 techniques × 7 harm categories × N prompts — this is the difference between watching a progress bar for an hour and finishing in minutes.
+0.14.0 reworked how atomic attacks fan out inside a single scenario run so independent objectives, techniques, and datasets actually run concurrently against the target (respecting the target's rate limits and the scenario's concurrency caps). For wide scenarios like `RapidResponse` — many techniques × many harm categories × N prompts — this is the difference between watching a progress bar for an hour and finishing in minutes.
 
 ### Attribution that survives runs
 
