@@ -55,7 +55,7 @@ There are five flavors in the catalog right now. You can also bring your own —
 
 `RapidResponse` is the broadest of the AIRT scenarios — a comprehensive sweep across the most common techniques and the full AIRT harm-category catalog. It exists for the moment when you've onboarded a new model (or a new model release ships, or a new vulnerability hits the news) and the first question is "where are we exposed?" — not "which specific technique works." It's a natural jumping-off point: you run it to get a wide, shallow read on which categories the target handles well and which ones come back concerning, then pivot to the more focused AIRT scenarios (or to `TextAdaptive`) to dig into whatever came back interesting.
 
-It runs seven core techniques (`prompt_sending`, `role_play`, `many_shot`, `TAP`, `crescendo_simulated`, `red_teaming`, `context_compliance`) across seven AIRT datasets (`airt_hate`, `airt_fairness`, `airt_violence`, `airt_sexual`, `airt_harassment`, `airt_misinformation`, `airt_leakage`). By default it sends four prompts per dataset, configurable with `--max-dataset-size`.
+It runs ten core techniques — `role_play`, `many_shot`, `tap`, `pair`, `crescendo_simulated`, `red_teaming`, `context_compliance`, and three persona-driven crescendo variants (`crescendo_movie_director`, `crescendo_history_lecture`, `crescendo_journalist_interview`) — across seven AIRT datasets (`airt_hate`, `airt_fairness`, `airt_violence`, `airt_sexual`, `airt_harassment`, `airt_misinformation`, `airt_leakage`). By default it sends four prompts per dataset, configurable with `--max-dataset-size`.
 
 ## What's improved in 0.13.0 and 0.14.0
 
