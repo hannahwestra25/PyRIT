@@ -130,6 +130,52 @@ IMPORT_RENAMES: list[ImportRename] = [
     ImportRename("pyrit.models.data_type_serializer", "URLDataTypeSerializer", "pyrit.memory.storage.serializers", "URLDataTypeSerializer", removed_in="0.17.0", source="shim"),
     # === Initializer rename (shim-detected, removed in 0.16.0) ===
     ImportRename("pyrit.setup.initializers", "InitializerParameter", "pyrit.setup.initializers", "Parameter", removed_in="0.16.0", source="shim"),
+
+    # =================================================================
+    # Pre-0.10.0 breaking changes (historical, no deprecation shims)
+    # =================================================================
+
+    # --- v0.10.0: Core data model renames ---
+    ImportRename("pyrit.models", "PromptRequestResponse", "pyrit.models", "Message", removed_in="0.10.0", source="manual"),
+    ImportRename("pyrit.models", "PromptRequestPiece", "pyrit.models", "MessagePiece", removed_in="0.10.0", source="manual"),
+
+    # --- v0.10.0: Additional orchestrator → executor moves ---
+    ImportRename("pyrit.orchestrator", "ContextComplianceOrchestrator", "pyrit.executor.attack", "ContextComplianceAttack", removed_in="0.10.0", source="manual"),
+    ImportRename("pyrit.orchestrator", "ManyShotJailbreakOrchestrator", "pyrit.executor.attack", "ManyShotJailbreakAttack", removed_in="0.10.0", source="manual"),
+    ImportRename("pyrit.orchestrator", "ViolentDurianOrchestrator", "pyrit.executor.attack", "ViolentDurianAttack", removed_in="0.10.0", source="manual"),
+    ImportRename("pyrit.orchestrator", "RolePlayOrchestrator", "pyrit.executor.attack", "RolePlayAttack", removed_in="0.10.0", source="manual"),
+    ImportRename("pyrit.orchestrator", "XPIAOrchestrator", "pyrit.executor.workflow", "XPIAWorkflow", removed_in="0.10.0", source="manual"),
+    ImportRename("pyrit.orchestrator", "XPIATestOrchestrator", "pyrit.executor.workflow", "XPIATestWorkflow", removed_in="0.10.0", source="manual"),
+    ImportRename("pyrit.orchestrator", "XPIAManualProcessingOrchestrator", "pyrit.executor.workflow", "XPIAManualProcessingWorkflow", removed_in="0.10.0", source="manual"),
+    ImportRename("pyrit.orchestrator", "FuzzerOrchestrator", "pyrit.executor.promptgen", "FuzzerGenerator", removed_in="0.10.0", source="manual"),
+    ImportRename("pyrit.orchestrator", "QuestionAnsweringBenchmarkOrchestrator", "pyrit.executor.benchmark", "QuestionAnsweringBenchmark", removed_in="0.10.0", source="manual"),
+
+    # --- v0.10.0: Target renames ---
+    ImportRename("pyrit.prompt_target", "OpenAIDALLETarget", "pyrit.prompt_target", "OpenAIImageTarget", removed_in="0.10.0", source="manual"),
+
+    # --- v0.10.0: Converter renames ---
+    ImportRename("pyrit.prompt_converter", "TextToHexConverter", "pyrit.prompt_converter", "BinAsciiConverter", removed_in="0.10.0", source="manual"),
+
+    # --- v0.10.0: Setup/initialization ---
+    ImportRename("pyrit.common", "initialize_pyrit", "pyrit.setup", "initialize_pyrit_async", removed_in="0.10.0", source="manual"),
+
+    # --- v0.9.0: Result class rename ---
+    ImportRename("pyrit.orchestrator", "MultiTurnAttackResult", "pyrit.models", "OrchestratorResult", removed_in="0.9.0", source="manual"),
+
+    # --- v0.6.0: SeedPrompts rename ---
+    ImportRename("pyrit.models", "NormalizerRequestPieces", "pyrit.models", "SeedPrompts", removed_in="0.6.0", source="manual"),
+
+    # --- v0.5.0: OpenAI target unification ---
+    ImportRename("pyrit.prompt_target", "AzureOpenAIChatTarget", "pyrit.prompt_target", "OpenAIChatTarget", removed_in="0.5.0", source="manual"),
+
+    # --- v0.5.0: Converter merge ---
+    ImportRename("pyrit.prompt_converter", "HomoglyphGeneratorConverter", "pyrit.prompt_converter", "UnicodeConfusableConverter", removed_in="0.5.0", source="manual"),
+
+    # --- v0.2.0: Scorer rename ---
+    ImportRename("pyrit.score", "SelfAskGptClassifier", "pyrit.score", "SelfAskScore", removed_in="0.2.0", source="manual"),
+
+    # --- v0.1.2: RedTeamingBot removal ---
+    ImportRename("pyrit.orchestrator", "RedTeamingBot", "pyrit.orchestrator", "RedTeamingOrchestrator", removed_in="0.1.2", source="manual"),
 ]
 
 # ▲▲▲ END GENERATED IMPORT RENAMES ▲▲▲
@@ -161,18 +207,29 @@ CLASS_RENAMES: list[ClassRename] = [
 # ---------------------------------------------------------------------------
 
 KWARG_RENAMES: list[KwargRename] = [
-    # Standardized attack params
+    # Standardized attack params (v0.5.0 orchestrator rename, carried into v0.10.0+ attack classes)
     KwargRename(r"(?:Attack|Orchestrator)", "prompt_target", "objective_target", "auto"),
     KwargRename(r"(?:Attack|Orchestrator)", "red_teaming_chat", "adversarial_chat", "auto"),
+    KwargRename(r"(?:Attack|Orchestrator)", "attack_chat", "adversarial_chat", "auto"),
     KwargRename(r"(?:Attack|Orchestrator)", "max_rounds", "max_turns", "auto"),
     KwargRename(r"(?:Attack|Orchestrator)", "max_conversation_depth", "max_turns", "auto"),
     KwargRename(r"(?:Attack|Orchestrator)", "attack_strategy", "objective", "auto"),
+    KwargRename(r"(?:Attack|Orchestrator)", "initial_red_teaming_prompt", "adversarial_chat_seed_prompt", "auto"),
     # Ambiguous — could appear in non-PyRIT code
     KwargRename(r"(?:Attack|Orchestrator)", "scorer", "objective_scorer", "suggestion"),
     # AttackResult field rename
     KwargRename(r"AttackResult", "attack_identifier", "atomic_attack_identifier", "auto"),
     # Memory interface
     KwargRename(r"get_attack_results", "attack_class", "attack_classes", "auto"),
+    # v0.10.0: Scorer kwarg rename
+    KwargRename(r"(?:Scorer|score_async)", "task", "objective", "suggestion"),
+    # v0.10.0: OpenAI target kwarg changes
+    KwargRename(r"OpenAI.*Target", "use_aad_auth", "api_key", "suggestion"),
+    KwargRename(r"OpenAI.*Target", "use_entra_auth", "api_key", "suggestion"),
+    # v0.5.0: OpenAI target unification
+    KwargRename(r"OpenAIChatTarget", "is_azure_target", "is_azure_target", "auto"),
+    # v0.8.0: AsciiSmugglerConverter
+    KwargRename(r"AsciiSmugglerConverter", "unicode_tags", "encoding_mode", "auto"),
 ]
 
 METHOD_RENAMES: list[MethodRename] = [
@@ -181,4 +238,11 @@ METHOD_RENAMES: list[MethodRename] = [
     MethodRename(None, r"\.print_conversation_async\(", ".write_async(", "auto"),
     MethodRename(None, r"\.normalize_strategies\(", ".expand(", "auto"),
     MethodRename(None, r"\.from_json\(", ".from_json_file(", "suggestion"),
+    # v0.3.0: Async migration
+    MethodRename(None, r"\.send_prompt\(", ".send_prompt_async(", "suggestion"),
+    MethodRename(None, r"\.convert\(", ".convert_async(", "suggestion"),
+    # v0.10.0: Initialization
+    MethodRename(None, r"\binitialize_pyrit\(\)", "await initialize_pyrit_async()", "auto"),
+    # v0.12.1: Dataset function deprecation
+    MethodRename(None, r"\bfetch_many_shot_jailbreaking_dataset\(", "load_many_shot_jailbreaking_dataset(", "auto"),
 ]
