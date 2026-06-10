@@ -118,76 +118,29 @@ class ConversionResult:
 
 
 # ---------------------------------------------------------------------------
-# Import rewrite rules
+# Import rewrite rules (from shared migration data)
 # ---------------------------------------------------------------------------
 
-# Each rule: (old_module, old_name, new_module, new_name)
+from pyrit.common._migration_data import (
+    CLASS_RENAMES as _CLASS_RENAMES_DATA,
+    IMPORT_RENAMES as _IMPORT_RENAMES_DATA,
+    KWARG_RENAMES as _KWARG_RENAMES_DATA,
+    METHOD_RENAMES as _METHOD_RENAMES_DATA,
+    MODULE_RENAMES as _MODULE_RENAMES_DATA,
+)
+
+# Unpack shared data into the formats used by the converter engine
 _IMPORT_RENAMES: list[tuple[str, str, str, str]] = [
-    # === Orchestrator → Attack (pre-0.13.0, no deprecation shims) ===
-    ("pyrit.orchestrator", "PromptSendingOrchestrator", "pyrit.executor.attack", "PromptSendingAttack"),
-    ("pyrit.orchestrator", "RedTeamingOrchestrator", "pyrit.executor.attack", "RedTeamingAttack"),
-    ("pyrit.orchestrator", "CrescendoOrchestrator", "pyrit.executor.attack", "CrescendoAttack"),
-    ("pyrit.orchestrator", "PAIROrchestrator", "pyrit.executor.attack", "PAIRAttack"),
-    ("pyrit.orchestrator", "PairOrchestrator", "pyrit.executor.attack", "PAIRAttack"),
-    ("pyrit.orchestrator", "TreeOfAttacksWithPruningOrchestrator", "pyrit.executor.attack", "TreeOfAttacksWithPruningAttack"),
-    ("pyrit.orchestrator", "MultiTurnOrchestrator", "pyrit.executor.attack", "MultiTurnAttackStrategy"),
-    ("pyrit.orchestrator", "FlipAttackOrchestrator", "pyrit.executor.attack", "FlipAttack"),
-    ("pyrit.orchestrator", "SkeletonKeyOrchestrator", "pyrit.executor.attack", "SkeletonKeyAttack"),
-    ("pyrit.orchestrator", "ScoringOrchestrator", "pyrit.executor.attack", "AttackExecutor"),
-    # === Printer moves (0.15.0) ===
-    ("pyrit.score.printer", "ConsoleScorerPrinter", "pyrit.output.scorer.pretty", "PrettyScorerMemoryPrinter"),
-    ("pyrit.score.printer", "ScorerPrinter", "pyrit.output.scorer.base", "ScorerPrinterBase"),
-    ("pyrit.executor.attack.printer", "ConsoleAttackResultPrinter", "pyrit.output.attack_result.pretty", "PrettyAttackResultMemoryPrinter"),
-    ("pyrit.executor.attack.printer", "AttackResultPrinter", "pyrit.output.attack_result.base", "AttackResultPrinterBase"),
-    ("pyrit.executor.attack.printer", "MarkdownAttackResultPrinter", "pyrit.output.attack_result.markdown", "MarkdownAttackResultMemoryPrinter"),
-    # === Scenario printer moves (0.16.0) ===
-    ("pyrit.scenario.printer", "ConsoleScenarioResultPrinter", "pyrit.output.scenario_result.pretty", "PrettyScenarioResultMemoryPrinter"),
-    ("pyrit.scenario.printer", "ScenarioResultPrinter", "pyrit.output.scenario_result.base", "ScenarioResultPrinterBase"),
-    # === Storage I/O moves (0.17.0) ===
-    ("pyrit.models.storage_io", "StorageIO", "pyrit.memory.storage.storage", "StorageIO"),
-    ("pyrit.models.storage_io", "AzureBlobStorageIO", "pyrit.memory.storage.storage", "AzureBlobStorageIO"),
-    ("pyrit.models.storage_io", "DiskStorageIO", "pyrit.memory.storage.storage", "DiskStorageIO"),
-    ("pyrit.models.storage_io", "SupportedContentType", "pyrit.memory.storage.storage", "SupportedContentType"),
-    # === Serializer moves (0.17.0) ===
-    ("pyrit.models.data_type_serializer", "DataTypeSerializer", "pyrit.memory.storage.serializers", "DataTypeSerializer"),
-    ("pyrit.models.data_type_serializer", "data_serializer_factory", "pyrit.memory.storage.serializers", "data_serializer_factory"),
-    ("pyrit.models.data_type_serializer", "TextDataTypeSerializer", "pyrit.memory.storage.serializers", "TextDataTypeSerializer"),
-    ("pyrit.models.data_type_serializer", "ImagePathDataTypeSerializer", "pyrit.memory.storage.serializers", "ImagePathDataTypeSerializer"),
-    ("pyrit.models.data_type_serializer", "AudioPathDataTypeSerializer", "pyrit.memory.storage.serializers", "AudioPathDataTypeSerializer"),
-    ("pyrit.models.data_type_serializer", "ErrorDataTypeSerializer", "pyrit.memory.storage.serializers", "ErrorDataTypeSerializer"),
-    ("pyrit.models.data_type_serializer", "URLDataTypeSerializer", "pyrit.memory.storage.serializers", "URLDataTypeSerializer"),
-    # === Identifier class rename (0.16.0) ===
-    ("pyrit.models", "ScorerIdentifier", "pyrit.models", "ComponentIdentifier"),
+    (r.old_module, r.old_name, r.new_module, r.new_name)
+    for r in _IMPORT_RENAMES_DATA
 ]
 
-# Module-level renames (bare "import X" or "from X import ...")
 _MODULE_RENAMES: dict[str, str] = {
-    "pyrit.orchestrator": "pyrit.executor.attack",
-    "pyrit.models.storage_io": "pyrit.memory.storage.storage",
-    "pyrit.models.data_type_serializer": "pyrit.memory.storage.serializers",
+    r.old_module: r.new_module for r in _MODULE_RENAMES_DATA
 }
 
-# ---------------------------------------------------------------------------
-# Class name renames (for usage sites, word-boundary-aware)
-# ---------------------------------------------------------------------------
-
-# (old_name, new_name) — applied with \b word boundaries
 _CLASS_RENAMES: list[tuple[str, str]] = [
-    ("PromptSendingOrchestrator", "PromptSendingAttack"),
-    ("RedTeamingOrchestrator", "RedTeamingAttack"),
-    ("CrescendoOrchestrator", "CrescendoAttack"),
-    ("PAIROrchestrator", "PAIRAttack"),
-    ("PairOrchestrator", "PAIRAttack"),
-    ("TreeOfAttacksWithPruningOrchestrator", "TreeOfAttacksWithPruningAttack"),
-    ("MultiTurnOrchestrator", "MultiTurnAttackStrategy"),
-    ("FlipAttackOrchestrator", "FlipAttack"),
-    ("SkeletonKeyOrchestrator", "SkeletonKeyAttack"),
-    ("ScoringOrchestrator", "AttackExecutor"),
-    ("ConsoleScorerPrinter", "PrettyScorerMemoryPrinter"),
-    ("ConsoleAttackResultPrinter", "PrettyAttackResultMemoryPrinter"),
-    ("MarkdownAttackResultPrinter", "MarkdownAttackResultMemoryPrinter"),
-    ("ConsoleScenarioResultPrinter", "PrettyScenarioResultMemoryPrinter"),
-    ("ScorerIdentifier", "ComponentIdentifier"),
+    (r.old_name, r.new_name) for r in _CLASS_RENAMES_DATA
 ]
 
 # Pre-compile patterns for class renames (longest first to avoid partial matches)
@@ -196,39 +149,14 @@ _CLASS_RENAME_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     for old, new in sorted(_CLASS_RENAMES, key=lambda x: -len(x[0]))
 ]
 
-# ---------------------------------------------------------------------------
-# Kwarg renames (suggestion-level confidence unless context is clear)
-# ---------------------------------------------------------------------------
-
-# (callable_context_pattern, old_kwarg, new_kwarg, confidence)
-# callable_context_pattern is a regex that must match on the same line or
-# in a recent preceding line to boost confidence to "auto".
 _KWARG_RENAMES: list[tuple[str | None, str, str, str]] = [
-    # Standardized attack params — fairly safe when near Attack class names
-    (r"(?:Attack|Orchestrator)", "prompt_target", "objective_target", "auto"),
-    (r"(?:Attack|Orchestrator)", "red_teaming_chat", "adversarial_chat", "auto"),
-    (r"(?:Attack|Orchestrator)", "max_rounds", "max_turns", "auto"),
-    (r"(?:Attack|Orchestrator)", "max_conversation_depth", "max_turns", "auto"),
-    (r"(?:Attack|Orchestrator)", "attack_strategy", "objective", "auto"),
-    # These are more ambiguous — could appear in non-PyRIT code
-    (r"(?:Attack|Orchestrator)", "scorer", "objective_scorer", "suggestion"),
-    # AttackResult field rename
-    (r"AttackResult", "attack_identifier", "atomic_attack_identifier", "auto"),
-    # Memory interface
-    (r"get_attack_results", "attack_class", "attack_classes", "auto"),
+    (r.context_pattern, r.old_kwarg, r.new_kwarg, r.confidence)
+    for r in _KWARG_RENAMES_DATA
 ]
 
-# ---------------------------------------------------------------------------
-# Method renames (suggestion-level — .to_dict() is common across libraries)
-# ---------------------------------------------------------------------------
-
-# (receiver_context_pattern, old_method, new_method_or_replacement, confidence)
 _METHOD_RENAMES: list[tuple[str | None, str, str, str]] = [
-    (r"(?:AttackResult|MessagePiece|Score)", r"\.to_dict\(\)", ".model_dump(mode='json')", "suggestion"),
-    (r"(?:AttackResult|MessagePiece|Score)", r"\.from_dict\(", ".model_validate(", "suggestion"),
-    (None, r"\.print_conversation_async\(", ".write_async(", "auto"),
-    (None, r"\.normalize_strategies\(", ".expand(", "auto"),
-    (None, r"\.from_json\(", ".from_json_file(", "suggestion"),
+    (r.context_pattern, r.old_method, r.new_method, r.confidence)
+    for r in _METHOD_RENAMES_DATA
 ]
 
 # ---------------------------------------------------------------------------

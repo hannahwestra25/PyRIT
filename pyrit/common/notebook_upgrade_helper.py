@@ -187,116 +187,47 @@ def _make_kwarg_rule(
 # ---------------------------------------------------------------------------
 # Migration rule registry
 # ---------------------------------------------------------------------------
+# Migration rule registry (auto-built from shared migration data)
+# ---------------------------------------------------------------------------
 
-# Rules are checked in order; first match wins. Add new rules here as
-# breaking changes are introduced between versions.
-MIGRATION_RULES: list[MigrationRule] = [
-    # =================================================================
-    # Orchestrator → Attack rename (pre-deprecation era, no shims exist)
-    # =================================================================
-    # The entire pyrit.orchestrator module was removed and replaced by
-    # pyrit.executor.attack. These are the highest-value rules since
-    # there are no __getattr__ deprecation shims to catch them.
+from pyrit.common._migration_data import (
+    IMPORT_RENAMES as _IMPORT_RENAMES_DATA,
+    MODULE_RENAMES as _MODULE_RENAMES_DATA,
+)
 
-    # --- Module-level: pyrit.orchestrator is gone ---
-    _make_module_not_found_rule(
-        old_module="pyrit.orchestrator",
-        new_module="pyrit.executor.attack",
-        version="0.13.0",
-        description=(
-            "The pyrit.orchestrator module was removed. "
-            "Orchestrators are now attack strategies in pyrit.executor.attack."
-        ),
-    ),
+# Build MIGRATION_RULES automatically from shared data.
+# Import rules and module-not-found rules are generated; kwarg rules
+# are kept as-is since they need specific callable_pattern values that
+# don't map 1:1 from the shared data.
+MIGRATION_RULES: list[MigrationRule] = []
 
-    # --- Single-turn orchestrators → attacks ---
-    _make_import_rule(
-        old_module="pyrit.orchestrator",
-        old_name="PromptSendingOrchestrator",
-        new_module="pyrit.executor.attack",
-        new_name="PromptSendingAttack",
-        version="0.13.0",
-        description="PromptSendingOrchestrator renamed to PromptSendingAttack.",
-    ),
-    _make_import_rule(
-        old_module="pyrit.orchestrator",
-        old_name="FlipAttackOrchestrator",
-        new_module="pyrit.executor.attack",
-        new_name="FlipAttack",
-        version="0.13.0",
-        description="FlipAttackOrchestrator renamed to FlipAttack.",
-    ),
-    _make_import_rule(
-        old_module="pyrit.orchestrator",
-        old_name="SkeletonKeyOrchestrator",
-        new_module="pyrit.executor.attack",
-        new_name="SkeletonKeyAttack",
-        version="0.13.0",
-        description="SkeletonKeyOrchestrator renamed to SkeletonKeyAttack.",
-    ),
+# Module-not-found rules (bare "import pyrit.orchestrator" etc.)
+for _mr in _MODULE_RENAMES_DATA:
+    MIGRATION_RULES.append(
+        _make_module_not_found_rule(
+            old_module=_mr.old_module,
+            new_module=_mr.new_module,
+            version=_mr.removed_in or "unknown",
+            description=f"Module '{_mr.old_module}' was removed. Use '{_mr.new_module}' instead.",
+        )
+    )
 
-    # --- Multi-turn orchestrators → attacks ---
-    _make_import_rule(
-        old_module="pyrit.orchestrator",
-        old_name="RedTeamingOrchestrator",
-        new_module="pyrit.executor.attack",
-        new_name="RedTeamingAttack",
-        version="0.13.0",
-        description="RedTeamingOrchestrator renamed to RedTeamingAttack.",
-    ),
-    _make_import_rule(
-        old_module="pyrit.orchestrator",
-        old_name="CrescendoOrchestrator",
-        new_module="pyrit.executor.attack",
-        new_name="CrescendoAttack",
-        version="0.13.0",
-        description="CrescendoOrchestrator renamed to CrescendoAttack.",
-    ),
-    _make_import_rule(
-        old_module="pyrit.orchestrator",
-        old_name="PAIROrchestrator",
-        new_module="pyrit.executor.attack",
-        new_name="PAIRAttack",
-        version="0.13.0",
-        description="PAIROrchestrator renamed to PAIRAttack.",
-    ),
-    _make_import_rule(
-        old_module="pyrit.orchestrator",
-        old_name="PairOrchestrator",
-        new_module="pyrit.executor.attack",
-        new_name="PAIRAttack",
-        version="0.13.0",
-        description="PairOrchestrator renamed to PAIRAttack.",
-    ),
-    _make_import_rule(
-        old_module="pyrit.orchestrator",
-        old_name="TreeOfAttacksWithPruningOrchestrator",
-        new_module="pyrit.executor.attack",
-        new_name="TreeOfAttacksWithPruningAttack",
-        version="0.13.0",
-        description="TreeOfAttacksWithPruningOrchestrator renamed to TreeOfAttacksWithPruningAttack.",
-    ),
-    _make_import_rule(
-        old_module="pyrit.orchestrator",
-        old_name="MultiTurnOrchestrator",
-        new_module="pyrit.executor.attack",
-        new_name="MultiTurnAttackStrategy",
-        version="0.13.0",
-        description="MultiTurnOrchestrator renamed to MultiTurnAttackStrategy.",
-    ),
-    _make_import_rule(
-        old_module="pyrit.orchestrator",
-        old_name="ScoringOrchestrator",
-        new_module="pyrit.executor.attack",
-        new_name="AttackExecutor",
-        version="0.13.0",
-        description=(
-            "ScoringOrchestrator was removed. "
-            "See pyrit.executor.attack.AttackExecutor for the new pattern."
-        ),
-    ),
+# Import rules (from X import Y)
+for _ir in _IMPORT_RENAMES_DATA:
+    MIGRATION_RULES.append(
+        _make_import_rule(
+            old_module=_ir.old_module,
+            old_name=_ir.old_name,
+            new_module=_ir.new_module,
+            new_name=_ir.new_name,
+            version=_ir.removed_in or "unknown",
+            description=f"'{_ir.old_module}.{_ir.old_name}' moved to '{_ir.new_module}.{_ir.new_name}'.",
+        )
+    )
 
-    # --- Orchestrator kwarg renames (old → standardized names) ---
+# Kwarg rules (manually maintained — these are specific to callable patterns
+# and cannot be auto-derived from deprecation shims)
+MIGRATION_RULES.extend([
     _make_kwarg_rule(
         callable_pattern="RedTeamingAttack",
         old_kwarg="prompt_target",
@@ -374,54 +305,7 @@ MIGRATION_RULES: list[MigrationRule] = [
         version="0.13.0",
         description="'scorer' was renamed to 'objective_scorer'.",
     ),
-
-    # =================================================================
-    # 0.15.0 import moves: printer classes (have deprecation shims)
-    # =================================================================
-
-    # --- scorer printers ---
-    _make_import_rule(
-        old_module="pyrit.score.printer",
-        old_name="ConsoleScorerPrinter",
-        new_module="pyrit.output.scorer.pretty",
-        new_name="PrettyScorerMemoryPrinter",
-        version="0.15.0",
-        description="Scorer printers moved to pyrit.output.scorer.",
-    ),
-    _make_import_rule(
-        old_module="pyrit.score.printer",
-        old_name="ScorerPrinter",
-        new_module="pyrit.output.scorer.base",
-        new_name="ScorerPrinterBase",
-        version="0.15.0",
-        description="Scorer printers moved to pyrit.output.scorer.",
-    ),
-    # --- attack result printers ---
-    _make_import_rule(
-        old_module="pyrit.executor.attack.printer",
-        old_name="ConsoleAttackResultPrinter",
-        new_module="pyrit.output.attack_result.pretty",
-        new_name="PrettyAttackResultMemoryPrinter",
-        version="0.15.0",
-        description="Attack result printers moved to pyrit.output.attack_result.",
-    ),
-    _make_import_rule(
-        old_module="pyrit.executor.attack.printer",
-        old_name="AttackResultPrinter",
-        new_module="pyrit.output.attack_result.base",
-        new_name="AttackResultPrinterBase",
-        version="0.15.0",
-        description="Attack result printers moved to pyrit.output.attack_result.",
-    ),
-    _make_import_rule(
-        old_module="pyrit.executor.attack.printer",
-        old_name="MarkdownAttackResultPrinter",
-        new_module="pyrit.output.attack_result.markdown",
-        new_name="MarkdownAttackResultMemoryPrinter",
-        version="0.15.0",
-        description="Attack result printers moved to pyrit.output.attack_result.",
-    ),
-]
+])
 
 
 def add_migration_rule(rule: MigrationRule) -> None:
