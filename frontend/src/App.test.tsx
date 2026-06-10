@@ -5,6 +5,7 @@
 
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import App from "./App";
+import { ThemeProvider } from "./hooks/useTheme";
 import { attacksApi } from "./services/api";
 
 const mockGetActiveAccount = jest.fn();
@@ -45,22 +46,15 @@ jest.mock("./components/Labels/LabelsBar", () => {
 jest.mock("./components/Layout/MainLayout", () => {
   const MockMainLayout = ({
     children,
-    onToggleTheme,
-    isDarkMode,
     currentView,
     onNavigate,
   }: {
     children: React.ReactNode;
-    onToggleTheme: () => void;
-    isDarkMode: boolean;
     currentView: string;
     onNavigate: (view: string) => void;
   }) => {
     return (
-      <div data-testid="main-layout" data-dark-mode={isDarkMode} data-current-view={currentView}>
-        <button onClick={onToggleTheme} data-testid="toggle-theme">
-          Toggle Theme
-        </button>
+      <div data-testid="main-layout" data-current-view={currentView}>
         <button onClick={() => onNavigate("home")} data-testid="nav-home">
           Home
         </button>
@@ -242,45 +236,24 @@ describe("App", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockGetActiveAccount.mockReturnValue(null);
+    window.localStorage.clear();
   });
 
+  const renderApp = () =>
+    render(
+      <ThemeProvider>
+        <App />
+      </ThemeProvider>
+    );
+
   it("renders with FluentProvider and MainLayout", () => {
-    render(<App />);
+    renderApp();
     expect(screen.getByTestId("main-layout")).toBeInTheDocument();
     expect(screen.getByTestId("home-view")).toBeInTheDocument();
   });
 
-  it("starts in dark mode", () => {
-    render(<App />);
-    expect(screen.getByTestId("main-layout")).toHaveAttribute(
-      "data-dark-mode",
-      "true"
-    );
-  });
-
-  it("toggles theme when onToggleTheme is called", () => {
-    render(<App />);
-
-    expect(screen.getByTestId("main-layout")).toHaveAttribute(
-      "data-dark-mode",
-      "true"
-    );
-
-    fireEvent.click(screen.getByTestId("toggle-theme"));
-    expect(screen.getByTestId("main-layout")).toHaveAttribute(
-      "data-dark-mode",
-      "false"
-    );
-
-    fireEvent.click(screen.getByTestId("toggle-theme"));
-    expect(screen.getByTestId("main-layout")).toHaveAttribute(
-      "data-dark-mode",
-      "true"
-    );
-  });
-
   it("starts in home view", () => {
-    render(<App />);
+    renderApp();
 
     expect(screen.getByTestId("main-layout")).toHaveAttribute(
       "data-current-view",
@@ -290,7 +263,7 @@ describe("App", () => {
   });
 
   it("switches to chat view", () => {
-    render(<App />);
+    renderApp();
 
     fireEvent.click(screen.getByTestId("nav-chat"));
 
@@ -302,7 +275,7 @@ describe("App", () => {
   });
 
   it("switches to config view", () => {
-    render(<App />);
+    renderApp();
 
     fireEvent.click(screen.getByTestId("nav-config"));
 
@@ -314,7 +287,7 @@ describe("App", () => {
   });
 
   it("switches back to chat from config", () => {
-    render(<App />);
+    renderApp();
 
     fireEvent.click(screen.getByTestId("nav-config"));
     expect(screen.getByTestId("target-config")).toBeInTheDocument();
@@ -324,7 +297,7 @@ describe("App", () => {
   });
 
   it("sets conversationId from chat window", () => {
-    render(<App />);
+    renderApp();
 
     fireEvent.click(screen.getByTestId("nav-chat"));
     expect(screen.getByTestId("conversation-id")).toHaveTextContent("none");
@@ -334,7 +307,7 @@ describe("App", () => {
   });
 
   it("clears conversationId on new attack", () => {
-    render(<App />);
+    renderApp();
 
     fireEvent.click(screen.getByTestId("nav-chat"));
     fireEvent.click(screen.getByTestId("set-conversation"));
@@ -345,7 +318,7 @@ describe("App", () => {
   });
 
   it("sets active target from config page and passes to chat", () => {
-    render(<App />);
+    renderApp();
 
     // Switch to chat and confirm no target initially
     fireEvent.click(screen.getByTestId("nav-chat"));
@@ -361,7 +334,7 @@ describe("App", () => {
   });
 
   it("switches to history view", () => {
-    render(<App />);
+    renderApp();
 
     fireEvent.click(screen.getByTestId("nav-history"));
 
@@ -374,7 +347,7 @@ describe("App", () => {
 
   it("opens attack from history and switches to chat", async () => {
     mockGetAttack.mockResolvedValue({ attack_result_id: "ar-attack-1", conversation_id: "attack-conv-1", labels: { operator: "roakey" } });
-    render(<App />);
+    renderApp();
 
     fireEvent.click(screen.getByTestId("nav-history"));
     fireEvent.click(screen.getByTestId("open-attack"));
@@ -393,7 +366,7 @@ describe("App", () => {
       conversation_id: "home-conv-1",
       labels: { operator: "roakey" },
     });
-    render(<App />);
+    renderApp();
 
     fireEvent.click(screen.getByTestId("home-open-attack"));
 
@@ -406,7 +379,7 @@ describe("App", () => {
   });
 
   it("navigates to config from the home view", () => {
-    render(<App />);
+    renderApp();
 
     fireEvent.click(screen.getByTestId("home-go-config"));
 
@@ -419,7 +392,7 @@ describe("App", () => {
 
   it("handles failed attack open gracefully", async () => {
     mockGetAttack.mockRejectedValue(new Error("Not found"));
-    render(<App />);
+    renderApp();
 
     fireEvent.click(screen.getByTestId("nav-history"));
     fireEvent.click(screen.getByTestId("open-attack"));
@@ -445,7 +418,7 @@ describe("App", () => {
       () => new Promise((resolve) => { resolveGetAttack = resolve })
     );
 
-    render(<App />);
+    renderApp();
 
     // Simulate: user is already on attack A with a branched conv selected.
     fireEvent.click(screen.getByTestId("nav-chat"));
@@ -489,7 +462,7 @@ describe("App", () => {
       default_labels: { operator: "default_user", custom: "value" },
     });
 
-    render(<App />);
+    renderApp();
 
     // The version API is called on mount and labels get merged
     await waitFor(() => {
@@ -512,7 +485,7 @@ describe("App", () => {
       default_labels: { custom: "value" },
     });
 
-    render(<App />);
+    renderApp();
 
     // Home receives the same labels prop — assert there to avoid racing the
     // async initLabels effect against a view-change re-render.
@@ -530,7 +503,7 @@ describe("App", () => {
       default_labels: { operator: "backend_user", custom: "value" },
     });
 
-    render(<App />);
+    renderApp();
 
     await waitFor(() => {
       const labels = screen.getByTestId("home-labels-json").textContent ?? "";
@@ -540,7 +513,7 @@ describe("App", () => {
   });
 
   it("stores attack target when conversation is created with active target", () => {
-    render(<App />);
+    renderApp();
 
     // Set a target first
     fireEvent.click(screen.getByTestId("nav-config"));
@@ -553,7 +526,7 @@ describe("App", () => {
   });
 
   it("sets active conversation when onSelectConversation is called", () => {
-    render(<App />);
+    renderApp();
 
     fireEvent.click(screen.getByTestId("nav-chat"));
 

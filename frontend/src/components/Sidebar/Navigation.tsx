@@ -1,6 +1,12 @@
 import {
   Button,
+  Menu,
+  MenuItemRadio,
+  MenuList,
+  MenuPopover,
+  MenuTrigger,
 } from '@fluentui/react-components'
+import type { MenuCheckedValueChangeData, MenuCheckedValueChangeEvent } from '@fluentui/react-components'
 import {
   ChatRegular,
   HomeRegular,
@@ -9,6 +15,8 @@ import {
   WeatherMoonRegular,
   WeatherSunnyRegular,
 } from '@fluentui/react-icons'
+import { useTheme } from '../../hooks/useTheme'
+import type { ThemeMode } from '../../hooks/useTheme'
 import { useNavigationStyles } from './Navigation.styles'
 
 export type ViewName = 'home' | 'chat' | 'history' | 'config'
@@ -16,12 +24,32 @@ export type ViewName = 'home' | 'chat' | 'history' | 'config'
 interface NavigationProps {
   currentView: ViewName
   onNavigate: (view: ViewName) => void
-  onToggleTheme: () => void
-  isDarkMode: boolean
 }
 
-export default function Navigation({ currentView, onNavigate, onToggleTheme, isDarkMode }: NavigationProps) {
+const THEME_MENU_NAME = 'theme'
+
+const THEME_LABELS: Record<ThemeMode, string> = {
+  system: 'System',
+  light: 'Light',
+  dark: 'Dark',
+}
+
+export default function Navigation({ currentView, onNavigate }: NavigationProps) {
   const styles = useNavigationStyles()
+  const { mode, resolved, setMode } = useTheme()
+
+  const handleThemeChange = (
+    _: MenuCheckedValueChangeEvent,
+    data: MenuCheckedValueChangeData,
+  ) => {
+    const next = data.checkedItems[0]
+    if (next === 'system' || next === 'light' || next === 'dark') {
+      setMode(next)
+    }
+  }
+
+  const triggerIcon = resolved === 'dark' ? <WeatherMoonRegular /> : <WeatherSunnyRegular />
+  const triggerLabel = `Theme: ${THEME_LABELS[mode]}`
 
   return (
     <div className={styles.root}>
@@ -67,14 +95,33 @@ export default function Navigation({ currentView, onNavigate, onToggleTheme, isD
 
       <div className={styles.spacer} />
 
-      <Button
-        className={styles.navButton}
-        appearance="subtle"
-        icon={isDarkMode ? <WeatherSunnyRegular /> : <WeatherMoonRegular />}
-        onClick={onToggleTheme}
-        title={isDarkMode ? 'Light Mode' : 'Dark Mode'}
-        aria-label={isDarkMode ? 'Light Mode' : 'Dark Mode'}
-      />
+      <Menu
+        checkedValues={{ [THEME_MENU_NAME]: [mode] }}
+        onCheckedValueChange={handleThemeChange}
+      >
+        <MenuTrigger disableButtonEnhancement>
+          <Button
+            className={styles.navButton}
+            appearance="subtle"
+            icon={triggerIcon}
+            title={triggerLabel}
+            aria-label={triggerLabel}
+          />
+        </MenuTrigger>
+        <MenuPopover>
+          <MenuList>
+            <MenuItemRadio name={THEME_MENU_NAME} value="system">
+              {THEME_LABELS.system}
+            </MenuItemRadio>
+            <MenuItemRadio name={THEME_MENU_NAME} value="light">
+              {THEME_LABELS.light}
+            </MenuItemRadio>
+            <MenuItemRadio name={THEME_MENU_NAME} value="dark">
+              {THEME_LABELS.dark}
+            </MenuItemRadio>
+          </MenuList>
+        </MenuPopover>
+      </Menu>
     </div>
   )
 }

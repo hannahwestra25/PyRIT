@@ -1,5 +1,4 @@
 import { useState, useCallback, useEffect } from 'react'
-import { FluentProvider, webLightTheme, webDarkTheme } from '@fluentui/react-components'
 import { useMsal } from '@azure/msal-react'
 import MainLayout from './components/Layout/MainLayout'
 import ChatWindow from './components/Chat/ChatWindow'
@@ -39,7 +38,6 @@ function ConnectionBannerContainer() {
 
 function App() {
   const { instance } = useMsal()
-  const [isDarkMode, setIsDarkMode] = useState(true)
   const [currentView, setCurrentView] = useState<ViewName>('home')
   const [activeTarget, setActiveTarget] = useState<TargetInstance | null>(null)
   const [globalLabels, setGlobalLabels] = useState<Record<string, string>>({ ...DEFAULT_GLOBAL_LABELS })
@@ -174,20 +172,14 @@ function App() {
     }
   }, [attackResultId, clearAttackState])
 
-  const toggleTheme = () => {
-    setIsDarkMode(!isDarkMode)
-  }
-
   return (
     <ErrorBoundary>
       <ConnectionHealthProvider>
-        <FluentProvider theme={isDarkMode ? webDarkTheme : webLightTheme}>
+        <>
           <ConnectionBannerContainer />
           <MainLayout
             currentView={currentView}
             onNavigate={setCurrentView}
-            onToggleTheme={toggleTheme}
-            isDarkMode={isDarkMode}
           >
             {currentView === 'home' && (
               <Home
@@ -230,7 +222,7 @@ function App() {
               />
             )}
           </MainLayout>
-        </FluentProvider>
+        </>
       </ConnectionHealthProvider>
     </ErrorBoundary>
   )
