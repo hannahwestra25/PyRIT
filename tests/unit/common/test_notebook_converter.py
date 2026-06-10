@@ -294,8 +294,12 @@ class TestNotebookConversion:
         py_path.write_text(source, encoding="utf-8")
 
         result = convert_notebook(py_path, write=True)
-        written = py_path.read_text(encoding="utf-8")
+        converted_path = tmp_path / "test_converted.py"
+        assert converted_path.exists()
+        written = converted_path.read_text(encoding="utf-8")
         assert "CrescendoAttack" in written
+        # Original should be unchanged
+        assert "CrescendoOrchestrator" in py_path.read_text(encoding="utf-8")
 
     def test_write_to_different_path(self, tmp_path: Path) -> None:
         source = "from pyrit.orchestrator import CrescendoOrchestrator\n"

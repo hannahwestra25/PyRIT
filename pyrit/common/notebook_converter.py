@@ -524,19 +524,28 @@ def _convert_notebook_json(nb: dict[str, Any]) -> tuple[dict[str, Any], list[Cha
 # ---------------------------------------------------------------------------
 
 
+def _default_output_path(path: Path) -> Path:
+    """Generate a default output path by adding '_converted' before the extension."""
+    return path.with_stem(f"{path.stem}_converted")
+
+
 def convert_notebook(
     path: str | Path,
     *,
-    write: bool = False,
+    write: bool = True,
     output_path: str | Path | None = None,
 ) -> ConversionResult:
     """Convert a .ipynb or .py file to the latest PyRIT API.
 
+    By default, writes a converted copy next to the original (e.g.
+    ``my_notebook_converted.ipynb``). The original file is never modified
+    unless ``output_path`` is explicitly set to the same path.
+
     Args:
         path: Path to the notebook (.ipynb) or Python file (.py).
-        write: If True, write the converted file. Defaults to False (dry run).
-        output_path: Where to write the output. Defaults to overwriting the
-            original file (only when write=True).
+        write: If True, write the converted file. Defaults to True.
+        output_path: Where to write the output. Defaults to a copy with
+            ``_converted`` appended to the filename stem.
 
     Returns:
         A ConversionResult with the original source, converted source,
@@ -575,7 +584,10 @@ def convert_notebook(
         )
 
     if write and result.has_changes():
-        out = str(output_path) if output_path else str_path
+        if output_path:
+            out = str(output_path)
+        else:
+            out = str(_default_output_path(path))
         result.write(out)
         logger.info("Wrote converted file to %s", out)
 
