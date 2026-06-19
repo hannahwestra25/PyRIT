@@ -4,11 +4,46 @@
  */
 
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import App from "./App";
 import { ThemeProvider } from "./hooks/useTheme";
 import { attacksApi } from "./services/api";
 
 const mockGetActiveAccount = jest.fn();
+
+// Mock react-joyride to prevent the guided tour from interfering with App tests.
+// The Joyride component is rendered as a no-op div, avoiding uncontrolled state
+// updates from the tour's auto-start logic.
+jest.mock("react-joyride", () => ({
+  __esModule: true,
+  default: () => <div data-testid="joyride-mock" />,
+  Joyride: () => <div data-testid="joyride-mock" />,
+  ACTIONS: { NEXT: "next", PREV: "prev", CLOSE: "close" },
+  LIFECYCLE: { COMPLETE: "complete", READY: "ready" },
+  STATUS: { RUNNING: "running", FINISHED: "finished", SKIPPED: "skipped" },
+}));
+
+// Mock useTour to prevent the auto-start tour from triggering state updates
+// that race with async label initialization.
+jest.mock("./hooks/useTour", () => ({
+  useTour: () => ({
+    startTour: jest.fn(),
+    hasCompletedTour: true,
+    tourProps: {
+      steps: [],
+      run: false,
+      stepIndex: 0,
+      onEvent: jest.fn(),
+      continuous: true,
+      showSkipButton: true,
+      spotlightClicks: false,
+      tooltipComponent: () => null,
+      floatingOptions: { hideArrow: true },
+      options: { closeButtonAction: "skip", overlayClickAction: false },
+      locale: { back: "Back", close: "Close", last: "Let's go!", next: "Next", skip: "Skip tour" },
+    },
+  }),
+}));
 
 // Mock MSAL — App uses useMsal() to wire the instance into the API client
 jest.mock("@azure/msal-react", () => ({
@@ -170,11 +205,16 @@ jest.mock("./components/Config/TargetConfig", () => {
 jest.mock("./components/History/AttackHistory", () => {
   const MockAttackHistory = ({
     onOpenAttack,
+    filters,
+    onFiltersChange,
   }: {
     onOpenAttack: (attackResultId: string) => void;
+    filters: Record<string, unknown>;
+    onFiltersChange: (filters: Record<string, unknown>) => void;
   }) => {
     return (
       <div data-testid="attack-history">
+        <span data-testid="history-filters">{JSON.stringify(filters)}</span>
         <button
           onClick={() => onOpenAttack("ar-attack-1")}
           data-testid="open-attack"
@@ -186,6 +226,12 @@ jest.mock("./components/History/AttackHistory", () => {
           data-testid="open-attack-2"
         >
           Open Attack 2
+        </button>
+        <button
+          onClick={() => onFiltersChange({ ...filters, outcome: "success" })}
+          data-testid="set-outcome-filter"
+        >
+          Filter Outcome
         </button>
       </div>
     );
@@ -233,6 +279,16 @@ jest.mock("./components/Home/Home", () => {
 });
 
 describe("App", () => {
+  // App reads the active view from the URL, so every render needs a router.
+  // initialPath lets a test deep-link straight to a view (e.g. "/config").
+  function renderApp(initialPath = "/") {
+    return render(
+      <MemoryRouter initialEntries={[initialPath]}>
+        <App />
+      </MemoryRouter>
+    );
+  }
+
   beforeEach(() => {
     jest.clearAllMocks();
     mockGetActiveAccount.mockReturnValue(null);
@@ -254,6 +310,36 @@ describe("App", () => {
 
   it("starts in home view", () => {
     renderApp();
+
+    expect(screen.getByTestId("main-layout")).toHaveAttribute(
+      "data-current-view",
+      "home"
+    );
+    expect(screen.getByTestId("home-view")).toBeInTheDocument();
+  });
+
+  it("renders the view named by the initial URL", () => {
+    renderApp("/config");
+
+    expect(screen.getByTestId("main-layout")).toHaveAttribute(
+      "data-current-view",
+      "config"
+    );
+    expect(screen.getByTestId("target-config")).toBeInTheDocument();
+  });
+
+  it("renders the history view when deep-linked to /history", () => {
+    renderApp("/history");
+
+    expect(screen.getByTestId("main-layout")).toHaveAttribute(
+      "data-current-view",
+      "history"
+    );
+    expect(screen.getByTestId("attack-history")).toBeInTheDocument();
+  });
+
+  it("redirects an unknown path back to home", () => {
+    renderApp("/does-not-exist");
 
     expect(screen.getByTestId("main-layout")).toHaveAttribute(
       "data-current-view",
@@ -390,8 +476,8 @@ describe("App", () => {
     expect(screen.getByTestId("target-config")).toBeInTheDocument();
   });
 
-  it("handles failed attack open gracefully", async () => {
-    mockGetAttack.mockRejectedValue(new Error("Not found"));
+  it("shows the not-found UX when an attack returns 404", async () => {
+    mockGetAttack.mockRejectedValue({ isAxiosError: true, response: { status: 404, data: {} } });
     renderApp();
 
     fireEvent.click(screen.getByTestId("nav-history"));
@@ -400,8 +486,23 @@ describe("App", () => {
     // Should switch to chat view even on error
     expect(screen.getByTestId("main-layout")).toHaveAttribute("data-current-view", "chat");
     await waitFor(() => expect(mockGetAttack).toHaveBeenCalledWith("ar-attack-1"));
-    // Conversation should be cleared on error
-    await waitFor(() => expect(screen.getByTestId("conversation-id")).toHaveTextContent("none"));
+    // The chat window is replaced by an inline "attack not found" message
+    await waitFor(() => expect(screen.getByTestId("attack-not-found")).toBeInTheDocument());
+    expect(screen.queryByTestId("chat-window")).not.toBeInTheDocument();
+  });
+
+  it("shows the error UX (not not-found) when an attack load fails with a non-404", async () => {
+    // A 500 / network / timeout is transient and must not claim the attack was deleted.
+    mockGetAttack.mockRejectedValue({ isAxiosError: true, response: { status: 500, data: {} } });
+    renderApp();
+
+    fireEvent.click(screen.getByTestId("nav-history"));
+    fireEvent.click(screen.getByTestId("open-attack"));
+
+    await waitFor(() => expect(mockGetAttack).toHaveBeenCalledWith("ar-attack-1"));
+    await waitFor(() => expect(screen.getByTestId("attack-load-error")).toBeInTheDocument());
+    expect(screen.queryByTestId("attack-not-found")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("chat-window")).not.toBeInTheDocument();
   });
 
   it("clears activeConversationId synchronously before fetching a new attack", async () => {
@@ -435,12 +536,14 @@ describe("App", () => {
     fireEvent.click(screen.getByTestId("open-attack-2"));        // ar-attack-2
 
     // BEFORE getAttack resolves: ChatWindow must NOT see the stale conv id
-    // alongside the new attack id. This is the invariant the fix establishes.
+    // alongside the new attack id. While attack B loads, its data is not yet
+    // ready, so both the attack id and conversation id are withheld — which
+    // gates ChatWindow's /messages fetch and prevents the cross-attack 400.
     expect(screen.getByTestId("main-layout")).toHaveAttribute(
       "data-current-view",
       "chat"
     );
-    expect(screen.getByTestId("attack-result-id")).toHaveTextContent("ar-attack-2");
+    expect(screen.getByTestId("attack-result-id")).toHaveTextContent("none");
     expect(screen.getByTestId("active-conversation-id")).toHaveTextContent("none");
     expect(screen.getByTestId("conversation-id")).toHaveTextContent("none");
 
@@ -537,5 +640,93 @@ describe("App", () => {
     // Now select a different conversation
     fireEvent.click(screen.getByTestId("select-conversation"));
     // The component re-renders with the new conversation ID
+  });
+
+  it("hydrates attack state when deep-linked to /attacks/:attackId", async () => {
+    mockGetAttack.mockResolvedValue({
+      attack_result_id: "ar-1",
+      conversation_id: "conv-main",
+      labels: {},
+      related_conversation_ids: [],
+    });
+    renderApp("/attacks/ar-1");
+
+    expect(screen.getByTestId("main-layout")).toHaveAttribute("data-current-view", "chat");
+    await waitFor(() => expect(mockGetAttack).toHaveBeenCalledWith("ar-1"));
+    await waitFor(() =>
+      expect(screen.getByTestId("conversation-id")).toHaveTextContent("conv-main")
+    );
+    expect(screen.getByTestId("active-conversation-id")).toHaveTextContent("conv-main");
+  });
+
+  it("uses the conversation from a deep link when it belongs to the attack", async () => {
+    mockGetAttack.mockResolvedValue({
+      attack_result_id: "ar-1",
+      conversation_id: "conv-main",
+      labels: {},
+      related_conversation_ids: ["conv-related"],
+    });
+    renderApp("/attacks/ar-1/conversations/conv-related");
+
+    await waitFor(() =>
+      expect(screen.getByTestId("active-conversation-id")).toHaveTextContent("conv-related")
+    );
+  });
+
+  it("falls back to the main conversation when the deep-linked conversation is unknown", async () => {
+    mockGetAttack.mockResolvedValue({
+      attack_result_id: "ar-1",
+      conversation_id: "conv-main",
+      labels: {},
+      related_conversation_ids: ["conv-related"],
+    });
+    renderApp("/attacks/ar-1/conversations/bogus");
+
+    // The unknown conversation segment is stripped and we fall back to main.
+    await waitFor(() =>
+      expect(screen.getByTestId("active-conversation-id")).toHaveTextContent("conv-main")
+    );
+  });
+
+  it("hydrates history filters from the URL query string", () => {
+    renderApp("/history?outcome=success&attackType=PromptSendingAttack");
+
+    const filters = JSON.parse(
+      screen.getByTestId("history-filters").textContent ?? "{}"
+    );
+    expect(filters.outcome).toBe("success");
+    expect(filters.attackTypes).toEqual(["PromptSendingAttack"]);
+  });
+
+  it("writes filter changes into the URL", () => {
+    renderApp("/history");
+
+    expect(
+      JSON.parse(screen.getByTestId("history-filters").textContent ?? "{}").outcome
+    ).toBe("");
+
+    fireEvent.click(screen.getByTestId("set-outcome-filter"));
+
+    // The change flows out to the URL and back into the derived filters prop.
+    expect(
+      JSON.parse(screen.getByTestId("history-filters").textContent ?? "{}").outcome
+    ).toBe("success");
+  });
+
+  it("restores history filters when returning via the nav button", () => {
+    renderApp("/history?outcome=success");
+
+    expect(
+      JSON.parse(screen.getByTestId("history-filters").textContent ?? "{}").outcome
+    ).toBe("success");
+
+    // Leave history for another view, then come back via the nav button.
+    fireEvent.click(screen.getByTestId("nav-config"));
+    expect(screen.getByTestId("target-config")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("nav-history"));
+    expect(
+      JSON.parse(screen.getByTestId("history-filters").textContent ?? "{}").outcome
+    ).toBe("success");
   });
 });

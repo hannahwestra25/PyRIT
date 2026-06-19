@@ -10,6 +10,7 @@ import type { MenuCheckedValueChangeData, MenuCheckedValueChangeEvent } from '@f
 import {
   ChatRegular,
   HomeRegular,
+  QuestionCircleRegular,
   SettingsRegular,
   HistoryRegular,
   WeatherMoonRegular,
@@ -24,6 +25,7 @@ export type ViewName = 'home' | 'chat' | 'history' | 'config'
 interface NavigationProps {
   currentView: ViewName
   onNavigate: (view: ViewName) => void
+  onStartTour?: () => void
 }
 
 const THEME_MENU_NAME = 'theme'
@@ -34,7 +36,8 @@ const THEME_LABELS: Record<ThemeMode, string> = {
   dark: 'Dark',
 }
 
-export default function Navigation({ currentView, onNavigate }: NavigationProps) {
+
+export default function Navigation({ currentView, onNavigate, onStartTour }: NavigationProps) {
   const styles = useNavigationStyles()
   const { mode, resolved, setMode } = useTheme()
 
@@ -52,7 +55,7 @@ export default function Navigation({ currentView, onNavigate }: NavigationProps)
   const triggerLabel = `Theme: ${THEME_LABELS[mode]}`
 
   return (
-    <div className={styles.root}>
+    <div className={styles.root} data-tour="sidebar-nav">
       <Button
         className={styles.navButton}
         data-active={currentView === 'home'}
@@ -94,7 +97,17 @@ export default function Navigation({ currentView, onNavigate }: NavigationProps)
       />
 
       <div className={styles.spacer} />
-
+      
+      {onStartTour && (
+        <Button
+          className={styles.navButton}
+          appearance="subtle"
+          icon={<QuestionCircleRegular />}
+          onClick={onStartTour}
+          title="Take a tour"
+          aria-label="Take a tour"
+        />
+      )}
       <Menu
         checkedValues={{ [THEME_MENU_NAME]: [mode] }}
         onCheckedValueChange={handleThemeChange}

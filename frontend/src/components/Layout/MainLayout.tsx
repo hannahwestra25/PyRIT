@@ -12,12 +12,14 @@ interface MainLayoutProps {
   children: React.ReactNode
   currentView: ViewName
   onNavigate: (view: ViewName) => void
+  onStartTour?: () => void
 }
 
 export default function MainLayout({
   children,
   currentView,
   onNavigate,
+  onStartTour,
 }: MainLayoutProps) {
   const styles = useMainLayoutStyles()
   const [version, setVersion] = useState<string>('Loading...')
@@ -51,6 +53,7 @@ export default function MainLayout({
           <Navigation
             currentView={currentView}
             onNavigate={onNavigate}
+            onStartTour={onStartTour}
           />
         </aside>
         <main className={styles.main}>{children}</main>
