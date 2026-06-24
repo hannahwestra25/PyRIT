@@ -17,6 +17,7 @@ from typing import (
 )
 
 from pyrit.exceptions import (
+    BadRequestException,
     InvalidJsonException,
     PyritException,
     pyrit_json_retry,
@@ -781,6 +782,16 @@ class Scorer(Identifiable, abc.ABC):
 
         response_json: str = ""
         try:
+            # Check if the scorer's own LLM response was blocked by content filtering
+            if all(piece.is_blocked() for piece in response[0].message_pieces):
+                raise BadRequestException(
+                    message=(
+                        f"The scorer's LLM request was blocked by content filtering while scoring "
+                        f"prompt ID: {scored_prompt_id}. Consider using a scorer endpoint with "
+                        f"content filtering disabled for red-teaming workflows."
+                    )
+                )
+
             # Get the text piece which contains the JSON response containing the score_value and rationale from the LLM
             text_piece = next(
                 piece for piece in response[0].message_pieces if piece.converted_value_data_type == "text"

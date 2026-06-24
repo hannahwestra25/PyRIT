@@ -1548,6 +1548,39 @@ async def test_score_value_with_llm_skips_reasoning_piece(good_json):
     assert result.score_rationale == "Valid response"
 
 
+async def test_score_value_with_llm_raises_when_scorer_response_blocked():
+    """When the scorer's own LLM response is blocked by content filtering, raise BadRequestException."""
+    from pyrit.exceptions import BadRequestException
+
+    chat_target = MagicMock(PromptTarget)
+    chat_target.get_identifier.return_value = get_mock_target_identifier("MockChatTarget")
+
+    blocked_piece = MessagePiece(
+        role="assistant",
+        original_value="",
+        original_value_data_type="error",
+        converted_value="",
+        converted_value_data_type="error",
+        conversation_id="test-convo",
+        response_error="blocked",
+    )
+    blocked_response = Message(message_pieces=[blocked_piece])
+    chat_target.send_prompt_async = AsyncMock(return_value=[blocked_response])
+
+    scorer = MockScorer()
+
+    with pytest.raises(BadRequestException, match="blocked by content filtering"):
+        await scorer._score_value_with_llm_async(
+            prompt_target=chat_target,
+            system_prompt="system_prompt",
+            message_value="message_value",
+            message_data_type="text",
+            scored_prompt_id="test-prompt-id",
+            category="category",
+            objective="task",
+        )
+
+
 # ── Helpers for score_blocked_content tests ──────────────────────────────────
 
 
