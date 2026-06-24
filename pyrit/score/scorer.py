@@ -730,6 +730,7 @@ class Scorer(Identifiable, abc.ABC):
                 score_value still needs to be normalized and validated.
 
         Raises:
+            BadRequestException: If the scorer's LLM response is blocked by content filtering.
             ValueError: If required keys are missing from the response or if the response format is invalid.
             InvalidJsonException: If the response is not valid JSON.
             Exception: For other unexpected errors during scoring.
