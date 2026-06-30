@@ -783,11 +783,14 @@ class Scorer(Identifiable, abc.ABC):
 
         response_json: str = ""
         try:
-            # Check if the scorer's own LLM response was blocked by content filtering
+            # Check if the scorer's own LLM response was blocked by content filtering.
+            # Require every piece to be blocked (all) rather than any: a partially blocked
+            # response may still carry a usable text piece, so we only bail out when there
+            # is no salvageable content to parse.
             if all(piece.is_blocked() for piece in response[0].message_pieces):
                 raise BadRequestException(
                     message=(
-                        f"The scorer's LLM request was blocked by content filtering while scoring "
+                        f"The scorer's LLM response was blocked by content filtering while scoring "
                         f"prompt ID: {scored_prompt_id}. Consider using a scorer endpoint with "
                         f"content filtering disabled for red-teaming workflows."
                     )
