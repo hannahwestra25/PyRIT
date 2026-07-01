@@ -783,10 +783,8 @@ class Scorer(Identifiable, abc.ABC):
 
         response_json: str = ""
         try:
-            # Check if the scorer's own LLM response was blocked by content filtering.
-            # Require every piece to be blocked (all) rather than any: a partially blocked
-            # response may still carry a usable text piece, so we only bail out when there
-            # is no salvageable content to parse.
+            # A content-filter block yields a single error piece with no parseable text piece,
+            # so raise a clear error here instead of failing on the missing text piece below.
             if all(piece.is_blocked() for piece in response[0].message_pieces):
                 raise BadRequestException(
                     message=(
