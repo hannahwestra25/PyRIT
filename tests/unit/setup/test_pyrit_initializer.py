@@ -5,12 +5,12 @@ import sys
 
 import pytest
 
-from pyrit.common import Parameter
 from pyrit.common.apply_defaults import (
     reset_default_values,
     set_default_value,
     set_global_variable,
 )
+from pyrit.models import Parameter
 from pyrit.setup.initializers import PyRITInitializer
 
 
@@ -529,8 +529,9 @@ class TestSupportedParameters:
                 pass
 
         init = StrictInit()
+        init.params = {"bogus": ["value"]}
         with pytest.raises(ValueError, match="unknown parameter"):
-            init._validate_params(params={"bogus": ["value"]})
+            init.validate_params()
 
     def test_validate_params_accepts_valid(self) -> None:
         """Test that valid params pass validation."""
@@ -549,8 +550,9 @@ class TestSupportedParameters:
                 pass
 
         init = ValidInit()
+        init.params = {"key": ["abc"], "mode": ["slow"]}
         # Should not raise
-        init._validate_params(params={"key": ["abc"], "mode": ["slow"]})
+        init.validate_params()
 
     def test_validate_checks_params_on_instance(self) -> None:
         """Test that validate() checks self.params."""
@@ -632,7 +634,7 @@ class TestInitializerParameterDeprecation:
         """The deprecation warning tells users which class to use instead."""
         import pyrit.setup.initializers as initializers_module
 
-        with pytest.warns(DeprecationWarning, match=r"pyrit\.common\.parameter\.Parameter"):
+        with pytest.warns(DeprecationWarning, match=r"pyrit\.models\.parameter\.Parameter"):
             _ = initializers_module.InitializerParameter
 
     def test_canonical_module_alias_emits_deprecation_warning(self) -> None:

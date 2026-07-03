@@ -30,13 +30,13 @@ from pyrit.backend.mappers.target_mappers import target_object_to_instance
 from pyrit.backend.models._media import build_filename, infer_mime_type
 from pyrit.backend.models.attacks import ScoreView
 from pyrit.models import (
+    AtomicAttackIdentifier,
     AttackOutcome,
     AttackResult,
     ComponentIdentifier,
     Message,
     MessagePiece,
     Score,
-    build_atomic_attack_identifier,
 )
 from pyrit.models.conversation_stats import ConversationStats
 from pyrit.prompt_target import PromptTarget, TargetCapabilities
@@ -73,7 +73,7 @@ def _make_attack_result(
         conversation_id=conversation_id,
         objective="test",
         attack_result_id=str(uuid.uuid4()),
-        atomic_attack_identifier=build_atomic_attack_identifier(
+        atomic_attack_identifier=AtomicAttackIdentifier.build(
             attack_identifier=ComponentIdentifier(
                 class_name=name,
                 class_module="pyrit.backend",
@@ -276,7 +276,7 @@ class TestAttackResultToSummary:
             conversation_id="attack-conv",
             objective="test",
             attack_result_id=str(uuid.uuid4()),
-            atomic_attack_identifier=build_atomic_attack_identifier(
+            atomic_attack_identifier=AtomicAttackIdentifier.build(
                 attack_identifier=ComponentIdentifier(
                     class_name="TestAttack",
                     class_module="pyrit.backend",
@@ -322,7 +322,7 @@ class TestAttackResultToSummary:
 
     async def test_related_conversation_ids_from_related_conversations(self) -> None:
         """Test that related_conversation_ids includes all related conversation IDs."""
-        from pyrit.models.conversation_reference import ConversationReference, ConversationType
+        from pyrit.models import ConversationReference, ConversationType
 
         ar = _make_attack_result()
         ar.related_conversations = {
@@ -1839,7 +1839,7 @@ class TestConverterObjectToInstance:
     """Tests for converter_object_to_instance function."""
 
     def test_maps_converter_with_identifier(self) -> None:
-        """Test mapping a converter object."""
+        """Test mapping a converter object onto the nested identifier."""
         converter_obj = MagicMock()
         identifier = ComponentIdentifier(
             class_name="Base64Converter",
@@ -1855,32 +1855,13 @@ class TestConverterObjectToInstance:
         result = converter_object_to_instance("c-1", converter_obj)
 
         assert result.converter_id == "c-1"
-        assert result.converter_type == "Base64Converter"
-        assert result.display_name is None
-        assert result.supported_input_types == ["text"]
-        assert result.supported_output_types == ["text"]
-        assert result.converter_specific_params == {"param1": "value1"}
-        assert result.sub_converter_ids is None
+        assert result.identifier.class_name == "Base64Converter"
+        assert result.identifier.supported_input_types == ["text"]
+        assert result.identifier.supported_output_types == ["text"]
+        assert result.identifier.params["param1"] == "value1"
 
-    def test_sub_converter_ids_passed_through(self) -> None:
-        """Test that sub_converter_ids are passed through when provided."""
-        converter_obj = MagicMock()
-        identifier = ComponentIdentifier(
-            class_name="PipelineConverter",
-            class_module="pyrit.converters",
-            params={
-                "supported_input_types": ("text",),
-                "supported_output_types": ("text",),
-            },
-        )
-        converter_obj.get_identifier.return_value = identifier
-
-        result = converter_object_to_instance("c-1", converter_obj, sub_converter_ids=["sub-1", "sub-2"])
-
-        assert result.sub_converter_ids == ["sub-1", "sub-2"]
-
-    def test_none_input_output_types_returns_empty_lists(self) -> None:
-        """Test that None supported types produce empty lists."""
+    def test_none_input_output_types_stay_none(self) -> None:
+        """Test that absent supported types stay None on the identifier."""
         converter_obj = MagicMock()
         identifier = ComponentIdentifier(
             class_name="CustomConverter",
@@ -1890,10 +1871,9 @@ class TestConverterObjectToInstance:
 
         result = converter_object_to_instance("c-1", converter_obj)
 
-        assert result.supported_input_types == []
-        assert result.supported_output_types == []
-        assert result.converter_specific_params is None
-        assert result.sub_converter_ids is None
+        assert result.identifier.supported_input_types is None
+        assert result.identifier.supported_output_types is None
+        assert result.identifier.params == {}
 
 
 # ============================================================================

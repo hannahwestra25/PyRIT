@@ -1,15 +1,17 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
+from __future__ import annotations
+
 import abc
 import asyncio
 import inspect
 import re
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, ClassVar, Optional, get_args
+from typing import TYPE_CHECKING, Any, ClassVar, get_args
 
 from pyrit import prompt_converter
-from pyrit.models import ComponentIdentifier, Identifiable, PromptDataType
+from pyrit.models import ComponentIdentifier, ConverterIdentifier, Identifiable, PromptDataType
 from pyrit.prompt_target.common.target_requirements import TargetRequirements
 
 if TYPE_CHECKING:
@@ -89,7 +91,7 @@ class PromptConverter(Identifiable):
                     f"Declare the output modalities this converter produces."
                 )
 
-    def __init__(self, *, converter_target: Optional["PromptTarget"] = None) -> None:
+    def __init__(self, *, converter_target: PromptTarget | None = None) -> None:
         """
         Initialize the prompt converter.
 
@@ -202,14 +204,17 @@ class PromptConverter(Identifiable):
         self,
         *,
         params: dict[str, Any] | None = None,
-        children: dict[str, ComponentIdentifier | list[ComponentIdentifier]] | None = None,
+        converter_target: ComponentIdentifier | None = None,
+        sub_converter: ComponentIdentifier | None = None,
     ) -> ComponentIdentifier:
         """
         Construct and return the converter identifier.
 
-        Builds a ComponentIdentifier with the base converter parameters
-        (supported_input_types, supported_output_types) and merges in any
-        additional params or children provided by subclasses.
+        Builds a ``ConverterIdentifier`` with the base converter params
+        (supported_input_types, supported_output_types) and the converter's promoted
+        child slots. The child slots are exposed as explicit named parameters
+        (mirroring ``ConverterIdentifier``'s promoted fields) so they cannot drift
+        into untyped ``children`` dicts.
 
         Subclasses should call this method in their _build_identifier() implementation
         to set the identifier with their specific parameters.
@@ -217,25 +222,27 @@ class PromptConverter(Identifiable):
         Args:
             params (dict[str, Any] | None): Additional behavioral parameters from
                 the subclass (e.g., font, encoding_func). Merged into the base params.
-            children (dict[str, ComponentIdentifier | list[ComponentIdentifier]] | None):
-                Named child component identifiers (e.g., sub-converters, converter targets).
+            converter_target (ComponentIdentifier | None): The target an LLM-backed
+                converter calls, promoted to ``ConverterIdentifier.converter_target``.
+            sub_converter (ComponentIdentifier | None): A nested converter a
+                composite wraps, promoted to ``ConverterIdentifier.sub_converter``.
 
         Returns:
             ComponentIdentifier: The identifier for this converter.
         """
-        all_params: dict[str, Any] = {
-            "supported_input_types": self.SUPPORTED_INPUT_TYPES,
-            "supported_output_types": self.SUPPORTED_OUTPUT_TYPES,
-        }
-        if params:
-            all_params.update(params)
-
-        return ComponentIdentifier.of(self, params=all_params, children=children)
+        return ConverterIdentifier.of(
+            self,
+            params=params,
+            supported_input_types=self.SUPPORTED_INPUT_TYPES,
+            supported_output_types=self.SUPPORTED_OUTPUT_TYPES,
+            converter_target=converter_target,
+            sub_converter=sub_converter,
+        )
 
     @property
     def supported_input_types(self) -> list[PromptDataType]:
         """
-        Returns a list of supported input types for the converter.
+        A list of supported input types for the converter.
 
         Returns:
             list[PromptDataType]: A list of supported input types.
@@ -245,7 +252,7 @@ class PromptConverter(Identifiable):
     @property
     def supported_output_types(self) -> list[PromptDataType]:
         """
-        Returns a list of supported output types for the converter.
+        A list of supported output types for the converter.
 
         Returns:
             list[PromptDataType]: A list of supported output types.

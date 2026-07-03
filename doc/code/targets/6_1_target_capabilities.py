@@ -55,7 +55,7 @@ print("output_modalities:          ", sorted(sorted(m) for m in caps.output_moda
 #
 # Each target class declares a `_DEFAULT_CONFIGURATION` class attribute. For well-known underlying models,
 # `get_default_configuration(underlying_model=...)` returns a richer profile from
-# `TargetCapabilities.get_known_capabilities` — for example, `gpt-5` gains `supports_json_schema=True`
+# `get_known_capabilities` — for example, `gpt-5` gains `supports_json_schema=True`
 # and other models pick up the right modality combinations automatically. Unknown models fall back to
 # the class default.
 
@@ -304,7 +304,7 @@ from pyrit.prompt_target import discover_target_capabilities_async
 def _ok_response():
     return [
         Message(
-            [
+            message_pieces=[
                 MessagePiece(
                     role="assistant",
                     original_value="ok",

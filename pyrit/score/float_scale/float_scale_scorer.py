@@ -1,17 +1,26 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
-from typing import TYPE_CHECKING, Optional
-from uuid import UUID
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 from pyrit.exceptions.exception_classes import InvalidJsonException
-from pyrit.models import Message, PromptDataType, Score, UnvalidatedScore
-from pyrit.prompt_target.common.prompt_target import PromptTarget
+from pyrit.models import (
+    JsonSchemaDefinition,
+    Message,
+    PromptDataType,
+    Score,
+    UnvalidatedScore,
+)
 from pyrit.score.scorer import Scorer
-from pyrit.score.scorer_prompt_validator import ScorerPromptValidator
 
 if TYPE_CHECKING:
+    from uuid import UUID
+
+    from pyrit.prompt_target.common.prompt_target import PromptTarget
     from pyrit.score.scorer_evaluation.scorer_metrics import HarmScorerMetrics
+    from pyrit.score.scorer_prompt_validator import ScorerPromptValidator
 
 
 class FloatScaleScorer(Scorer):
@@ -107,7 +116,7 @@ class FloatScaleScorer(Scorer):
             if not (0 <= score.get_value() <= 1):
                 raise ValueError("FloatScaleScorer score value must be between 0 and 1.")
 
-    def get_scorer_metrics(self) -> Optional["HarmScorerMetrics"]:
+    def get_scorer_metrics(self) -> HarmScorerMetrics | None:
         """
         Get evaluation metrics for this scorer from the configured evaluation result file.
 
@@ -146,6 +155,7 @@ class FloatScaleScorer(Scorer):
         description_output_key: str = "description",
         metadata_output_key: str = "metadata",
         category_output_key: str = "category",
+        response_json_schema: JsonSchemaDefinition | None = None,
     ) -> UnvalidatedScore:
         score: UnvalidatedScore | None = None
         try:
@@ -163,6 +173,7 @@ class FloatScaleScorer(Scorer):
                 description_output_key=description_output_key,
                 metadata_output_key=metadata_output_key,
                 category_output_key=category_output_key,
+                response_json_schema=response_json_schema,
             )
             if score is None:
                 raise ValueError("Score returned None")

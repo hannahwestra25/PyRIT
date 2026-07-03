@@ -16,7 +16,7 @@ from typing import Any
 
 from pyrit.common.apply_defaults import get_global_default_values
 from pyrit.common.deprecation import print_deprecation_message
-from pyrit.common.parameter import Parameter
+from pyrit.models.parameter import Parameter
 
 
 def __getattr__(name: str) -> type:
@@ -79,7 +79,7 @@ class PyRITInitializer(ABC):
     @property
     def description(self) -> str:
         """
-        Get a description of what this initializer configures.
+        A description of what this initializer configures.
 
         By default, extracts the description from the class docstring.
         Falls back to the class name if no docstring is available.
@@ -87,14 +87,14 @@ class PyRITInitializer(ABC):
         Returns:
             str: A description of the configuration changes this initializer makes.
         """
-        from pyrit.registry.base import ClassRegistryEntry
+        from pyrit.registry.registry_metadata import RegistryMetadata
 
-        return ClassRegistryEntry.description_from_docstring(self.__class__, fallback=type(self).__name__)
+        return RegistryMetadata.description_from_docstring(self.__class__, fallback=type(self).__name__)
 
     @property
     def required_env_vars(self) -> list[str]:
         """
-        Get list of required environment variables for this initializer.
+        Required environment variables for this initializer.
 
         Override this property to specify which environment variables must be
         set for this initializer to work correctly.
@@ -124,7 +124,7 @@ class PyRITInitializer(ABC):
     @property
     def supported_parameters(self) -> list[Parameter]:
         """
-        Get the list of parameters this initializer accepts.
+        The list of parameters this initializer accepts.
 
         Override this property to declare what parameters the initializer
         supports. Parameters are set on self.params before initialize_async() is called.
@@ -171,28 +171,22 @@ class PyRITInitializer(ABC):
                 f"{', '.join(missing_vars)}"
             )
 
-        # Validate configured params
-        if self.params:
-            self._validate_params(params=self.params)
+        self.validate_params()
 
-    def _validate_params(self, *, params: dict[str, list[str]]) -> None:
+    def validate_params(self) -> None:
         """
-        Validate parameters against supported_parameters.
+        Validate the configured parameters against supported_parameters.
 
-        Checks that all provided params are declared in supported_parameters
-        and that all required params are present.
-
-        Args:
-            params: The parameters to validate.
+        Checks that every parameter in ``self.params`` is declared in
+        ``supported_parameters``. Unlike ``validate()``, this does not check
+        required environment variables, so it can be used to fail fast on
+        parameter shape at configuration time — before the environment is set up.
 
         Raises:
-            ValueError: If unknown parameters are provided or required parameters are missing.
+            ValueError: If unknown parameters are provided.
         """
-        supported = {p.name: p for p in self.supported_parameters}
-        supported_names = set(supported.keys())
-
-        # Check for unknown params
-        unknown = set(params.keys()) - supported_names
+        supported_names = {p.name for p in self.supported_parameters}
+        unknown = set(self.params.keys()) - supported_names
         if unknown:
             raise ValueError(
                 f"Initializer '{type(self).__name__}' received unknown parameter(s): {', '.join(sorted(unknown))}. "
@@ -346,7 +340,7 @@ class PyRITInitializer(ABC):
 
         # Add supported parameters if any are declared
         if instance.supported_parameters:
-            base_info["supported_parameters"] = [  # type: ignore[ty:invalid-assignment]
+            base_info["supported_parameters"] = [
                 {
                     "name": p.name,
                     "description": p.description,
@@ -357,7 +351,7 @@ class PyRITInitializer(ABC):
 
         # Add required environment variables if any are defined
         if instance.required_env_vars:
-            base_info["required_env_vars"] = instance.required_env_vars  # type: ignore[ty:invalid-assignment]
+            base_info["required_env_vars"] = instance.required_env_vars
 
         # Add dynamic default values information
         try:

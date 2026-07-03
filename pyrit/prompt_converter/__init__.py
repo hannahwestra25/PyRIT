@@ -36,6 +36,7 @@ from pyrit.prompt_converter.character_space_converter import CharacterSpaceConve
 from pyrit.prompt_converter.charswap_attack_converter import CharSwapConverter
 from pyrit.prompt_converter.codechameleon_converter import CodeChameleonConverter
 from pyrit.prompt_converter.colloquial_wordswap_converter import ColloquialWordswapConverter
+from pyrit.prompt_converter.decomposition_converter import DecompositionConverter
 from pyrit.prompt_converter.denylist_converter import DenylistConverter
 from pyrit.prompt_converter.diacritic_converter import DiacriticConverter
 from pyrit.prompt_converter.ecoji_converter import EcojiConverter
@@ -61,6 +62,7 @@ from pyrit.prompt_converter.negation_trap_converter import NegationTrapConverter
 from pyrit.prompt_converter.noise_converter import NoiseConverter
 from pyrit.prompt_converter.pdf_converter import PDFConverter
 from pyrit.prompt_converter.persuasion_converter import PersuasionConverter
+from pyrit.prompt_converter.policy_puppetry_converter import PolicyPuppetryConverter, PolicyPuppetryTemplate
 from pyrit.prompt_converter.prompt_converter import ConverterResult, PromptConverter, get_converter_modalities
 from pyrit.prompt_converter.qr_code_converter import QRCodeConverter
 from pyrit.prompt_converter.random_capital_letters_converter import RandomCapitalLettersConverter
@@ -172,6 +174,7 @@ __all__ = [
     "CodeChameleonConverter",
     "ColloquialWordswapConverter",
     "ConverterResult",
+    "DecompositionConverter",
     "DenylistConverter",
     "DiacriticConverter",
     "EcojiConverter",
@@ -199,6 +202,8 @@ __all__ = [
     "NoiseConverter",
     "PDFConverter",
     "PersuasionConverter",
+    "PolicyPuppetryConverter",
+    "PolicyPuppetryTemplate",
     "PositionSelectionStrategy",
     "PromptConverter",
     "ProportionSelectionStrategy",

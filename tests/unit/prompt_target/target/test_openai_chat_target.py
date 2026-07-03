@@ -122,7 +122,7 @@ async def test_build_chat_messages_for_multi_modal(target: OpenAIChatTarget):
         )
     ]
     with patch(
-        "pyrit.common.data_url_converter.convert_local_image_to_data_url_async",
+        "pyrit.memory.storage.data_url_converter.convert_local_image_to_data_url_async",
         return_value="data:image/jpeg;base64,encoded_string",
     ):
         messages = await target._build_chat_messages_for_multi_modal_async(entries)
@@ -298,7 +298,7 @@ async def test_send_prompt_async_empty_response_adds_to_memory(openai_response_j
     )
     # Make assistant response empty
     with patch(
-        "pyrit.common.data_url_converter.convert_local_image_to_data_url_async",
+        "pyrit.memory.storage.data_url_converter.convert_local_image_to_data_url_async",
         return_value="data:image/jpeg;base64,encoded_string",
     ):
         # Mock the OpenAI SDK client to return empty content
@@ -403,7 +403,7 @@ async def test_send_prompt_async(openai_response_json: dict, patch_central_datab
         ]
     )
     with patch(
-        "pyrit.common.data_url_converter.convert_local_image_to_data_url_async",
+        "pyrit.memory.storage.data_url_converter.convert_local_image_to_data_url_async",
         return_value="data:image/jpeg;base64,encoded_string",
     ):
         # Mock the OpenAI SDK client to return a completion
@@ -465,7 +465,7 @@ async def test_send_prompt_async_empty_response_retries(openai_response_json: di
     )
     # Make assistant response empty
     with patch(
-        "pyrit.common.data_url_converter.convert_local_image_to_data_url_async",
+        "pyrit.memory.storage.data_url_converter.convert_local_image_to_data_url_async",
         return_value="data:image/jpeg;base64,encoded_string",
     ):
         # Mock the OpenAI SDK client to return empty content
@@ -711,8 +711,9 @@ def test_set_auth_with_entra_auth(patch_central_database):
     assert callable(target._api_key)
     # Since sync provider is wrapped, _api_key is now async
     import asyncio
+    import inspect
 
-    assert asyncio.iscoroutinefunction(target._api_key)
+    assert inspect.iscoroutinefunction(target._api_key)
     assert asyncio.run(target._api_key()) == "mock-entra-token"
 
 

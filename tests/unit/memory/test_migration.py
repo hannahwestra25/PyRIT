@@ -1,6 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
+import ast
 import os
 import tempfile
 import uuid
@@ -252,9 +253,10 @@ def _seed_pre_migration_scenario(connection, *, scenario_id, manifest_json):
         text(
             'INSERT INTO "ScenarioResultEntries" '
             "(id, scenario_name, scenario_description, scenario_version, pyrit_version, "
-            "objective_target_identifier, scenario_run_state, attack_results_json, "
+            "objective_target_identifier, scenario_init_data, scenario_run_state, attack_results_json, "
             "number_tries, completion_time, timestamp) "
-            "VALUES (:id, :name, '', 1, '0.14.0.dev0', '{}', 'COMPLETED', :manifest, 0, '2026-05-18', '2026-05-18')"
+            "VALUES (:id, :name, '', 1, '0.14.0.dev0', '{}', '{}', 'COMPLETED', :manifest, 0, "
+            "'2026-05-18', '2026-05-18')"
         ),
         {"id": scenario_id, "name": "Backfill Test", "manifest": manifest_json},
     )
@@ -418,9 +420,9 @@ def test_backfill_is_idempotent_and_does_not_clobber_existing_linkage():
                     text(
                         'INSERT INTO "ScenarioResultEntries" '
                         "(id, scenario_name, scenario_description, scenario_version, pyrit_version, "
-                        "objective_target_identifier, scenario_run_state, attack_results_json, "
+                        "objective_target_identifier, scenario_init_data, scenario_run_state, attack_results_json, "
                         "number_tries, completion_time, timestamp) "
-                        "VALUES (:id, 'Other', '', 1, '0.14.0.dev0', '{}', 'COMPLETED', :manifest, 0, "
+                        "VALUES (:id, 'Other', '', 1, '0.14.0.dev0', '{}', '{}', 'COMPLETED', :manifest, 0, "
                         "'2026-05-18', '2026-05-18')"
                     ),
                     {"id": str(uuid.uuid4()), "manifest": json.dumps({"x": ["conv-shared"]})},
@@ -738,3 +740,90 @@ def test_conversations_migration_downgrade_restores_columns():
                 assert "attack_identifier" in cols_down
         finally:
             engine.dispose()
+
+
+_STRING_TYPES_REQUIRING_LENGTH = {"String", "VARCHAR", "NVARCHAR", "Unicode"}
+
+
+def _is_truthy_primary_key(*, call: ast.Call) -> bool:
+    for keyword in call.keywords:
+        if keyword.arg == "primary_key" and isinstance(keyword.value, ast.Constant) and keyword.value.value is True:
+            return True
+    return False
+
+
+def _is_unbounded_string_type(*, node: ast.AST) -> bool:
+    if not isinstance(node, ast.Call):
+        return False
+
+    func_name = None
+    if isinstance(node.func, ast.Attribute):
+        func_name = node.func.attr
+    elif isinstance(node.func, ast.Name):
+        func_name = node.func.id
+
+    if func_name not in _STRING_TYPES_REQUIRING_LENGTH:
+        return False
+
+    if node.args:
+        return False
+
+    for keyword in node.keywords:
+        if keyword.arg == "length":
+            return isinstance(keyword.value, ast.Constant) and keyword.value.value is None
+
+    return True
+
+
+def _find_unbounded_string_pk_columns(*, migration_path: Path) -> list[str]:
+    tree = ast.parse(migration_path.read_text(encoding="utf-8"), filename=str(migration_path))
+    violations: list[str] = []
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+
+        func_name = None
+        if isinstance(node.func, ast.Attribute):
+            func_name = node.func.attr
+        elif isinstance(node.func, ast.Name):
+            func_name = node.func.id
+
+        if func_name != "Column" or not _is_truthy_primary_key(call=node):
+            continue
+
+        column_name = "<unknown>"
+        if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
+            column_name = node.args[0].value
+
+        type_node = node.args[1] if len(node.args) >= 2 else None
+        if type_node is None:
+            for keyword in node.keywords:
+                if keyword.arg in {"type_", "type"}:
+                    type_node = keyword.value
+                    break
+
+        if type_node is not None and _is_unbounded_string_type(node=type_node):
+            violations.append(f"{migration_path.name}:{node.lineno} column={column_name}")
+
+    return violations
+
+
+def test_migrations_do_not_use_unbounded_string_primary_keys() -> None:
+    """
+    Guard against MSSQL-incompatible primary keys.
+
+    ``sa.String()`` without length can map to ``VARCHAR(MAX)/NVARCHAR(MAX)``,
+    which SQL Server rejects for key/index columns.
+    """
+    versions_dir = Path(__file__).resolve().parent.parent.parent.parent / "pyrit" / "memory" / "alembic" / "versions"
+
+    violations: list[str] = []
+    for migration_path in sorted(versions_dir.glob("*.py")):
+        if migration_path.name == "__init__.py":
+            continue
+        violations.extend(_find_unbounded_string_pk_columns(migration_path=migration_path))
+
+    assert not violations, "Found unbounded string primary keys in migrations (SQL Server incompatible):\n" + "\n".join(
+        violations
+    )
