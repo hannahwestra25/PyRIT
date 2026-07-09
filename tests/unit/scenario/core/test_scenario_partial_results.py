@@ -109,7 +109,10 @@ class ConcreteScenario(Scenario):
         super().__init__(strategy_class=strategy_class, objective_scorer=objective_scorer, **kwargs)
         self._test_atomic_attacks = atomic_attacks_to_return or []
 
-    async def _get_atomic_attacks_async(self):
+    async def _resolve_seed_groups_by_dataset_async(self):
+        return {}
+
+    async def _build_atomic_attacks_async(self, *, context):
         return self._test_atomic_attacks
 
 
@@ -176,10 +179,13 @@ class TestScenarioPartialAttackCompletion:
             version=1,
             atomic_attacks_to_return=[atomic_attack],
         )
-        await scenario.initialize_async(
-            objective_target=mock_objective_target,
-            max_retries=1,
+        scenario.set_params_from_args(
+            args={
+                "objective_target": mock_objective_target,
+                "max_retries": 1,
+            }
         )
+        await scenario.initialize_async()
 
         result = await scenario.run_async()
 
@@ -223,10 +229,13 @@ class TestScenarioPartialAttackCompletion:
             version=1,
             atomic_attacks_to_return=[atomic_attack],
         )
-        await scenario.initialize_async(
-            objective_target=mock_objective_target,
-            max_retries=0,  # No retries
+        scenario.set_params_from_args(
+            args={
+                "objective_target": mock_objective_target,
+                "max_retries": 0,  # No retries
+            }
         )
+        await scenario.initialize_async()
 
         # Should raise error because of incomplete objectives
         with pytest.raises(ValueError, match="incomplete"):
@@ -294,10 +303,13 @@ class TestScenarioPartialAttackCompletion:
             version=1,
             atomic_attacks_to_return=[atomic_attack],
         )
-        await scenario.initialize_async(
-            objective_target=mock_objective_target,
-            max_retries=1,
+        scenario.set_params_from_args(
+            args={
+                "objective_target": mock_objective_target,
+                "max_retries": 1,
+            }
         )
+        await scenario.initialize_async()
 
         result = await scenario.run_async()
 
@@ -373,10 +385,13 @@ class TestScenarioPartialAttackCompletion:
             version=1,
             atomic_attacks_to_return=[attack1, attack2, attack3],
         )
-        await scenario.initialize_async(
-            objective_target=mock_objective_target,
-            max_retries=1,
+        scenario.set_params_from_args(
+            args={
+                "objective_target": mock_objective_target,
+                "max_retries": 1,
+            }
         )
+        await scenario.initialize_async()
 
         result = await scenario.run_async()
 

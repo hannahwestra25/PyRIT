@@ -1,12 +1,12 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
-import warnings
+from typing_extensions import override
 
 from pyrit.datasets.seed_datasets.remote.remote_dataset_loader import (
     _RemoteDatasetLoader,
 )
-from pyrit.models import Modality, SeedDataset, SeedPrompt
+from pyrit.models import Modality, SeedDataset, SeedPrompt, SeedUnion
 
 
 class _DarkBenchDataset(_RemoteDatasetLoader):
@@ -35,7 +35,6 @@ class _DarkBenchDataset(_RemoteDatasetLoader):
         *,
         dataset_name: str = "apart/darkbench",
         config: str = "default",
-        split: str | None = None,
     ) -> None:
         """
         Initialize the DarkBench dataset loader.
@@ -43,26 +42,17 @@ class _DarkBenchDataset(_RemoteDatasetLoader):
         Args:
             dataset_name: HuggingFace dataset identifier. Defaults to "apart/darkbench".
             config: Dataset configuration. Defaults to "default".
-            split: **Deprecated.** Upstream ``apart/darkbench`` publishes only the
-                ``"train"`` split, so this kwarg has no effect. It will be removed in
-                v0.16.0.
         """
-        if split is not None:
-            warnings.warn(
-                "'split' is deprecated and will be removed in v0.16.0. "
-                "Upstream apart/darkbench publishes only the 'train' split, "
-                "so this kwarg has no effect.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
         self.hf_dataset_name = dataset_name
         self.config = config
 
     @property
+    @override
     def dataset_name(self) -> str:
-        """Return the dataset name."""
+        """The dataset name."""
         return "dark_bench"
 
+    @override
     async def fetch_dataset_async(self, *, cache: bool = True) -> SeedDataset:
         """
         Fetch DarkBench dataset from HuggingFace and return as SeedDataset.
@@ -87,7 +77,7 @@ class _DarkBenchDataset(_RemoteDatasetLoader):
         )
 
         # Process into SeedPrompts
-        seed_prompts = [
+        seed_prompts: list[SeedUnion] = [
             SeedPrompt(
                 value=item["Example"],
                 data_type="text",
@@ -110,6 +100,7 @@ class _DarkBenchDataset(_RemoteDatasetLoader):
                     "Jinsuk Park",
                     "Mateusz Maria Jurewicz",
                 ],
+                groups=["Apart Research", "METR"],
             )
             for item in data
         ]

@@ -30,7 +30,7 @@
 #
 # ```bash
 # pyrit_scan benchmark.adversarial \
-#   --initializers target load_default_datasets \
+#   --initializers target \
 #   --target openai_chat \
 #   --adversarial-targets adversarial_chat_singleturn adversarial_chat_multiturn \
 #   --max-dataset-size 4
@@ -49,29 +49,35 @@
 # %%
 from pyrit.output import output_scenario_async
 from pyrit.prompt_target import OpenAIChatTarget
-from pyrit.scenario import DatasetConfiguration
-from pyrit.scenario.scenarios.benchmark import AdversarialBenchmark
+from pyrit.scenario import DatasetAttackConfiguration
+from pyrit.scenario.benchmark import AdversarialBenchmark
 from pyrit.setup import IN_MEMORY, initialize_pyrit_async
-from pyrit.setup.initializers import LoadDefaultDatasets, ScorerInitializer, TargetInitializer
+from pyrit.setup.initializers import (
+    LoadDefaultDatasets,
+    ScorerInitializer,
+    TargetInitializer,
+    TechniqueInitializer,
+)
 
 await initialize_pyrit_async(  # type: ignore
     memory_db_type=IN_MEMORY,
-    initializers=[TargetInitializer(), ScorerInitializer(), LoadDefaultDatasets()],
+    initializers=[TargetInitializer(), ScorerInitializer(), TechniqueInitializer(), LoadDefaultDatasets()],
 )
 
 objective_target = OpenAIChatTarget()
 
 # %%
-dataset_config = DatasetConfiguration(dataset_names=["harmbench"], max_dataset_size=4)
+dataset_config = DatasetAttackConfiguration(dataset_names=["harmbench"], max_dataset_size=4)
 
 scenario = AdversarialBenchmark()
 scenario.set_params_from_args(
-    args={"adversarial_targets": ["adversarial_chat_singleturn", "adversarial_chat_multiturn"]}
+    args={
+        "adversarial_targets": ["adversarial_chat_singleturn", "adversarial_chat_multiturn"],
+        "objective_target": objective_target,
+        "dataset_config": dataset_config,
+    }
 )
-await scenario.initialize_async(  # type: ignore
-    objective_target=objective_target,
-    dataset_config=dataset_config,
-)
+await scenario.initialize_async()  # type: ignore
 
 scenario_result = await scenario.run_async()  # type: ignore
 

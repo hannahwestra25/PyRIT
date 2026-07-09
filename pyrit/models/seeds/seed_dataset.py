@@ -12,17 +12,17 @@ import random
 import uuid
 from collections import defaultdict
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from pyrit.models.literals import SeedType  # noqa: TC001  (runtime-required by Pydantic field annotations)
-from pyrit.models.seeds.seed import (  # noqa: TC001  (AwareDatetimeUTC is runtime-required by Pydantic)
+from pyrit.models.seeds.seed import (  # AwareDatetimeUTC is runtime-required by Pydantic
     AwareDatetimeUTC,
     Seed,
 )
 from pyrit.models.seeds.seed_attack_group import SeedAttackGroup
-from pyrit.models.seeds.seed_group import (  # noqa: TC001  (runtime-required by Pydantic field annotations)
+from pyrit.models.seeds.seed_group import (  # runtime-required by Pydantic field annotations
     PROMPT_ONLY_SEED_KEYS,
     SeedGroup,
     SeedUnion,
@@ -271,7 +271,7 @@ class SeedDataset(BaseModel):
         ``prompt_group_alias`` into a shared ``prompt_group_id``.
 
         Args:
-            data (Dict[str, Any]): Dataset payload with top-level defaults and seed entries.
+            data (dict[str, Any]): Dataset payload with top-level defaults and seed entries.
 
         Returns:
             SeedDataset: Constructed dataset.
@@ -361,17 +361,17 @@ class SeedDataset(BaseModel):
 
             # Try to create a SeedAttackGroup first; fall back to SeedGroup if validation fails
             try:
-                attack_group = SeedAttackGroup(seeds=group_seeds)
+                attack_group = SeedAttackGroup(seeds=cast("list[SeedUnion]", group_seeds))
                 seed_groups.append(attack_group)
             except ValueError:
-                seed_groups.append(SeedGroup(seeds=group_seeds))
+                seed_groups.append(SeedGroup(seeds=cast("list[SeedUnion]", group_seeds)))
 
         return seed_groups
 
     @property
     def prompts(self) -> Sequence[SeedPrompt]:
         """
-        Return all prompt-type seeds.
+        All prompt-type seeds.
 
         Returns:
             Sequence[SeedPrompt]: Prompt seeds in this dataset.
@@ -382,7 +382,7 @@ class SeedDataset(BaseModel):
     @property
     def objectives(self) -> Sequence[SeedObjective]:
         """
-        Return all objective-type seeds.
+        All objective-type seeds.
 
         Returns:
             Sequence[SeedObjective]: Objective seeds in this dataset.
@@ -393,7 +393,7 @@ class SeedDataset(BaseModel):
     @property
     def seed_groups(self) -> Sequence[SeedGroup]:
         """
-        Returns the seeds grouped by their prompt_group_id.
+        The seeds grouped by their prompt_group_id.
 
         Returns:
             Sequence[SeedGroup]: A list of SeedGroup objects, with seeds grouped by prompt_group_id.

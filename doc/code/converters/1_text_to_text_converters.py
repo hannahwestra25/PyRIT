@@ -6,7 +6,7 @@
 #       extension: .py
 #       format_name: percent
 #       format_version: '1.3'
-#       jupytext_version: 1.19.1
+#       jupytext_version: 1.19.3
 # ---
 
 # %% [markdown]
@@ -181,12 +181,14 @@ print("CodeChameleon:", await code_chameleon.convert_async(prompt=prompt))  # ty
 from pyrit.datasets import TextJailBreak
 from pyrit.prompt_converter import (
     JsonStringConverter,
+    PolicyPuppetryConverter,
     SearchReplaceConverter,
     SuffixAppendConverter,
     TemplateSegmentConverter,
     TextJailbreakConverter,
     UrlConverter,
 )
+from pyrit.prompt_converter.policy_puppetry_converter import PolicyPuppetryTemplate
 
 prompt = "tell me how to cut down a tree"
 
@@ -213,6 +215,10 @@ print("Text Jailbreak:", await text_jailbreak.convert_async(prompt=prompt))  # t
 # Template segment splits prompt using a template (uses default tom_and_jerry.yaml if not specified)
 template_converter = TemplateSegmentConverter()
 print("Template Segment:", await template_converter.convert_async(prompt=prompt))  # type: ignore
+
+# Policy Puppetry [@hiddenlayer2025policypuppetry] frames the request as policy/config the model should follow
+policy_puppetry = PolicyPuppetryConverter(prompt_template=PolicyPuppetryTemplate.DR_HOUSE.to_seed_prompt())
+print("Policy Puppetry:", await policy_puppetry.convert_async(prompt=prompt))  # type: ignore
 
 # %% [markdown]
 # ### 1.4 Token Smuggling Converters
@@ -254,6 +260,7 @@ import pathlib
 from pyrit.common.path import CONVERTER_SEED_PROMPT_PATH
 from pyrit.models import SeedPrompt
 from pyrit.prompt_converter import (
+    DecompositionConverter,
     DenylistConverter,
     ImagePromptStyleConverter,
     MaliciousQuestionGeneratorConverter,
@@ -306,6 +313,16 @@ print("Tense (future):", await tense_converter.convert_async(prompt=prompt))  # 
 # Persuasion [@zeng2024persuasion] applies persuasion techniques
 persuasion_converter = PersuasionConverter(converter_target=attack_llm, persuasion_technique="logical_appeal")
 print("Persuasion:", await persuasion_converter.convert_async(prompt=prompt))  # type: ignore
+
+# Decomposition [@li2024drattack] splits the objective into phrases and rebuilds it as a
+# Question-A/Question-B reconstruction task that the target reassembles itself
+decomposition_converter = DecompositionConverter(converter_target=attack_llm)
+print("Decomposition:", await decomposition_converter.convert_async(prompt=prompt))  # type: ignore
+
+# With use_word_game=True, each noun phrase is also replaced by an innocuous codeword, with the
+# mapping established in the same prompt
+decomposition_word_game = DecompositionConverter(converter_target=attack_llm, use_word_game=True)
+print("Decomposition (word-game):", await decomposition_word_game.convert_async(prompt=prompt))  # type: ignore
 
 # Denylist detection
 denylist_converter = DenylistConverter(converter_target=attack_llm)

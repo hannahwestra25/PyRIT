@@ -4,7 +4,6 @@
 """Tests for the scenarios.AtomicAttack class."""
 
 import inspect
-import warnings
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -12,6 +11,7 @@ import pytest
 from pyrit.executor.attack import AttackExecutor, AttackStrategy
 from pyrit.executor.attack.core import AttackExecutorResult
 from pyrit.models import (
+    AtomicAttackIdentifier,
     AttackOutcome,
     AttackResult,
     ComponentIdentifier,
@@ -19,7 +19,6 @@ from pyrit.models import (
     SeedGroup,
     SeedObjective,
     SeedPrompt,
-    build_atomic_attack_identifier,
 )
 from pyrit.scenario import AtomicAttack
 from pyrit.scenario.core.attack_technique import AttackTechnique
@@ -28,7 +27,9 @@ from pyrit.scenario.core.attack_technique import AttackTechnique
 @pytest.fixture
 def mock_attack():
     """Create a mock AttackStrategy for testing."""
-    return MagicMock(spec=AttackStrategy)
+    attack = MagicMock(spec=AttackStrategy)
+    attack.get_identifier.return_value = ComponentIdentifier(class_name="MockAttack", class_module="pyrit.test")
+    return attack
 
 
 @pytest.fixture
@@ -209,18 +210,6 @@ class TestAtomicAttackInitialization:
         assert returned_groups == sample_seed_groups
         assert returned_groups is not atomic_attack._seed_groups
 
-    def test_deprecated_attack_param_still_works(self, mock_attack, sample_seed_groups):
-        """Test that the deprecated 'attack' parameter emits a warning and still initializes correctly."""
-        with pytest.deprecated_call():
-            atomic_attack = AtomicAttack(
-                attack=mock_attack,
-                seed_groups=sample_seed_groups,
-                atomic_attack_name="Deprecated Param Test",
-            )
-
-        assert atomic_attack._attack_technique.attack == mock_attack
-        assert atomic_attack._seed_groups == sample_seed_groups
-
 
 @pytest.mark.usefixtures("patch_central_database")
 class TestAtomicAttackExecution:
@@ -247,27 +236,6 @@ class TestAtomicAttackExecution:
             # Verify the attack was passed correctly
             call_kwargs = mock_exec.call_args.kwargs
             assert call_kwargs["attack"] == mock_attack
-
-    async def test_run_async_with_custom_concurrency(self, mock_attack, sample_seed_groups, sample_attack_results):
-        """Test execution with custom max_concurrency for atomic attack (deprecated path)."""
-        atomic_attack = AtomicAttack(
-            attack_technique=AttackTechnique(attack=mock_attack),
-            seed_groups=sample_seed_groups,
-            atomic_attack_name="Test Attack Run",
-        )
-
-        with (
-            patch.object(AttackExecutor, "__init__", return_value=None) as mock_init,
-            patch.object(AttackExecutor, "execute_attack_from_seed_groups_async", new_callable=AsyncMock) as mock_exec,
-            warnings.catch_warnings(),
-        ):
-            warnings.simplefilter("ignore", DeprecationWarning)
-            mock_exec.return_value = wrap_results(sample_attack_results)
-
-            result = await atomic_attack.run_async(max_concurrency=5)
-
-            mock_init.assert_called_once_with(max_concurrency=5)
-            assert len(result.completed_results) == 3
 
     async def test_run_async_with_default_concurrency(self, mock_attack, sample_seed_groups, sample_attack_results):
         """Test that default concurrency (1) is used when not specified."""
@@ -308,27 +276,6 @@ class TestAtomicAttackExecution:
 
             # __init__ must not be called again — the injected executor is reused as-is.
             mock_init.assert_not_called()
-
-    async def test_run_async_with_executor_and_max_concurrency_warns_and_ignores(
-        self, mock_attack, sample_seed_groups, sample_attack_results
-    ):
-        """Passing both executor and max_concurrency emits a deprecation warning; max_concurrency is ignored."""
-        atomic_attack = AtomicAttack(
-            attack_technique=AttackTechnique(attack=mock_attack),
-            seed_groups=sample_seed_groups,
-            atomic_attack_name="Test Attack Run",
-        )
-
-        injected = AttackExecutor(max_concurrency=7)
-        with (
-            patch.object(AttackExecutor, "execute_attack_from_seed_groups_async", new_callable=AsyncMock) as mock_exec,
-            pytest.warns(DeprecationWarning),
-        ):
-            mock_exec.return_value = wrap_results(sample_attack_results)
-            await atomic_attack.run_async(executor=injected, max_concurrency=5)
-
-        # The injected executor's budget is preserved; max_concurrency=5 was silently ignored.
-        assert injected._max_concurrency == 7
 
     async def test_run_async_passes_memory_labels(self, mock_attack, sample_seed_groups, sample_attack_results):
         """Test that memory labels are passed to the executor."""
@@ -488,14 +435,10 @@ class TestAtomicAttackIntegration:
             for i in range(3)
         ]
 
-        with (
-            patch.object(AttackExecutor, "execute_attack_from_seed_groups_async", new_callable=AsyncMock) as mock_exec,
-            warnings.catch_warnings(),
-        ):
-            warnings.simplefilter("ignore", DeprecationWarning)
+        with patch.object(AttackExecutor, "execute_attack_from_seed_groups_async", new_callable=AsyncMock) as mock_exec:
             mock_exec.return_value = wrap_results(mock_results)
 
-            attack_run_result = await atomic_attack.run_async(max_concurrency=3)
+            attack_run_result = await atomic_attack.run_async()
 
             assert len(attack_run_result.completed_results) == 3
             for i, result in enumerate(attack_run_result.completed_results):
@@ -789,7 +732,7 @@ class TestEnrichAtomicAttackIdentifiers:
             objective="obj1",
             outcome=AttackOutcome.SUCCESS,
             executed_turns=1,
-            atomic_attack_identifier=build_atomic_attack_identifier(attack_identifier=attack_id),
+            atomic_attack_identifier=AtomicAttackIdentifier.build(attack_identifier=attack_id),
         )
 
         atomic = AtomicAttack(
@@ -844,7 +787,7 @@ class TestEnrichAtomicAttackIdentifiers:
             objective="obj1",
             outcome=AttackOutcome.SUCCESS,
             executed_turns=1,
-            atomic_attack_identifier=build_atomic_attack_identifier(attack_identifier=attack_id),
+            atomic_attack_identifier=AtomicAttackIdentifier.build(attack_identifier=attack_id),
         )
 
         atomic = AtomicAttack(
@@ -884,7 +827,7 @@ class TestEnrichAtomicAttackIdentifiers:
             objective="obj1",
             outcome=AttackOutcome.SUCCESS,
             executed_turns=1,
-            atomic_attack_identifier=build_atomic_attack_identifier(attack_identifier=attack_id),
+            atomic_attack_identifier=AtomicAttackIdentifier.build(attack_identifier=attack_id),
         )
 
         atomic = AtomicAttack(
@@ -927,14 +870,14 @@ class TestEnrichAtomicAttackIdentifiers:
                 objective="obj1",
                 outcome=AttackOutcome.SUCCESS,
                 executed_turns=1,
-                atomic_attack_identifier=build_atomic_attack_identifier(attack_identifier=attack_id),
+                atomic_attack_identifier=AtomicAttackIdentifier.build(attack_identifier=attack_id),
             ),
             AttackResult(
                 conversation_id="c2",
                 objective="obj2",
                 outcome=AttackOutcome.SUCCESS,
                 executed_turns=1,
-                atomic_attack_identifier=build_atomic_attack_identifier(attack_identifier=attack_id),
+                atomic_attack_identifier=AtomicAttackIdentifier.build(attack_identifier=attack_id),
             ),
         ]
 
@@ -973,7 +916,7 @@ class TestEnrichAtomicAttackIdentifiers:
             outcome=AttackOutcome.SUCCESS,
             executed_turns=1,
             attack_result_id="00000000-0000-0000-0000-000000000001",
-            atomic_attack_identifier=build_atomic_attack_identifier(attack_identifier=attack_id),
+            atomic_attack_identifier=AtomicAttackIdentifier.build(attack_identifier=attack_id),
         )
 
         atomic = AtomicAttack(
@@ -1014,7 +957,7 @@ class TestEnrichAtomicAttackIdentifiers:
             outcome=AttackOutcome.SUCCESS,
             executed_turns=1,
             attack_result_id="",
-            atomic_attack_identifier=build_atomic_attack_identifier(attack_identifier=attack_id),
+            atomic_attack_identifier=AtomicAttackIdentifier.build(attack_identifier=attack_id),
         )
 
         atomic = AtomicAttack(
@@ -1256,33 +1199,3 @@ class TestAtomicAttackTechniqueEvalHash:
             atomic_attack_name="same",
         )
         assert a1.technique_eval_hash != a2.technique_eval_hash
-
-
-@pytest.mark.usefixtures("patch_central_database")
-class TestAtomicAttackFilterSeedGroupsByObjectivesDeprecation:
-    """Tests for the deprecated ``filter_seed_groups_by_objectives`` shim
-    that ships with v0.13.0 → 0.16.0 deprecation."""
-
-    def test_emits_deprecation_warning(self, mock_attack, sample_seed_groups):
-        atomic = AtomicAttack(
-            attack_technique=AttackTechnique(attack=mock_attack),
-            seed_groups=sample_seed_groups,
-            atomic_attack_name="test",
-        )
-        with patch("pyrit.scenario.core.atomic_attack.print_deprecation_message") as mock_dep:
-            atomic.filter_seed_groups_by_objectives(remaining_objectives=["objective1"])
-        assert mock_dep.call_count == 1
-        kwargs = mock_dep.call_args.kwargs
-        assert "filter_seed_groups_by_objectives" in kwargs["old_item"]
-        assert "keep_seed_groups_with_hashes" in kwargs["new_item"]
-        assert kwargs["removed_in"] == "0.16.0"
-
-    def test_filters_by_text_match(self, mock_attack, sample_seed_groups):
-        atomic = AtomicAttack(
-            attack_technique=AttackTechnique(attack=mock_attack),
-            seed_groups=sample_seed_groups,
-            atomic_attack_name="test",
-        )
-        with patch("pyrit.scenario.core.atomic_attack.print_deprecation_message"):
-            atomic.filter_seed_groups_by_objectives(remaining_objectives=["objective2"])
-        assert [sg.objective.value for sg in atomic.seed_groups] == ["objective2"]

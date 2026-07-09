@@ -10,7 +10,6 @@ and memory_labels consistently according to the established contracts.
 
 import uuid
 from contextlib import suppress
-from typing import Optional
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -145,6 +144,8 @@ def mock_chat_target() -> MagicMock:
     target.send_prompt_async = AsyncMock()
     target.set_system_prompt = MagicMock()
     target.get_identifier.return_value = _mock_target_id("MockChatTarget")
+    target.configuration.capabilities.input_modalities = frozenset({frozenset({"text"})})
+    target.configuration.capabilities.output_modalities = frozenset({frozenset({"text"})})
     return target
 
 
@@ -154,6 +155,8 @@ def mock_non_chat_target() -> MagicMock:
     target = MagicMock(spec=PromptTarget)
     target.send_prompt_async = AsyncMock()
     target.get_identifier.return_value = _mock_target_id("MockTarget")
+    target.configuration.capabilities.input_modalities = frozenset({frozenset({"text"})})
+    target.configuration.capabilities.output_modalities = frozenset({frozenset({"text"})})
     return target
 
 
@@ -164,6 +167,8 @@ def mock_adversarial_chat() -> MagicMock:
     target.send_prompt_async = AsyncMock()
     target.set_system_prompt = MagicMock()
     target.get_identifier.return_value = _mock_target_id("MockAdversarialChat")
+    target.configuration.capabilities.input_modalities = frozenset({frozenset({"text"})})
+    target.configuration.capabilities.output_modalities = frozenset({frozenset({"text"})})
     return target
 
 
@@ -621,7 +626,7 @@ class TestPrependedConversationInMemory:
         conversation_id = call_args.kwargs.get("conversation_id")
 
         memory = CentralMemory.get_memory_instance()
-        conversation = list(memory.get_conversation(conversation_id=conversation_id))
+        conversation = list(memory.get_conversation_messages(conversation_id=conversation_id))
 
         # Should have exactly the prepended messages in memory (mock normalizer doesn't add responses)
         assert len(conversation) == 2, f"Expected exactly 2 prepended messages, got {len(conversation)}"
@@ -654,7 +659,7 @@ class TestPrependedConversationInMemory:
         )
 
         memory = CentralMemory.get_memory_instance()
-        conversation = list(memory.get_conversation(conversation_id=result.conversation_id))
+        conversation = list(memory.get_conversation_messages(conversation_id=result.conversation_id))
 
         # Should have exactly the prepended messages in memory (mock normalizer doesn't add responses)
         assert len(conversation) == 2, f"Expected exactly 2 prepended messages, got {len(conversation)}"
@@ -689,7 +694,7 @@ class TestPrependedConversationInMemory:
         )
 
         memory = CentralMemory.get_memory_instance()
-        conversation = list(memory.get_conversation(conversation_id=result.conversation_id))
+        conversation = list(memory.get_conversation_messages(conversation_id=result.conversation_id))
 
         # Should have exactly the prepended messages in memory (mock normalizer doesn't add responses)
         assert len(conversation) == 2, f"Expected exactly 2 prepended messages, got {len(conversation)}"
@@ -754,7 +759,7 @@ class TestPrependedConversationInMemory:
         )
 
         memory = CentralMemory.get_memory_instance()
-        conversation = list(memory.get_conversation(conversation_id=result.conversation_id))
+        conversation = list(memory.get_conversation_messages(conversation_id=result.conversation_id))
 
         # Should have exactly the prepended messages in memory (mock normalizer doesn't add responses)
         assert len(conversation) == 2, f"Expected exactly 2 prepended messages, got {len(conversation)}"
@@ -872,9 +877,10 @@ class TestMemoryLabelsPropagation:
         )
 
         call_args = mock_normalizer.send_prompt_async.call_args
-        passed_labels = call_args.kwargs.get("labels")
+        sent_message = call_args.kwargs["message"]
+        passed_labels = sent_message.message_pieces[0].labels
 
-        assert passed_labels is not None, "Labels should be passed to send_prompt_async"
+        assert passed_labels, "Labels should be stamped on the sent message pieces"
         assert passed_labels["test_key"] == "test_value"
 
 
@@ -896,7 +902,7 @@ def _get_adversarial_chat_text_values(*, adversarial_chat_conversation_id: str) 
         List of text values from all text pieces in the adversarial conversation.
     """
     memory = CentralMemory.get_memory_instance()
-    conversation = list(memory.get_conversation(conversation_id=adversarial_chat_conversation_id))
+    conversation = list(memory.get_conversation_messages(conversation_id=adversarial_chat_conversation_id))
 
     text_values = []
     for msg in conversation:
@@ -911,7 +917,7 @@ def _assert_prepended_text_in_adversarial_context(
     *,
     prepended_conversation: list[Message],
     adversarial_chat_conversation_id: str,
-    adversarial_chat_mock: Optional[MagicMock] = None,
+    adversarial_chat_mock: MagicMock | None = None,
 ) -> None:
     """
     Assert that text content from prepended conversation appears in adversarial chat context.

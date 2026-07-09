@@ -4,7 +4,7 @@
 import enum
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any
 
 import yaml
 
@@ -12,6 +12,8 @@ from pyrit.common import verify_and_resolve_path
 from pyrit.common.path import SCORER_SEED_PROMPT_PATH
 from pyrit.models import ComponentIdentifier, MessagePiece, Score, SeedPrompt
 from pyrit.prompt_target import CHAT_TARGET_REQUIREMENTS, PromptTarget
+from pyrit.score.llm_scoring import _run_llm_scoring_async
+from pyrit.score.response_handler import JsonSchemaResponseHandler
 from pyrit.score.scorer_prompt_validator import ScorerPromptValidator
 from pyrit.score.true_false.true_false_score_aggregator import (
     TrueFalseAggregatorFunc,
@@ -34,6 +36,7 @@ class TrueFalseQuestionPaths(enum.Enum):
     TASK_ACHIEVED = Path(TRUE_FALSE_QUESTIONS_PATH, "task_achieved.yaml").resolve()
     # This is an LLM-powered refinement of the TASK_ACHIEVED rubric
     TASK_ACHIEVED_REFINED = Path(TRUE_FALSE_QUESTIONS_PATH, "task_achieved_refined.yaml").resolve()
+    CRIMINAL_PERSONA = Path(TRUE_FALSE_QUESTIONS_PATH, "criminal_persona.yaml").resolve()
 
 
 class TrueFalseQuestion:
@@ -85,6 +88,10 @@ class TrueFalseQuestion:
         # Define which keys should be included when iterating
         return iter(self._keys)
 
+    def get(self, key: str, default: Any = None) -> Any:
+        """Return the value of the specified key, or ``default`` if absent."""
+        return getattr(self, key, default)
+
 
 class SelfAskTrueFalseScorer(TrueFalseScorer):
     """
@@ -105,10 +112,10 @@ class SelfAskTrueFalseScorer(TrueFalseScorer):
         self,
         *,
         chat_target: PromptTarget,
-        true_false_question_path: Optional[Union[str, Path]] = None,
-        true_false_question: Optional[TrueFalseQuestion] = None,
-        true_false_system_prompt_path: Optional[Union[str, Path]] = None,
-        validator: Optional[ScorerPromptValidator] = None,
+        true_false_question_path: str | Path | None = None,
+        true_false_question: TrueFalseQuestion | None = None,
+        true_false_system_prompt_path: str | Path | None = None,
+        validator: ScorerPromptValidator | None = None,
         score_aggregator: TrueFalseAggregatorFunc = TrueFalseScoreAggregator.OR,
     ) -> None:
         """
@@ -118,10 +125,10 @@ class SelfAskTrueFalseScorer(TrueFalseScorer):
             chat_target (PromptTarget): The chat target to use for the scorer. Must satisfy
                 CHAT_TARGET_REQUIREMENTS (multi-turn + editable history capabilities,
                 possibly via normalization-pipeline adaptation).
-            true_false_question_path (Optional[Union[str, Path]]): The path to the true/false question file.
-            true_false_question (Optional[TrueFalseQuestion]): The true/false question object.
-            true_false_system_prompt_path (Optional[Union[str, Path]]): The path to the system prompt file.
-            validator (Optional[ScorerPromptValidator]): Custom validator. Defaults to None.
+            true_false_question_path (str | Path | None): The path to the true/false question file.
+            true_false_question (TrueFalseQuestion | None): The true/false question object.
+            true_false_system_prompt_path (str | Path | None): The path to the system prompt file.
+            validator (ScorerPromptValidator | None): Custom validator. Defaults to None.
             score_aggregator (TrueFalseAggregatorFunc): The aggregator function to use.
                 Defaults to TrueFalseScoreAggregator.OR.
 
@@ -164,13 +171,16 @@ class SelfAskTrueFalseScorer(TrueFalseScorer):
         true_category = true_false_question["true_description"]
         false_category = true_false_question["false_description"]
 
-        metadata = true_false_question["metadata"] if "metadata" in true_false_question else ""  # noqa: SIM401
+        metadata = true_false_question.get("metadata", "")
 
         scoring_instructions_template = SeedPrompt.from_yaml_file(true_false_system_prompt_path)
 
         self._system_prompt = scoring_instructions_template.render_template_value(
             true_description=true_category, false_description=false_category, metadata=metadata
         )
+        # Optional JSON schema embedded in the system prompt YAML. Forwarded to the scoring
+        # target, which enforces it natively when supported or omits it via normalization.
+        self._response_json_schema = scoring_instructions_template.response_json_schema
 
     def _build_identifier(self) -> ComponentIdentifier:
         """
@@ -183,20 +193,19 @@ class SelfAskTrueFalseScorer(TrueFalseScorer):
             params={
                 "system_prompt_template": self._system_prompt,
                 "user_prompt_template": "objective: {objective}\nresponse: {response}",
-                "score_aggregator": self._score_aggregator.__name__,  # type: ignore[ty:unresolved-attribute]
+                "response_json_schema": self._response_json_schema,
             },
-            children={
-                "prompt_target": self._prompt_target.get_identifier(),
-            },
+            score_aggregator=self._score_aggregator.__name__,  # type: ignore[ty:unresolved-attribute]
+            prompt_target=self._prompt_target.get_identifier(),
         )
 
-    async def _score_piece_async(self, message_piece: MessagePiece, *, objective: Optional[str] = None) -> list[Score]:
+    async def _score_piece_async(self, message_piece: MessagePiece, *, objective: str | None = None) -> list[Score]:
         """
         Scores the given message piece using "self-ask" for the chat target.
 
         Args:
             message_piece (MessagePiece): The message piece containing the text or image to be scored.
-            objective (Optional[str]): The objective to evaluate against (the original attacker model's objective).
+            objective (str | None): The objective to evaluate against (the original attacker model's objective).
                 Defaults to None.
 
         Returns:
@@ -216,16 +225,17 @@ class SelfAskTrueFalseScorer(TrueFalseScorer):
             scoring_value = f"objective: {objective}\nresponse: {message_piece.converted_value}"
             scoring_data_type = "text"
 
-        unvalidated_score = await self._score_value_with_llm_async(
-            prompt_target=self._prompt_target,
+        unvalidated_score = await _run_llm_scoring_async(
+            chat_target=self._prompt_target,
             system_prompt=self._system_prompt,
-            message_value=scoring_value,
-            message_data_type=scoring_data_type,
+            response_handler=JsonSchemaResponseHandler(response_schema=self._response_json_schema),
+            value=scoring_value,
+            data_type=scoring_data_type,
             scored_prompt_id=message_piece.id,
-            prepended_text_message_piece=prepended_text,
+            scorer_identifier=self.get_identifier(),
+            prepended_text=prepended_text,
             category=self._score_category,
             objective=objective,
-            attack_identifier=message_piece.attack_identifier,
         )
 
         score = unvalidated_score.to_score(score_value=unvalidated_score.raw_score_value, score_type="true_false")

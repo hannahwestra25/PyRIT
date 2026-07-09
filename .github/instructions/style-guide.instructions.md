@@ -90,6 +90,7 @@ def validate_input(self, data: dict) -> None:  # Should be private
   - `str | None` not `Optional[str]`
   - `int | float` not `Union[int, float]`
 - Still import `Any`, `Literal`, `TypeVar`, `Protocol`, `cast` etc. from `typing` as needed
+- **This rule applies to docstrings and comments too.** Argument type references inside docstrings (e.g. `Args:` blocks) and any comment mentioning a type should use the modern form so the docs stay consistent with the signatures.
 
 ```python
 # CORRECT
@@ -180,8 +181,8 @@ package without paying the cost at package load time. See
 Import from the package root when the symbol is exported from `__init__.py`:
 
 ```python
-from pyrit.prompt_target import PromptChatTarget  # CORRECT
-from pyrit.prompt_target.common.prompt_chat_target import PromptChatTarget  # WRONG
+from pyrit.prompt_target import PromptTarget  # CORRECT
+from pyrit.prompt_target.common.prompt_target import PromptTarget  # WRONG
 ```
 
 Heavy submodules not re-exported from `__init__.py` are imported directly:
@@ -191,6 +192,22 @@ from pyrit.common.net_utility import get_httpx_client
 ```
 
 Within the same package, import from the specific file to avoid circular imports.
+
+### Typing Backports (`typing_extensions`)
+
+For typing features that don't exist on every supported Python (`Self`,
+`override`, `TypeAlias`, `Unpack`, `NotRequired`, etc.), import from
+``typing_extensions`` rather than ``typing``. `typing_extensions` is already a
+transitive dependency (pulled in by ``pydantic``) and works across all supported
+Python versions, so this avoids per-version branching and ``# type: ignore`` noise.
+
+```python
+# CORRECT — works on 3.10+
+from typing_extensions import Self, override
+
+# INCORRECT — `Self` is 3.11+, `override` is 3.12+, breaks on older runtimes
+from typing import Self, override
+```
 
 ## Documentation Standards
 
@@ -464,9 +481,18 @@ async def temporary_config(self, **kwargs):
 ### Property Decorators
 - Use @property for simple computed attributes
 - Use explicit getter/setter methods for complex logic
+- Property docstrings must be **noun phrases** describing the value (e.g.
+  `"""The display name."""`), not verb phrases (e.g. `"""Return the display
+  name."""`). This is enforced by Ruff `D421` (property-docstring-starts-with-verb).
 
 ```python
 # CORRECT
+@property
+def is_complete(self) -> bool:
+    """Whether the attack is complete."""
+    return self._status == AttackStatus.COMPLETE
+
+# INCORRECT - verb-phrase docstring, flagged by Ruff D421
 @property
 def is_complete(self) -> bool:
     """Check if the attack is complete."""

@@ -16,7 +16,7 @@ class RandomCapitalLettersConverter(PromptConverter):
     SUPPORTED_INPUT_TYPES = ("text",)
     SUPPORTED_OUTPUT_TYPES = ("text",)
 
-    def __init__(self, percentage: float = 100.0) -> None:
+    def __init__(self, *, percentage: float = 100.0) -> None:
         """
         Initialize the converter with the specified percentage of randomization.
 

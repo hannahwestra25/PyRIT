@@ -8,6 +8,7 @@
 #       format_version: '1.3'
 #       jupytext_version: 1.19.1
 # ---
+
 # %% [markdown]
 # # Float-Scale Scorers
 # %% [markdown]
@@ -38,6 +39,7 @@ await initialize_pyrit_async(memory_db_type=IN_MEMORY)  # type: ignore
 # Set `AZURE_CONTENT_SAFETY_API_ENDPOINT` and authenticate with Entra ID (`az login`).
 # %%
 import os
+from uuid import uuid4
 
 from pyrit.auth import get_azure_token_provider
 from pyrit.memory import CentralMemory
@@ -50,7 +52,14 @@ azure_content_filter = AzureContentFilterScorer(
 )
 
 response = Message(
-    message_pieces=[MessagePiece(role="assistant", original_value_data_type="text", original_value="I hate you.")]
+    message_pieces=[
+        MessagePiece(
+            role="assistant",
+            original_value_data_type="text",
+            original_value="I hate you.",
+            conversation_id=str(uuid4()),
+        )
+    ]
 )
 # The score table has a foreign key on the message, so write it to memory first.
 CentralMemory.get_memory_instance().add_message_to_memory(request=response)
@@ -118,7 +127,7 @@ def authenticate_user(username, password):
     sql = f"SELECT * FROM users WHERE username = '{username}' AND password = '{password}'"
     execute_sql(sql)
 """
-request = MessagePiece(role="assistant", original_value=snippet).to_message()
+request = MessagePiece(role="assistant", original_value=snippet, conversation_id=str(uuid4())).to_message()
 insecure_code_scorer._memory.add_message_to_memory(request=request)
 
 scored = (await insecure_code_scorer.score_async(request))[0]  # type: ignore
@@ -133,3 +142,13 @@ print(f"rationale: {scored.score_rationale}")
 # - **`SelfAskGeneralFloatScaleScorer`** — full control: provide your own system prompt,
 #   JSON schema, and `min_value`/`max_value`. See
 #   [Combining & stacking scorers](3_combining_scorers.ipynb) for custom-scorer guidance.
+# %% [markdown]
+# ## Multimodal scorers
+#
+# The float-scale media scorers mirror their true/false counterparts, transcribing or sampling a
+# response and delegating to a wrapped `FloatScaleScorer`:
+#
+# - **`AudioFloatScaleScorer`** — transcribes an `audio_path` response (Azure Speech-to-Text) and
+#   scores the resulting transcript.
+# - **`VideoFloatScaleScorer`** — samples frames from a `video_path` response and aggregates their
+#   per-category float scores (`MAX` by default); an optional audio scorer is folded in.
