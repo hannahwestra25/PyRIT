@@ -9,7 +9,7 @@ import pytest
 
 from pyrit.models.parameter import Parameter
 from pyrit.registry.components.initializer_registry import PYRIT_PATH, InitializerRegistry
-from pyrit.setup.initializers.pyrit_initializer import PyRITInitializer
+from pyrit.setup.pyrit_initializer import PyRITInitializer
 
 
 @pytest.fixture
@@ -56,7 +56,7 @@ def test_build_metadata_uses_docstring_description():
 # ============================================================================
 
 _VALID_SCRIPT = """
-from pyrit.setup.initializers.pyrit_initializer import PyRITInitializer
+from pyrit.setup.pyrit_initializer import PyRITInitializer
 
 class ScriptTestInitializer(PyRITInitializer):
     \"\"\"A test initializer from script.\"\"\"
@@ -139,8 +139,8 @@ def test_register_from_content_rejects_duplicate_name(lazy_registry):
 def test_register_from_content_ignores_imported_classes(lazy_registry):
     """Test that imported base classes are not registered."""
     script = """
-from pyrit.setup.initializers.simple import SimpleInitializer
-from pyrit.setup.initializers.pyrit_initializer import PyRITInitializer
+from pyrit.setup.initializers.targets import TargetInitializer
+from pyrit.setup.pyrit_initializer import PyRITInitializer
 
 class LocalOnlyInitializer(PyRITInitializer):
     \"\"\"Local only.\"\"\"
@@ -216,7 +216,7 @@ def test_is_builtin_returns_false_for_custom_initializers(lazy_registry):
 
 def _write_initializer_script(directory: Path, filename: str, *class_names: str) -> Path:
     """Write a script defining one or more PyRITInitializer subclasses."""
-    body = "from pyrit.setup.initializers.pyrit_initializer import PyRITInitializer\n\n"
+    body = "from pyrit.setup.pyrit_initializer import PyRITInitializer\n\n"
     for class_name in class_names:
         body += (
             f"class {class_name}(PyRITInitializer):\n    async def initialize_async(self) -> None:\n        pass\n\n"
@@ -319,7 +319,7 @@ def test_create_and_configure_unknown_name_raises_key_error(lazy_registry):
 # ============================================================================
 
 _SOLO_SCRIPT = (
-    "from pyrit.setup.initializers.pyrit_initializer import PyRITInitializer\n\n"
+    "from pyrit.setup.pyrit_initializer import PyRITInitializer\n\n"
     "class SoloInitializer(PyRITInitializer):\n"
     "    async def initialize_async(self) -> None:\n"
     "        pass\n"
@@ -427,7 +427,7 @@ def test_load_module_from_path_no_spec_raises():
 def test_create_from_script_paths_instantiation_failure_raises(lazy_registry):
     """Test that a script whose only initializer fails to instantiate raises ValueError."""
     script = (
-        "from pyrit.setup.initializers.pyrit_initializer import PyRITInitializer\n\n"
+        "from pyrit.setup.pyrit_initializer import PyRITInitializer\n\n"
         "class BoomInitializer(PyRITInitializer):\n"
         "    def __init__(self):\n"
         "        raise RuntimeError('boom')\n"

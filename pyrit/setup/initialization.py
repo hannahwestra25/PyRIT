@@ -13,7 +13,7 @@ from pyrit.common.apply_defaults import reset_default_values
 from pyrit.memory import AzureSQLMemory, CentralMemory, MemoryInterface, SQLiteMemory
 
 if TYPE_CHECKING:
-    from pyrit.setup.initializers.pyrit_initializer import PyRITInitializer
+    from pyrit.setup.pyrit_initializer import PyRITInitializer
 
 logger = logging.getLogger(__name__)
 
@@ -168,7 +168,7 @@ async def _execute_initializers_async(*, initializers: Sequence["PyRITInitialize
         Exception: If an initializer's validation or initialization fails.
     """
     # Import here to avoid circular imports
-    from pyrit.setup.initializers.pyrit_initializer import PyRITInitializer
+    from pyrit.setup.pyrit_initializer import PyRITInitializer
 
     # Validate all initializers first
     for initializer in initializers:

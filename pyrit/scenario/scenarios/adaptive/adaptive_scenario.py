@@ -137,18 +137,18 @@ class AdaptiveScenario(Scenario):
         Returns:
             dict[str, AttackTechniqueFactory]: Mapping of technique name to factory.
         """
-        # Local import: ``scenario_techniques`` imports ``pyrit.scenario.core``,
+        # Local import: ``techniques`` imports ``pyrit.scenario.core``,
         # which transitively re-imports this module, so a top-level import
         # would form a cycle during ``pyrit.scenario`` package initialization.
         from pyrit.registry.components.attack_technique_registry import AttackTechniqueRegistry
-        from pyrit.setup.initializers.components.scenario_techniques import build_scenario_technique_factories
+        from pyrit.setup.initializers.techniques import build_technique_factories
 
-        catalog = {factory.name: factory for factory in build_scenario_technique_factories()}
+        catalog = {factory.name: factory for factory in build_technique_factories()}
         try:
             registry_overrides = AttackTechniqueRegistry.get_registry_singleton().get_factories_or_raise()
         except RuntimeError:
             # Registry not initialized yet (e.g. bare CLI parse before
-            # ScenarioTechniqueInitializer has run). Catalog alone is the
+            # TechniqueInitializer has run). Catalog alone is the
             # safe fallback and matches the strategy enum's value set.
             registry_overrides = {}
         return {**catalog, **registry_overrides}

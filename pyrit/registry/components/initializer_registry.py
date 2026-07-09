@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING, Any
 
 from pyrit.models import class_name_to_snake_case, validate_registry_name
 from pyrit.registry.discovery import discover_in_directory
-from pyrit.registry.registry import Registry
+from pyrit.registry.registry import ParamBagRegistry
 from pyrit.registry.registry_metadata import RegistryMetadata
 
 # Compute PYRIT_PATH directly to avoid importing pyrit package
@@ -39,7 +39,7 @@ if TYPE_CHECKING:
 
     from pyrit.models import Parameter
     from pyrit.models.identifiers.component_identifier import ComponentIdentifier
-    from pyrit.setup.initializers.pyrit_initializer import PyRITInitializer
+    from pyrit.setup.pyrit_initializer import PyRITInitializer
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +59,7 @@ class InitializerMetadata(RegistryMetadata):
     supported_parameters: tuple[Parameter, ...] = field(kw_only=True, default=())
 
 
-class InitializerRegistry(Registry["PyRITInitializer", InitializerMetadata]):
+class InitializerRegistry(ParamBagRegistry["PyRITInitializer", InitializerMetadata]):
     """
     Registry for discovering and managing available initializers.
 
@@ -110,7 +110,7 @@ class InitializerRegistry(Registry["PyRITInitializer", InitializerMetadata]):
             return
 
         # Import base class for discovery
-        from pyrit.setup.initializers.pyrit_initializer import PyRITInitializer
+        from pyrit.setup.pyrit_initializer import PyRITInitializer
 
         if discovery_path.is_file():
             self._process_file(file_path=discovery_path, base_class=PyRITInitializer, builtin=True)
@@ -249,9 +249,8 @@ class InitializerRegistry(Registry["PyRITInitializer", InitializerMetadata]):
             KeyError: If the name is not registered.
             ValueError: If the configured parameters are invalid.
         """
-        instance = self.create_instance(name)
+        instance = self._create_and_configure(name, params=initializer_params or None)
         if initializer_params:
-            instance.set_params_from_args(args=initializer_params)
             instance.validate_params()
         return instance
 
@@ -328,7 +327,7 @@ class InitializerRegistry(Registry["PyRITInitializer", InitializerMetadata]):
             FileNotFoundError: If a script path does not exist.
             ValueError: If a path is not a ``.py`` file or defines no initializer.
         """
-        from pyrit.setup.initializers.pyrit_initializer import PyRITInitializer
+        from pyrit.setup.pyrit_initializer import PyRITInitializer
 
         resolved = self.resolve_script_paths(script_paths=[str(p) for p in script_paths])
 
@@ -398,7 +397,7 @@ class InitializerRegistry(Registry["PyRITInitializer", InitializerMetadata]):
             raise ValueError(f"Initializer '{name}' is already registered. Unregister it first to replace it.")
 
         # Deferred: importing pyrit.setup triggers heavy __init__.py chain
-        from pyrit.setup.initializers.pyrit_initializer import PyRITInitializer
+        from pyrit.setup.pyrit_initializer import PyRITInitializer
 
         # Write to a managed directory so importlib can load it
         managed_dir = self._get_custom_scripts_dir()

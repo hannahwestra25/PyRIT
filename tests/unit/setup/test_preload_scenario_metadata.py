@@ -7,9 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from pyrit.setup.initializers.scenarios.preload_scenario_metadata import (
-    PreloadScenarioMetadata,
-)
+from pyrit.setup.initializers.preload_scenario_metadata import PreloadScenarioMetadata
 
 
 class TestPreloadScenarioMetadata:
@@ -28,7 +26,7 @@ class TestPreloadScenarioMetadata:
         ]
 
         with patch(
-            "pyrit.setup.initializers.scenarios.preload_scenario_metadata.ScenarioRegistry.get_registry_singleton",
+            "pyrit.setup.initializers.preload_scenario_metadata.ScenarioRegistry.get_registry_singleton",
             return_value=mock_registry,
         ):
             await initializer.initialize_async()
@@ -44,7 +42,7 @@ class TestPreloadScenarioMetadata:
         mock_registry.get_all_registered_class_metadata.side_effect = TypeError("scenario X is not no-arg instantiable")
 
         with patch(
-            "pyrit.setup.initializers.scenarios.preload_scenario_metadata.ScenarioRegistry.get_registry_singleton",
+            "pyrit.setup.initializers.preload_scenario_metadata.ScenarioRegistry.get_registry_singleton",
             return_value=mock_registry,
         ):
             with pytest.raises(TypeError, match="not no-arg instantiable"):

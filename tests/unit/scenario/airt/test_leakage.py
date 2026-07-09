@@ -18,7 +18,7 @@ from pyrit.scenario.airt import Leakage  # type: ignore[ty:unresolved-import]
 from pyrit.scenario.core import BaselineAttackPolicy
 from pyrit.scenario.scenarios.airt.leakage import _build_leakage_strategy
 from pyrit.score import TrueFalseCompositeScorer
-from pyrit.setup.initializers.components.scenario_techniques import build_scenario_technique_factories
+from pyrit.setup.initializers.techniques import build_technique_factories
 
 
 def _mock_scorer_id(name: str = "MockObjectiveScorer") -> ComponentIdentifier:
@@ -96,7 +96,7 @@ def reset_technique_registry():
     TargetRegistry.get_registry_singleton().instances.register(adv_target, name="adversarial_chat")
 
     technique_registry = AttackTechniqueRegistry.get_registry_singleton()
-    technique_registry.register_from_factories(build_scenario_technique_factories())
+    technique_registry.register_from_factories(build_technique_factories())
     yield
     AttackTechniqueRegistry.reset_registry_singleton()
     TargetRegistry.reset_registry_singleton()
@@ -135,7 +135,13 @@ class TestLeakageAttackGeneration:
     async def test_attack_generation_for_all(self, mock_objective_target, mock_objective_scorer, mock_dataset_config):
         """Test that _get_atomic_attacks_async returns atomic attacks."""
         scenario = Leakage(objective_scorer=mock_objective_scorer)
-        await scenario.initialize_async(objective_target=mock_objective_target, dataset_config=mock_dataset_config)
+        scenario.set_params_from_args(
+            args={
+                "objective_target": mock_objective_target,
+                "dataset_config": mock_dataset_config,
+            }
+        )
+        await scenario.initialize_async()
         atomic_attacks = scenario._atomic_attacks
 
         assert len(atomic_attacks) > 0
@@ -146,7 +152,13 @@ class TestLeakageAttackGeneration:
     ):
         """Test that attack runs include objectives for each seed prompt."""
         scenario = Leakage(objective_scorer=mock_objective_scorer)
-        await scenario.initialize_async(objective_target=mock_objective_target, dataset_config=mock_dataset_config)
+        scenario.set_params_from_args(
+            args={
+                "objective_target": mock_objective_target,
+                "dataset_config": mock_dataset_config,
+            }
+        )
+        await scenario.initialize_async()
         atomic_attacks = scenario._atomic_attacks
 
         for run in atomic_attacks:
@@ -155,7 +167,13 @@ class TestLeakageAttackGeneration:
     async def test_unknown_strategy_skipped(self, mock_objective_target, mock_objective_scorer, mock_dataset_config):
         """Test that an unknown strategy is skipped (logged as warning) by base class."""
         scenario = Leakage(objective_scorer=mock_objective_scorer)
-        await scenario.initialize_async(objective_target=mock_objective_target, dataset_config=mock_dataset_config)
+        scenario.set_params_from_args(
+            args={
+                "objective_target": mock_objective_target,
+                "dataset_config": mock_dataset_config,
+            }
+        )
+        await scenario.initialize_async()
         # Base class logs a warning for unknown technique names and skips them
         # This is a behavior change from the old manual implementation which raised ValueError
 
@@ -169,9 +187,14 @@ class TestLeakageLifecycle:
     ):
         """Test initialization with custom max_concurrency."""
         scenario = Leakage(objective_scorer=mock_objective_scorer)
-        await scenario.initialize_async(
-            objective_target=mock_objective_target, max_concurrency=20, dataset_config=mock_dataset_config
+        scenario.set_params_from_args(
+            args={
+                "objective_target": mock_objective_target,
+                "max_concurrency": 20,
+                "dataset_config": mock_dataset_config,
+            }
         )
+        await scenario.initialize_async()
         assert scenario._max_concurrency == 20
 
     async def test_initialize_async_with_memory_labels(
@@ -180,11 +203,14 @@ class TestLeakageLifecycle:
         """Test initialization with memory labels."""
         memory_labels = {"test": "leakage", "category": "scenario"}
         scenario = Leakage(objective_scorer=mock_objective_scorer)
-        await scenario.initialize_async(
-            memory_labels=memory_labels,
-            objective_target=mock_objective_target,
-            dataset_config=mock_dataset_config,
+        scenario.set_params_from_args(
+            args={
+                "memory_labels": memory_labels,
+                "objective_target": mock_objective_target,
+                "dataset_config": mock_dataset_config,
+            }
         )
+        await scenario.initialize_async()
         assert scenario._memory_labels == memory_labels
 
 

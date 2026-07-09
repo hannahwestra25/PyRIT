@@ -24,7 +24,9 @@ from pyrit.scenario.core.attack_technique_factory import AttackTechniqueFactory
 from pyrit.scenario.core.dataset_configuration import CompoundDatasetAttackConfiguration
 from pyrit.scenario.scenarios.airt.rapid_response import RapidResponse
 from pyrit.score import TrueFalseScorer
-from pyrit.setup.initializers.components.scenario_techniques import build_scenario_technique_factories
+from pyrit.setup.initializers.techniques import (
+    build_technique_factories,
+)
 
 # ---------------------------------------------------------------------------
 # Synthetic many-shot examples — prevents reading the real JSON during tests
@@ -79,7 +81,7 @@ def reset_technique_registry():
     """Reset registries, register a mock adversarial target, and populate factories.
 
     The mock target satisfies the ``adversarial_chat`` slot so
-    ``build_scenario_technique_factories`` does not fall back to
+    ``build_technique_factories`` does not fall back to
     ``OpenAIChatTarget``.
     """
     from pyrit.scenario.scenarios.airt.rapid_response import _build_rapid_response_strategy
@@ -93,7 +95,7 @@ def reset_technique_registry():
     TargetRegistry.get_registry_singleton().instances.register(adv_target, name="adversarial_chat")
 
     technique_registry = AttackTechniqueRegistry.get_registry_singleton()
-    technique_registry.register_from_factories(build_scenario_technique_factories())
+    technique_registry.register_from_factories(build_technique_factories())
     yield
     AttackTechniqueRegistry.reset_registry_singleton()
     TargetRegistry.reset_registry_singleton()
@@ -213,7 +215,8 @@ class TestRapidResponseBasic:
     ):
         mock_get_scorer.return_value = mock_objective_scorer
         scenario = RapidResponse()
-        await scenario.initialize_async(objective_target=mock_objective_target)
+        scenario.set_params_from_args(args={"objective_target": mock_objective_target})
+        await scenario.initialize_async()
         # DEFAULT expands to PromptSending + ManyShot → 2 composites
         assert len(scenario._scenario_strategies) == 2
 
@@ -228,8 +231,9 @@ class TestRapidResponseBasic:
             "pyrit.scenario.core.dataset_configuration.DatasetConfiguration._fetch_dataset_async",
             new_callable=AsyncMock,
         ):
+            scenario.set_params_from_args(args={"objective_target": mock_objective_target})
             with pytest.raises(ValueError, match="could not be loaded"):
-                await scenario.initialize_async(objective_target=mock_objective_target)
+                await scenario.initialize_async()
 
     @patch("pyrit.scenario.core.scenario.Scenario._get_default_objective_scorer")
     @patch.object(
@@ -248,7 +252,13 @@ class TestRapidResponseBasic:
         mock_get_scorer.return_value = mock_objective_scorer
         labels = {"test_run": "123"}
         scenario = RapidResponse()
-        await scenario.initialize_async(objective_target=mock_objective_target, memory_labels=labels)
+        scenario.set_params_from_args(
+            args={
+                "objective_target": mock_objective_target,
+                "memory_labels": labels,
+            }
+        )
+        await scenario.initialize_async()
         assert scenario._memory_labels == labels
 
     @pytest.mark.parametrize("harm_category", ALL_HARM_CATEGORIES)
@@ -288,7 +298,8 @@ class TestRapidResponseAttackGeneration:
             init_kwargs = {"objective_target": mock_objective_target, "include_baseline": False}
             if strategies:
                 init_kwargs["scenario_strategies"] = strategies
-            await scenario.initialize_async(**init_kwargs)
+            scenario.set_params_from_args(args=init_kwargs)
+            await scenario.initialize_async()
             return scenario._atomic_attacks
 
     async def test_default_strategy_produces_role_play_and_many_shot(
@@ -385,12 +396,15 @@ class TestRapidResponseAttackGeneration:
             patch.object(AttackTechniqueFactory, "create", _spy_create),
         ):
             scenario = RapidResponse(objective_scorer=mock_objective_scorer)
-            await scenario.initialize_async(
-                objective_target=mock_objective_target,
-                include_baseline=False,
-                scenario_strategies=[role_play],
-                strategy_converters={role_play.value: [converter]},
+            scenario.set_params_from_args(
+                args={
+                    "objective_target": mock_objective_target,
+                    "include_baseline": False,
+                    "scenario_strategies": [role_play],
+                    "strategy_converters": {role_play.value: [converter]},
+                }
             )
+            await scenario.initialize_async()
 
         # ROLE_PLAY was selected with a converter modifier, so every resulting factory.create
         # call must receive the extra request converter.
@@ -481,11 +495,14 @@ class TestRapidResponseAttackGeneration:
                 objective_scorer=mock_objective_scorer,
             )
             # Select ALL which includes role_play, many_shot, tap — none have factories
-            await scenario.initialize_async(
-                objective_target=mock_objective_target,
-                scenario_strategies=[_strategy_class().ALL],
-                include_baseline=False,
+            scenario.set_params_from_args(
+                args={
+                    "objective_target": mock_objective_target,
+                    "scenario_strategies": [_strategy_class().ALL],
+                    "include_baseline": False,
+                }
             )
+            await scenario.initialize_async()
             attacks = scenario._atomic_attacks
             # Only prompt_sending should have produced attacks
             assert len(attacks) == 1
@@ -509,7 +526,7 @@ class TestRapidResponseAttackGeneration:
 
 @pytest.mark.usefixtures(*FIXTURES)
 class TestCoreTechniques:
-    """Tests for shared AttackTechniqueFactory builders in scenario_techniques.py."""
+    """Tests for shared AttackTechniqueFactory builders in techniques/core.py."""
 
     def test_instance_returns_all_factories(self, mock_objective_scorer):
         registry = AttackTechniqueRegistry.get_registry_singleton()
@@ -549,7 +566,7 @@ class TestCoreTechniques:
 
 @pytest.mark.usefixtures(*FIXTURES)
 class TestRegistryIntegration:
-    """Tests for AttackTechniqueRegistry wiring via build_scenario_technique_factories."""
+    """Tests for AttackTechniqueRegistry wiring via build_technique_factories."""
 
     def test_registry_populated_by_autouse_fixture(self):
         """The autouse fixture registers all canonical scenario techniques."""
@@ -560,8 +577,8 @@ class TestRegistryIntegration:
     def test_register_from_factories_idempotent(self):
         """Calling register_from_factories twice does not duplicate entries."""
         registry = AttackTechniqueRegistry.get_registry_singleton()
-        expected = len(build_scenario_technique_factories())
-        registry.register_from_factories(build_scenario_technique_factories())
+        expected = len(build_technique_factories())
+        registry.register_from_factories(build_technique_factories())
         assert len(registry.instances) == expected
 
     def test_register_preserves_custom_preregistered(self):
@@ -570,7 +587,7 @@ class TestRegistryIntegration:
         custom_factory = AttackTechniqueFactory(name="role_play", attack_class=PromptSendingAttack)
         registry.register_technique(name="role_play", factory=custom_factory, tags=["custom"])
 
-        registry.register_from_factories(build_scenario_technique_factories())
+        registry.register_from_factories(build_technique_factories())
         assert registry.get_factories()["role_play"] is custom_factory
 
     def test_get_factories_returns_dict(self):
@@ -589,16 +606,16 @@ class TestRegistryIntegration:
 
 
 # ===========================================================================
-# build_scenario_technique_factories tests
+# build_technique_factories tests
 # ===========================================================================
 
 
 @pytest.mark.usefixtures(*FIXTURES)
 class TestBuildScenarioTechniqueFactories:
-    """Tests for build_scenario_technique_factories() — the canonical factory catalog."""
+    """Tests for build_technique_factories() — the canonical factory catalog."""
 
     def test_returns_nonempty_factory_list(self):
-        factories = build_scenario_technique_factories()
+        factories = build_technique_factories()
         assert len(factories) >= 4
         names = [f.name for f in factories]
         assert len(names) == len(set(names)), "Duplicate technique names"
@@ -608,26 +625,26 @@ class TestBuildScenarioTechniqueFactories:
 
         The config itself is resolved lazily at create()-time.
         """
-        by_name = {f.name: f for f in build_scenario_technique_factories()}
+        by_name = {f.name: f for f in build_technique_factories()}
         assert by_name["role_play"].uses_adversarial is True
         assert by_name["tap"].uses_adversarial is True
         assert by_name["role_play"]._adversarial_chat is None
         assert by_name["tap"]._adversarial_chat is None
 
     def test_non_adversarial_factories_have_no_adversarial_config(self):
-        by_name = {f.name: f for f in build_scenario_technique_factories()}
+        by_name = {f.name: f for f in build_technique_factories()}
         assert by_name["many_shot"]._adversarial_chat is None
 
     def test_crescendo_simulated_has_seed_technique(self):
-        by_name = {f.name: f for f in build_scenario_technique_factories()}
+        by_name = {f.name: f for f in build_technique_factories()}
         assert by_name["crescendo_simulated"].seed_technique is not None
 
     def test_crescendo_simulated_has_adversarial_chat(self):
-        by_name = {f.name: f for f in build_scenario_technique_factories()}
+        by_name = {f.name: f for f in build_technique_factories()}
         assert by_name["crescendo_simulated"].uses_adversarial is True
 
     def test_extra_kwargs_preserved_on_role_play(self):
-        by_name = {f.name: f for f in build_scenario_technique_factories()}
+        by_name = {f.name: f for f in build_technique_factories()}
         assert "role_play_definition_path" in (by_name["role_play"]._attack_kwargs or {})
 
 
