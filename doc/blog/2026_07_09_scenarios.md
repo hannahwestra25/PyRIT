@@ -1,10 +1,10 @@
 # Scenarios: Pre-Packaged Red-Teaming Playbooks
 
-<small>4 Jun 2026 - Hannah Westra</small>
+<small>9 Jul 2026 - Hannah Westra</small>
 
 A new model release ships. Or a new jailbreak technique starts circulating in the security community. Or your team is onboarding an AI system from another org. The first question is always the same: *where are we exposed?*
 
-PyRIT has been designed from the start to be configurable — a kit of Lego bricks that snap together, so red teamers can compose exactly the test they need. That flexibility is still the foundation, and it isn't going anywhere. What we've noticed, though, is that across teams a lot of those compositions end up looking remarkably similar: the same targets, the same handful of attack strategies, the same harm categories — assembled in a notebook, run against a new model, and then assembled all over again next quarter against the next one. Different team, different notebook, same assembly. And because the run lives in whatever notebook you happened to have open, there's nothing clean to hand to a teammate, rerun on the next release, or diff against last month's results. On top of that, every time PyRIT itself ships a new version, those notebooks need a once-over before they'll run again. What if a serious red-team scan was a single command — repeatable, shareable, and resilient to PyRIT's own upgrades?
+PyRIT has been designed from the start to be configurable — a kit of Lego bricks that snap together, so red teamers can compose exactly the test they need. That flexibility is still the foundation, and it isn't going anywhere. What we've noticed, though, is that across teams a lot of those compositions end up looking remarkably similar: the same targets, the same handful of attack techniques, the same harm categories — assembled in a notebook, run against a new model, and then assembled all over again next quarter against the next one. Different team, different notebook, same assembly. And because the run lives in whatever notebook you happened to have open, there's nothing clean to hand to a teammate, rerun on the next release, or diff against last month's results. On top of that, every time PyRIT itself ships a new version, those notebooks need a once-over before they'll run again. What if a serious red-team scan was a single command — repeatable, shareable, and resilient to PyRIT's own upgrades?
 
 ## Enter scenarios
 
@@ -22,13 +22,13 @@ Open one up and you'll find the same four things working together: a **dataset o
 
 ## Running your first scan
 
-Let's say you want a wide read on a new target. The broadest scenario in the catalog is `RapidResponse` — a comprehensive sweep across the most common attack techniques and the full AIRT harm-category catalog. From the scanner CLI:
+Let's say you want a wide read on a new target. The broadest scenario in the catalog is `RapidResponse` — a comprehensive sweep across the most common attack techniques and the full AIRT harm-category catalog. The [**Scanner**](../scanner/0_scanner.md) — PyRIT's single-command entry point for running any scenario — makes it one line:
 
 ```bash
 pyrit_scan airt.rapid_response --target my_target
 ```
 
-That one command does a lot. Behind the scenes, initializers populate the registries (techniques, targets, datasets); the CLI resolves `airt.rapid_response` and `my_target`, instantiates `RapidResponse`, and runs it. Out of the box (using the default configuration for strategies ie `--strategies default`) it sends `role_play` and `many_shot` attacks plus a baseline pass — across seven AIRT harm categories: hate, fairness, violence, sexual, harassment, misinformation, leakage. Switch to `--strategies single_turn` to swap in the single-turn pool — `role_play`, `context_compliance`, `crescendo_simulated`, plus the persona-driven crescendo variants (`crescendo_movie_director`, `crescendo_history_lecture`, `crescendo_journalist_interview`). `--strategies multi_turn` picks up the multi-turn pool instead: `many_shot`, `tap`, `pair`, and `red_teaming`.
+That one command does a lot. Behind the scenes, initializers populate the registries (techniques, targets, datasets); the CLI resolves `airt.rapid_response` and `my_target`, instantiates `RapidResponse`, and runs it. Out of the box (using the default configuration for techniques ie `--techniques default`) it sends `role_play` and `many_shot` attacks plus a baseline pass — across seven AIRT harm categories: hate, fairness, violence, sexual, harassment, misinformation, leakage. Switch to `--techniques single_turn` to swap in the single-turn pool — `role_play`, `context_compliance`, `crescendo_simulated`, plus the persona-driven crescendo variants (`crescendo_movie_director`, `crescendo_history_lecture`, `crescendo_journalist_interview`). `--techniques multi_turn` picks up the multi-turn pool instead: `many_shot`, `tap`, `pair`, and `red_teaming`.
 
 When it finishes you get a `ScenarioResult` persisted to memory, a pretty-printed summary at the end, and — because every `AttackResult` is stamped with a scenario-run ID — the ability to resume the same run later, diff against last quarter's, or ask memory "how did this target do on `RapidResponse` across our last ten scans?"
 
@@ -79,7 +79,7 @@ ContextComplianceAttack          0 / 3       0%
 RolePlayAttack                   3 / 3      100%
 ```
 
-The genuinely powerful part is that **it learns across runs**. The selector is stateless — it doesn't hold counts in itself, it queries memory every time it's asked to pick. If you ran `RapidResponse` last week and TAP worked 60% of the time on this target, `TextAdaptive` knows that on day one. Every scan your org runs sharpens the next.
+The genuinely powerful part is that **scans use the database to get smarter over time**. The selector is stateless — it doesn't hold counts in itself, it queries memory (PyRIT's database) every time it's asked to pick. If you ran `RapidResponse` last week and TAP worked 60% of the time on this target, `TextAdaptive` knows that on day one. Every scan your org runs sharpens the next.
 
 In practice, `RapidResponse` and `TextAdaptive` complement each other: run `RapidResponse` first to map which harm categories the target struggles with, then reach for `TextAdaptive` to find the fastest path through whatever came back interesting.
 
@@ -99,8 +99,8 @@ And you can write your own — the abstractions are designed to be subclassed.
 A few abstractions make all of this composable, and they're the same ones you'll touch if you want to add a technique or write your own scenario:
 
 - **`AttackTechnique`** wraps an executable attack (`CrescendoAttack`, `TAPAttack`, `PromptSendingAttack`, …) with its seed configuration — jailbreak template, converter, adversarial chat. A scenario composes a *list* of these rather than reaching for any particular attack class.
-- **`AttackTechniqueRegistry`** is the catalog. Techniques register themselves with tags (`default`, `single_turn`, `multi_turn`, …), and scenarios pull them out by tag query rather than by import. Add a new factory with the right tag and every scenario that asks for that tag picks it up for free — not every scenario exposes the same set of aggregates, so what shows up under `--strategies` is whatever the scenario explicitly registered.
-- **`ScenarioStrategy`** is a per-scenario enum built dynamically from the registry at import time — that's why the names you see on `--strategies` always reflect what's currently tagged.
+- **`AttackTechniqueRegistry`** is the catalog. Techniques register themselves with tags (`default`, `single_turn`, `multi_turn`, …), and scenarios pull them out by tag query rather than by import. Add a new factory with the right tag and every scenario that asks for that tag picks it up for free — not every scenario exposes the same set of aggregates, so what shows up under `--techniques` is whatever the scenario explicitly registered.
+- **`ScenarioTechnique`** is a per-scenario enum built dynamically from the registry at import time — that's why the names you see on `--techniques` always reflect what's currently tagged.
 - **`AtomicAttack`** is the runnable pairing of one technique with one dataset. It's what the executor actually executes and the unit that gets tracked, resumed, and labeled in memory.
 - **`ScenarioResult`** wraps the run with a scenario-run ID, which is what makes the cross-run analytics and `TextAdaptive`'s learning trustworthy. `SelectorScope` is the escape hatch if you want to narrow what the selector "remembers" — by default it learns from all historical runs; flip it to `current_run` and it only counts evidence from the run in flight.
 
@@ -115,9 +115,9 @@ flowchart TB
     SC --> AT
 
     AT -->|"registered (with tags)"| Reg["AttackTechniqueRegistry"]
-    Reg -->|"TagQuery"| Strat["ScenarioStrategy"]
+    Reg -->|"TagQuery"| Strat["ScenarioTechnique"]
 
-    Strat -->|"--strategies"| Sc["Scenario<br/>(e.g. RapidResponse)"]
+    Strat -->|"--techniques"| Sc["Scenario<br/>(e.g. RapidResponse)"]
     DS[("scenario datasets")] --> Sc
 
     Sc -->|"technique × dataset"| AA["AtomicAttack"]
@@ -127,7 +127,7 @@ flowchart TB
 ## Where to go next
 
 - The scenarios docs landing page: [`doc/code/scenarios/`](../code/scenarios/0_scenarios.ipynb).
-- The end-to-end walkthroughs from the scanner side: [`pyrit_scan`](../scanner/1_pyrit_scan.ipynb) and [`pyrit_shell`](../scanner/2_pyrit_shell.md).
+- The [Scanner](../scanner/0_scanner.md) overview — the single-command way to run any scenario — and its two CLIs: [`pyrit_scan`](../scanner/1_pyrit_scan.ipynb) for automation and [`pyrit_shell`](../scanner/2_pyrit_shell.md) for interactive exploration.
 - The [adaptive scenarios notebook](../code/scenarios/3_adaptive_scenarios.ipynb) is the fastest way to see the bandit in action against a real target.
 
 A few things on the roadmap worth flagging:
