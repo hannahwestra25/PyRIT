@@ -154,8 +154,7 @@ async def _run_llm_scoring_async(
             )
         raise EmptyResponseException(
             message=(
-                f"The scorer's LLM response contained no text to parse while scoring "
-                f"prompt ID: {scored_prompt_id}."
+                f"The scorer's LLM response contained no text to parse while scoring prompt ID: {scored_prompt_id}."
             )
         )
 
