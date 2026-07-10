@@ -75,9 +75,9 @@ async def _run_llm_scoring_async(
             normalized and validated by the caller.
 
     Raises:
-        ScorerLLMResponseBlockedException: If the scoring target's response is blocked by
-            content filtering. The calling ``Scorer`` decides whether to raise or return a
-            default score (see ``Scorer.raise_if_scorer_blocks``).
+        ScorerLLMResponseBlockedException: If the scorer's LLM response is blocked by
+            content filtering. The transport only surfaces the condition; the calling
+            ``Scorer`` owns the policy for whether to raise or return a default score.
         InvalidJsonException: If the response is not valid JSON, is missing required keys, or
             fails the handler's value validation.
         Exception: For other unexpected errors during scoring.
@@ -134,8 +134,8 @@ async def _run_llm_scoring_async(
 
     # A content-filter block yields a single error piece with no parseable text piece.
     # Surfacing this as a dedicated exception keeps the transport free of policy: the
-    # Scorer decides whether to raise or fall back to a default score
-    # (see Scorer.raise_if_scorer_blocks). Not retried by @pyrit_json_retry.
+    # calling Scorer decides whether to raise or fall back to a default score.
+    # Not retried by @pyrit_json_retry.
     if all(piece.is_blocked() for piece in response[0].message_pieces):
         raise ScorerLLMResponseBlockedException(
             message=(
