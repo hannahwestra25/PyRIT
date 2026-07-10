@@ -6,7 +6,7 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING, Any
 
-from pyrit.exceptions import BadRequestException, pyrit_json_retry
+from pyrit.exceptions import ScorerLLMResponseBlockedException, pyrit_json_retry
 from pyrit.models import JSON_SCHEMA_METADATA_KEY, Message, MessagePiece
 
 if TYPE_CHECKING:
@@ -75,7 +75,9 @@ async def _run_llm_scoring_async(
             normalized and validated by the caller.
 
     Raises:
-        BadRequestException: If the scoring target's response is blocked by content filtering.
+        ScorerLLMResponseBlockedException: If the scoring target's response is blocked by
+            content filtering. The calling ``Scorer`` decides whether to raise or return a
+            default score (see ``Scorer.raise_if_scorer_blocks``).
         InvalidJsonException: If the response is not valid JSON, is missing required keys, or
             fails the handler's value validation.
         Exception: For other unexpected errors during scoring.
@@ -130,10 +132,12 @@ async def _run_llm_scoring_async(
     except Exception as ex:
         raise Exception(f"Error scoring prompt with original prompt ID: {scored_prompt_id}") from ex
 
-    # A content-filter block yields a single error piece with no parseable text piece,
-    # so raise a clear error here instead of failing on the missing text piece below.
+    # A content-filter block yields a single error piece with no parseable text piece.
+    # Surfacing this as a dedicated exception keeps the transport free of policy: the
+    # Scorer decides whether to raise or fall back to a default score
+    # (see Scorer.raise_if_scorer_blocks). Not retried by @pyrit_json_retry.
     if all(piece.is_blocked() for piece in response[0].message_pieces):
-        raise BadRequestException(
+        raise ScorerLLMResponseBlockedException(
             message=(
                 f"The scorer's LLM response was blocked by content filtering while scoring "
                 f"prompt ID: {scored_prompt_id}. Consider using a scorer endpoint with "
