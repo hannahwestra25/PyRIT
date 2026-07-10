@@ -1589,6 +1589,42 @@ async def test_score_value_with_llm_raises_when_scorer_response_blocked():
     assert chat_target.send_prompt_async.call_count == 1
 
 
+async def test_score_value_with_llm_raises_empty_response_when_no_text_piece():
+    """A no-text response that wasn't content-filtered raises EmptyResponseException, not blocked."""
+    from pyrit.exceptions import EmptyResponseException
+
+    chat_target = MagicMock(PromptTarget)
+    chat_target.get_identifier.return_value = get_mock_target_identifier("MockChatTarget")
+
+    # An error piece that is NOT flagged as blocked (e.g. a flaky/empty response) and no text piece.
+    non_text_piece = MessagePiece(
+        role="assistant",
+        original_value="",
+        original_value_data_type="error",
+        converted_value="",
+        converted_value_data_type="error",
+        conversation_id="test-convo",
+        response_error="unknown",
+    )
+    chat_target.send_prompt_async = AsyncMock(return_value=[Message(message_pieces=[non_text_piece])])
+
+    scorer = MockScorer()
+
+    with pytest.raises(EmptyResponseException, match="no text to parse"):
+        await scorer._score_value_with_llm_async(
+            prompt_target=chat_target,
+            system_prompt="system_prompt",
+            message_value="message_value",
+            message_data_type="text",
+            scored_prompt_id="test-prompt-id",
+            category="category",
+            objective="task",
+        )
+
+    # No parseable text is terminal here, not a transient JSON error: it must not retry.
+    assert chat_target.send_prompt_async.call_count == 1
+
+
 # ── Axis B: the scorer's own LLM response is blocked (raise_if_scorer_blocks) ─────────────
 
 

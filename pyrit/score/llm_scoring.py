@@ -6,7 +6,7 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING, Any
 
-from pyrit.exceptions import ScorerLLMResponseBlockedException, pyrit_json_retry
+from pyrit.exceptions import EmptyResponseException, ScorerLLMResponseBlockedException, pyrit_json_retry
 from pyrit.models import JSON_SCHEMA_METADATA_KEY, Message, MessagePiece
 
 if TYPE_CHECKING:
@@ -78,6 +78,8 @@ async def _run_llm_scoring_async(
         ScorerLLMResponseBlockedException: If the scorer's LLM response is blocked by
             content filtering. The transport only surfaces the condition; the calling
             ``Scorer`` owns the policy for whether to raise or return a default score.
+        EmptyResponseException: If the scorer's LLM response contains no text piece to parse
+            and was not blocked (e.g. an empty or malformed response).
         InvalidJsonException: If the response is not valid JSON, is missing required keys, or
             fails the handler's value validation.
         Exception: For other unexpected errors during scoring.
@@ -132,21 +134,30 @@ async def _run_llm_scoring_async(
     except Exception as ex:
         raise Exception(f"Error scoring prompt with original prompt ID: {scored_prompt_id}") from ex
 
-    # A content-filter block yields a single error piece with no parseable text piece.
-    # Surfacing this as a dedicated exception keeps the transport free of policy: the
-    # calling Scorer decides whether to raise or fall back to a default score.
-    # Not retried by @pyrit_json_retry.
-    if all(piece.is_blocked() for piece in response[0].message_pieces):
-        raise ScorerLLMResponseBlockedException(
+    # Resolve the text piece that holds the JSON response (score_value + rationale). When it's
+    # absent the scorer produced no parseable output. Guard on the actual failure (no text
+    # piece) rather than "all pieces blocked" so every no-text shape is handled instead of
+    # only the fully-blocked one. A content-filter block surfaces as a dedicated exception
+    # (the calling Scorer owns whether to raise or fall back); any other no-text response is a
+    # genuine empty/malformed error. Neither is retried by @pyrit_json_retry.
+    text_piece = next(
+        (piece for piece in response[0].message_pieces if piece.converted_value_data_type == "text"), None
+    )
+    if text_piece is None:
+        if any(piece.is_blocked() for piece in response[0].message_pieces):
+            raise ScorerLLMResponseBlockedException(
+                message=(
+                    f"The scorer's LLM response was blocked by content filtering while scoring "
+                    f"prompt ID: {scored_prompt_id}. Consider using a scorer endpoint with "
+                    f"content filtering disabled for red-teaming workflows."
+                )
+            )
+        raise EmptyResponseException(
             message=(
-                f"The scorer's LLM response was blocked by content filtering while scoring "
-                f"prompt ID: {scored_prompt_id}. Consider using a scorer endpoint with "
-                f"content filtering disabled for red-teaming workflows."
+                f"The scorer's LLM response contained no text to parse while scoring "
+                f"prompt ID: {scored_prompt_id}."
             )
         )
-
-    # Get the text piece which contains the JSON response containing the score_value and rationale from the LLM
-    text_piece = next(piece for piece in response[0].message_pieces if piece.converted_value_data_type == "text")
 
     return response_handler.parse(
         response_text=text_piece.converted_value,
