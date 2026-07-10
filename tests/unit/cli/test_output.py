@@ -10,19 +10,18 @@ All public ``print_*`` functions accept typed ``pyrit.models`` objects
 """
 
 from datetime import datetime, timezone
+from typing import Literal
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from pyrit.cli import _output
-from pyrit.models import ScenarioRunState
+from pyrit.models import Parameter, ScenarioRunState, TargetCapabilities, TargetIdentifier
 from pyrit.models.catalog import (
-    InitializerParameterSummary,
     RegisteredInitializer,
     RegisteredScenario,
-    ScenarioParameterSummary,
     ScenarioRunSummary,
-    TargetCapabilitiesInfo,
     TargetInstance,
 )
+from unit.mocks import make_scenario_result
 
 # ---------------------------------------------------------------------------
 # Typed-object factory helpers
@@ -34,11 +33,10 @@ def _make_scenario(**overrides) -> RegisteredScenario:
         "scenario_name": "s1",
         "scenario_type": "X",
         "description": "",
-        "default_strategy": "",
-        "aggregate_strategies": [],
-        "all_strategies": [],
+        "default_technique": "",
+        "aggregate_techniques": [],
+        "all_techniques": [],
         "default_datasets": [],
-        "max_dataset_size": None,
         "supported_parameters": [],
     }
     defaults.update(overrides)
@@ -58,19 +56,23 @@ def _make_initializer(**overrides) -> RegisteredInitializer:
 
 
 def _make_target(**overrides) -> TargetInstance:
+    """Build a ``TargetInstance``; identity kwargs (``target_type``/``endpoint``/
+    ``model_name``/...) are folded into the embedded ``TargetIdentifier``."""
+    if "target_type" in overrides:
+        overrides["class_name"] = overrides.pop("target_type")
+    identifier_kwargs = {
+        "class_name": overrides.pop("class_name", "X"),
+        "class_module": overrides.pop("class_module", "pyrit.prompt_target"),
+    }
+    for key in ("endpoint", "model_name", "underlying_model_name", "temperature", "top_p", "max_requests_per_minute"):
+        if key in overrides:
+            identifier_kwargs[key] = overrides.pop(key)
     defaults = {
         "target_registry_name": "t1",
-        "target_type": "X",
-        "endpoint": None,
-        "model_name": None,
-        "underlying_model_name": None,
-        "temperature": None,
-        "top_p": None,
-        "max_requests_per_minute": None,
-        "capabilities": TargetCapabilitiesInfo(),
+        "identifier": TargetIdentifier(**identifier_kwargs),
+        "capabilities": TargetCapabilities(),
         "target_specific_params": None,
         "inner_targets": None,
-        "identifier_hash": None,
     }
     defaults.update(overrides)
     return TargetInstance(**defaults)
@@ -87,7 +89,7 @@ def _make_run(**overrides) -> ScenarioRunSummary:
         "updated_at": now,
         "error": None,
         "error_type": None,
-        "strategies_used": [],
+        "techniques_used": [],
         "total_attacks": 0,
         "completed_attacks": 0,
         "objective_achieved_rate": 0,
@@ -167,24 +169,20 @@ def test_print_scenario_list_full(capsys):
             scenario_name="airt.scam",
             scenario_type="ScamScenario",
             description="A test scenario.",
-            aggregate_strategies=["single_turn"],
-            all_strategies=["s1", "s2", "s3"],
-            default_strategy="s1",
+            aggregate_techniques=["single_turn"],
+            all_techniques=["s1", "s2", "s3"],
+            default_technique="s1",
             default_datasets=["d1", "d2"],
-            max_dataset_size=50,
             supported_parameters=[
-                ScenarioParameterSummary(
+                Parameter(
                     name="max_turns",
-                    default="5",
-                    param_type="int",
-                    choices=None,
+                    default=5,
+                    param_type=int,
                     description="Maximum turns.",
                 ),
-                ScenarioParameterSummary(
+                Parameter(
                     name="mode",
-                    default=None,
-                    param_type="str",
-                    choices=["a", "b"],
+                    param_type=Literal["a", "b"],
                     description="Mode.",
                 ),
             ],
@@ -195,11 +193,11 @@ def test_print_scenario_list_full(capsys):
     assert "airt.scam" in captured.out
     assert "ScamScenario" in captured.out
     assert "A test scenario." in captured.out
-    assert "Aggregate Strategies" in captured.out
+    assert "Aggregate Techniques" in captured.out
     assert "single_turn" in captured.out
-    assert "Available Strategies (3)" in captured.out
-    assert "Default Strategy: s1" in captured.out
-    assert "Default Datasets (2, max 50 per dataset)" in captured.out
+    assert "Available Techniques (3)" in captured.out
+    assert "Default Technique: s1" in captured.out
+    assert "Default Datasets (2)" in captured.out
     assert "Supported Parameters" in captured.out
     assert "max_turns" in captured.out
     assert "mode" in captured.out
@@ -246,8 +244,8 @@ def test_print_initializer_list_full(capsys):
             initializer_type="OpenAITargetInitializer",
             required_env_vars=["OPENAI_API_KEY", "OPENAI_ENDPOINT"],
             supported_parameters=[
-                InitializerParameterSummary(name="model", default=["gpt-4"], description="Model name."),
-                InitializerParameterSummary(name="temp", default=None, description="Temperature."),
+                Parameter(name="model", default=["gpt-4"], param_type=list[str], description="Model name."),
+                Parameter(name="temp", default=None, param_type=str, description="Temperature."),
             ],
             description="Registers OpenAI targets.",
         ),
@@ -309,6 +307,64 @@ def test_print_target_list_full(capsys):
 
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# print_converter_list
+# ---------------------------------------------------------------------------
+
+
+def test_print_converter_list_empty(capsys):
+    _output.print_converter_list(items=[])
+    captured = capsys.readouterr()
+    assert "No converters found in registry" in captured.out
+    assert "converter.translation_spanish" in captured.out
+
+
+def test_print_converter_list_full(capsys):
+    items = [
+        {
+            "converter_id": "translation_spanish",
+            "converter_type": "TranslationConverter",
+            "display_name": "Spanish translation",
+        },
+        {
+            "converter_id": "pipeline_1",
+            "converter_type": "PromptConverterPipeline",
+            "sub_converter_ids": ["base64", "rot13"],
+        },
+    ]
+    _output.print_converter_list(items=items)
+    captured = capsys.readouterr()
+    assert "translation_spanish" in captured.out
+    assert "Class: TranslationConverter" in captured.out
+    assert "Name: Spanish translation" in captured.out
+    assert "Sub-converters: base64, rot13" in captured.out
+    assert "Total converters: 2" in captured.out
+
+
+# ---------------------------------------------------------------------------
+# print_dataset_list
+# ---------------------------------------------------------------------------
+
+
+def test_print_dataset_list_empty(capsys):
+    _output.print_dataset_list(items=[])
+    captured = capsys.readouterr()
+    assert "No datasets found" in captured.out
+
+
+def test_print_dataset_list_full(capsys):
+    items = [
+        {"name": "airt_hate"},
+        {"name": "harmbench"},
+    ]
+    _output.print_dataset_list(items=items)
+    captured = capsys.readouterr()
+    assert "airt_hate" in captured.out
+    assert "harmbench" in captured.out
+    assert "Total datasets: 2" in captured.out
+
+
+# ---------------------------------------------------------------------------
 # print_scenario_run_progress
 # ---------------------------------------------------------------------------
 
@@ -319,11 +375,11 @@ def test_print_scenario_run_progress_with_known_totals(capsys):
         total_attacks=10,
         completed_attacks=5,
         objective_achieved_rate=30,
-        strategies_used=["s1", "s2"],
+        techniques_used=["s1", "s2"],
     )
-    _output.print_scenario_run_progress(run=run, total_strategies=4)
+    _output.print_scenario_run_progress(run=run, total_techniques=4)
     captured = capsys.readouterr()
-    assert "strategies: 2/4" in captured.out
+    assert "techniques: 2/4" in captured.out
     assert "5/10" in captured.out
     assert "IN_PROGRESS" in captured.out
     assert "30%" in captured.out
@@ -335,25 +391,25 @@ def test_print_scenario_run_progress_no_total_attacks(capsys):
         total_attacks=0,
         completed_attacks=0,
         objective_achieved_rate=0,
-        strategies_used=[],
+        techniques_used=[],
     )
-    _output.print_scenario_run_progress(run=run, total_strategies=0)
+    _output.print_scenario_run_progress(run=run, total_techniques=0)
     captured = capsys.readouterr()
     assert "attacks: 0" in captured.out
     assert "CREATED" in captured.out
 
 
-def test_print_scenario_run_progress_strategies_done_only(capsys):
+def test_print_scenario_run_progress_techniques_done_only(capsys):
     run = _make_run(
         status=ScenarioRunState.IN_PROGRESS,
         total_attacks=0,
         completed_attacks=0,
         objective_achieved_rate=0,
-        strategies_used=["s1"],
+        techniques_used=["s1"],
     )
-    _output.print_scenario_run_progress(run=run, total_strategies=0)
+    _output.print_scenario_run_progress(run=run, total_techniques=0)
     captured = capsys.readouterr()
-    assert "strategies: 1" in captured.out
+    assert "techniques: 1" in captured.out
 
 
 # ---------------------------------------------------------------------------
@@ -369,7 +425,7 @@ def test_print_scenario_run_summary_completed(capsys):
         total_attacks=5,
         completed_attacks=5,
         objective_achieved_rate=40,
-        strategies_used=["s1", "s2"],
+        techniques_used=["s1", "s2"],
     )
     _output.print_scenario_run_summary(run=run)
     captured = capsys.readouterr()
@@ -423,11 +479,8 @@ async def test_print_scenario_result_async_accepts_real_scenario_result():
         AttackOutcome,
         AttackResult,
         ComponentIdentifier,
-        ScenarioIdentifier,
-        ScenarioResult,
     )
 
-    identifier = ScenarioIdentifier(name="test.scenario", description="A test")
     target_identifier = ComponentIdentifier.model_validate(
         {"__type__": "FakeTarget", "__module__": "test.mod", "params": {}}
     )
@@ -439,8 +492,9 @@ async def test_print_scenario_result_async_accepts_real_scenario_result():
         execution_time_ms=150,
         timestamp=datetime(2025, 1, 1, tzinfo=timezone.utc),
     )
-    scenario_result = ScenarioResult(
-        scenario_identifier=identifier,
+    scenario_result = make_scenario_result(
+        scenario_name="test.scenario",
+        scenario_description="A test",
         objective_target_identifier=target_identifier,
         objective_scorer_identifier=None,
         attack_results={"strat_a": [attack]},

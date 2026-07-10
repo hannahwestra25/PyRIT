@@ -13,7 +13,7 @@ import is deferred to each function so importing this module stays cheap.
 from __future__ import annotations
 
 import sys
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from pyrit.models import ScenarioResult
@@ -97,23 +97,22 @@ def print_scenario_list(*, items: list[RegisteredScenario]) -> None:
         if sc.description:
             print("    Description:")
             print(_wrap(text=sc.description, indent="      "))
-        if sc.aggregate_strategies:
-            print("    Aggregate Strategies:")
-            print(_wrap(text=", ".join(sc.aggregate_strategies), indent="      - "))
-        if sc.all_strategies:
-            print(f"    Available Strategies ({len(sc.all_strategies)}):")
-            print(_wrap(text=", ".join(sc.all_strategies), indent="      "))
-        if sc.default_strategy:
-            print(f"    Default Strategy: {sc.default_strategy}")
+        if sc.aggregate_techniques:
+            print("    Aggregate Techniques:")
+            print(_wrap(text=", ".join(sc.aggregate_techniques), indent="      - "))
+        if sc.all_techniques:
+            print(f"    Available Techniques ({len(sc.all_techniques)}):")
+            print(_wrap(text=", ".join(sc.all_techniques), indent="      "))
+        if sc.default_technique:
+            print(f"    Default Technique: {sc.default_technique}")
         if sc.default_datasets:
-            suffix = f", max {sc.max_dataset_size} per dataset" if sc.max_dataset_size else ""
-            print(f"    Default Datasets ({len(sc.default_datasets)}{suffix}):")
+            print(f"    Default Datasets ({len(sc.default_datasets)}):")
             print(_wrap(text=", ".join(sc.default_datasets), indent="      "))
         if sc.supported_parameters:
             print("    Supported Parameters:")
             for p in sc.supported_parameters:
                 default_str = f" [default: {p.default!r}]" if p.default is not None else ""
-                type_str = f" ({p.param_type})" if p.param_type else ""
+                type_str = f" ({p.type_name})" if p.type_name else ""
                 choices_str = f" [choices: {', '.join(p.choices)}]" if p.choices else ""
                 print(f"      - {p.name}{type_str}{default_str}{choices_str}: {p.description}")
     print("\n" + "=" * 80)
@@ -182,15 +181,80 @@ def print_target_list(*, items: list[TargetInstance]) -> None:
     print("\nRegistered Targets:")
     print("=" * 80)
     for tgt in items:
+        identifier = tgt.identifier
         _header(tgt.target_registry_name)
-        print(f"    Class: {tgt.target_type}")
-        model = tgt.underlying_model_name or tgt.model_name or ""
+        print(f"    Class: {identifier.class_name}")
+        model = identifier.underlying_model_name or identifier.model_name or ""
         if model:
             print(f"    Model: {model}")
-        if tgt.endpoint:
-            print(f"    Endpoint: {tgt.endpoint}")
+        if identifier.endpoint:
+            print(f"    Endpoint: {identifier.endpoint}")
     print("\n" + "=" * 80)
     print(f"\nTotal targets: {len(items)}")
+
+
+# ---------------------------------------------------------------------------
+# Converter listing
+# ---------------------------------------------------------------------------
+
+
+def print_converter_list(*, items: list[dict[str, Any]]) -> None:
+    """
+    Print a formatted list of registered converter instances.
+
+    Args:
+        items: List of converter dicts from ``GET /api/converters``.
+    """
+    if not items:
+        print("\nNo converters found in registry.")
+        print(
+            "\nConverters are registered by initializers. Include an initializer that "
+            "registers converters to attach them to scenario techniques, for example:\n"
+            "  --techniques role_play:converter.translation_spanish\n"
+        )
+        return
+
+    print("\nRegistered Converters:")
+    print("=" * 80)
+    for conv in items:
+        name = conv.get("converter_id", "unknown")
+        _header(name)
+        print(f"    Class: {conv.get('converter_type', '')}")
+        display_name = conv.get("display_name") or ""
+        if display_name:
+            print(f"    Name: {display_name}")
+        sub_ids = conv.get("sub_converter_ids") or []
+        if sub_ids:
+            print(f"    Sub-converters: {', '.join(sub_ids)}")
+    print("\n" + "=" * 80)
+    print(f"\nTotal converters: {len(items)}")
+    print("\nAttach a converter to a scenario technique with, for example:")
+    print("  --techniques role_play:converter.<name>\n")
+
+
+# ---------------------------------------------------------------------------
+# Dataset listing
+# ---------------------------------------------------------------------------
+
+
+def print_dataset_list(*, items: list[dict[str, Any]]) -> None:
+    """
+    Print a formatted list of available datasets.
+
+    Args:
+        items: List of dataset dicts from ``GET /api/datasets``.
+    """
+    if not items:
+        print("No datasets found.")
+        return
+
+    print("\nAvailable Datasets:")
+    print("=" * 80)
+    for ds in items:
+        name = ds.get("name", "unknown")
+        print(f"    {name}")
+    print("=" * 80)
+    print(f"\nTotal datasets: {len(items)}")
 
 
 # ---------------------------------------------------------------------------
@@ -198,25 +262,25 @@ def print_target_list(*, items: list[TargetInstance]) -> None:
 # ---------------------------------------------------------------------------
 
 
-def print_scenario_run_progress(*, run: ScenarioRunSummary, total_strategies: int = 0) -> None:
+def print_scenario_run_progress(*, run: ScenarioRunSummary, total_techniques: int = 0) -> None:
     """
     Print a single-line progress update (overwrites the current line).
 
     Args:
         run: ``ScenarioRunSummary`` from ``GET /api/scenarios/runs/{id}``.
-        total_strategies: Total number of strategies expected (0 if unknown).
+        total_techniques: Total number of techniques expected (0 if unknown).
     """
-    strategies_done = len(run.strategies_used)
-    # Strategies the user passed may be aggregates that expand on the server
-    # (e.g. `single_turn` -> N concrete strategies). Trust whichever count is larger.
-    effective_total = max(total_strategies, strategies_done)
+    techniques_done = len(run.techniques_used)
+    # Techniques the user passed may be aggregates that expand on the server
+    # (e.g. `single_turn` -> N concrete techniques). Trust whichever count is larger.
+    effective_total = max(total_techniques, techniques_done)
 
     parts: list[str] = []
 
     if effective_total > 0:
-        parts.append(f"strategies: {strategies_done}/{effective_total}")
-    elif strategies_done > 0:
-        parts.append(f"strategies: {strategies_done}")
+        parts.append(f"techniques: {techniques_done}/{effective_total}")
+    elif techniques_done > 0:
+        parts.append(f"techniques: {techniques_done}")
 
     if run.total_attacks > 0:
         pct = int((run.completed_attacks / run.total_attacks) * 100)
@@ -253,8 +317,8 @@ def print_scenario_run_summary(*, run: ScenarioRunSummary) -> None:
     if run.error:
         print(f"  Error:          {run.error}")
 
-    if run.strategies_used:
-        print(f"  Strategies:     {', '.join(run.strategies_used)}")
+    if run.techniques_used:
+        print(f"  Techniques:     {', '.join(run.techniques_used)}")
 
 
 # ---------------------------------------------------------------------------

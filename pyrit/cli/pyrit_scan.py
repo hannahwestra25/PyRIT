@@ -23,7 +23,9 @@ from pyrit.cli._cli_args import (
     ARG_HELP,
     _parse_initializer_arg,
     build_parameters_from_api,
+    collapse_dataset_filters,
     non_negative_int,
+    parse_dataset_filter,
     positive_int,
     validate_log_level_argparse,
 )
@@ -34,7 +36,6 @@ if TYPE_CHECKING:
     from pyrit.models.catalog import (
         RegisteredScenario,
         RunScenarioRequest,
-        ScenarioParameterSummary,
         ScenarioRunSummary,
     )
     from pyrit.models.parameter import Parameter
@@ -87,22 +88,30 @@ Examples:
   # Start the backend server
   pyrit_scan --start-server
 
-  # List scenarios, initializers, or targets
+  # List scenarios, initializers, targets, or converters
   pyrit_scan --list-scenarios
   pyrit_scan --list-initializers
   pyrit_scan --list-targets
+  pyrit_scan --list-converters
+
+  # List available datasets
+  pyrit_scan --list-datasets
 
   # Run single-turn cyber attacks against a target
-  pyrit_scan airt.cyber --target openai_chat --strategies single_turn
+  pyrit_scan airt.cyber --target openai_chat --techniques single_turn
 
   # Run rapid response with specific datasets and concurrency
   pyrit_scan airt.rapid_response --target openai_chat
-    --strategies role_play --dataset-names airt_hate
+    --techniques role_play --dataset-names airt_hate
     --max-dataset-size 5 --max-concurrency 4
+
+  # Attach registered converters to a technique (repeatable, applied in order)
+  pyrit_scan airt.rapid_response --target openai_chat
+    --techniques role_play:converter.translation_spanish:converter.leetspeak
 
   # Run multi-turn red team agent with labels for tracking
   pyrit_scan airt.red_team_agent --target openai_chat
-    --strategies crescendo
+    --techniques crescendo
     --memory-labels '{"experiment":"baseline"}'
 
   # Register a custom initializer from a Python script
@@ -190,6 +199,16 @@ def _build_base_parser(*, add_help: bool = True) -> ArgumentParser:
         help="List all available targets and exit",
     )
     discovery_group.add_argument(
+        "--list-converters",
+        action="store_true",
+        help="List all registered converter instances and exit",
+    )
+    discovery_group.add_argument(
+        "--list-datasets",
+        action="store_true",
+        help="List all available datasets and exit",
+    )
+    discovery_group.add_argument(
         "--add-initializer",
         type=str,
         nargs="+",
@@ -217,12 +236,12 @@ def _build_base_parser(*, add_help: bool = True) -> ArgumentParser:
         help=ARG_HELP["initializers"],
     )
     run_group.add_argument(
-        "--strategies",
-        "-s",
+        "--techniques",
+        "-t",
         type=str,
         nargs="+",
-        dest="scenario_strategies",
-        help=ARG_HELP["scenario_strategies"],
+        dest="scenario_techniques",
+        help=ARG_HELP["scenario_techniques"],
     )
     run_group.add_argument(
         "--max-concurrency",
@@ -249,6 +268,13 @@ def _build_base_parser(*, add_help: bool = True) -> ArgumentParser:
         "--max-dataset-size",
         type=positive_int,
         help=ARG_HELP["max_dataset_size"],
+    )
+    run_group.add_argument(
+        "--dataset-filters",
+        type=parse_dataset_filter,
+        nargs="+",
+        metavar="KEY=VALUE",
+        help=ARG_HELP["dataset_filters"],
     )
 
     return parser
@@ -328,7 +354,7 @@ def _scenario_param_kwargs(*, parameter: Parameter) -> dict[str, Any]:
     return kwargs
 
 
-def _add_scenario_params_from_api(*, parser: ArgumentParser, params: list[ScenarioParameterSummary]) -> None:
+def _add_scenario_params_from_api(*, parser: ArgumentParser, params: list[Parameter]) -> None:
     """
     Add scenario-declared parameters as CLI flags.
 
@@ -452,6 +478,8 @@ def _is_command_specified(*, parsed_args: Namespace) -> bool:
         parsed_args.list_scenarios
         or parsed_args.list_initializers
         or parsed_args.list_targets
+        or parsed_args.list_converters
+        or parsed_args.list_datasets
         or parsed_args.add_initializer
         or parsed_args.scenario_name
     )
@@ -515,6 +543,14 @@ async def _handle_list_commands_async(*, client: Any, parsed_args: Namespace) ->
         targets = await client.list_targets_async()
         _output.print_target_list(items=targets)
         return 0
+    if parsed_args.list_datasets:
+        resp = await client.list_datasets_async()
+        _output.print_dataset_list(items=resp.get("items", []))
+        return 0
+    if parsed_args.list_converters:
+        resp = await client.list_converters_async()
+        _output.print_converter_list(items=resp.get("items", []))
+        return 0
     return None
 
 
@@ -545,9 +581,7 @@ async def _handle_add_initializer_async(*, client: Any, parsed_args: Namespace) 
     return 0
 
 
-def _reparse_with_scenario_params(
-    *, parsed_args: Namespace, supported_params: list[ScenarioParameterSummary]
-) -> Namespace | None:
+def _reparse_with_scenario_params(*, parsed_args: Namespace, supported_params: list[Parameter]) -> Namespace | None:
     """
     Re-parse the original args with scenario-declared flags added to the base parser.
 
@@ -609,8 +643,8 @@ def _build_run_request(*, parsed_args: Namespace, scenario_name: str) -> RunScen
         if init_args:
             kwargs["initializer_args"] = init_args
 
-    if parsed_args.scenario_strategies:
-        kwargs["strategies"] = parsed_args.scenario_strategies
+    if parsed_args.scenario_techniques:
+        kwargs["techniques"] = parsed_args.scenario_techniques
     if parsed_args.max_concurrency is not None:
         kwargs["max_concurrency"] = parsed_args.max_concurrency
     if parsed_args.max_retries is not None:
@@ -619,6 +653,8 @@ def _build_run_request(*, parsed_args: Namespace, scenario_name: str) -> RunScen
         kwargs["dataset_names"] = parsed_args.dataset_names
     if parsed_args.max_dataset_size is not None:
         kwargs["max_dataset_size"] = parsed_args.max_dataset_size
+    if parsed_args.dataset_filters:
+        kwargs["dataset_filters"] = collapse_dataset_filters(parsed_args.dataset_filters)
     if parsed_args.memory_labels:
         kwargs["labels"] = parse_memory_labels(json_string=parsed_args.memory_labels)
 
@@ -633,7 +669,7 @@ async def _poll_until_terminal_async(
     *,
     client: Any,
     scenario_result_id: str,
-    total_strategies: int,
+    total_techniques: int,
 ) -> ScenarioRunSummary:
     """
     Poll the server until the run reaches a terminal status.
@@ -648,7 +684,7 @@ async def _poll_until_terminal_async(
 
     while True:
         run = await client.get_scenario_run_async(scenario_result_id=scenario_result_id)
-        _output.print_scenario_run_progress(run=run, total_strategies=total_strategies)
+        _output.print_scenario_run_progress(run=run, total_techniques=total_techniques)
         if run.status in terminal_states:
             return run
         await asyncio.sleep(0.5)
@@ -672,7 +708,7 @@ async def _run_scenario_async(
     scenario_name = parsed_args.scenario_name
     request = _build_run_request(parsed_args=parsed_args, scenario_name=scenario_name)
 
-    total_strategies = len(request.strategies or scenario_meta.all_strategies or [])
+    total_techniques = len(request.techniques or scenario_meta.all_techniques or [])
     print(f"\nRunning scenario: {scenario_name}")
     sys.stdout.flush()
 
@@ -688,7 +724,7 @@ async def _run_scenario_async(
         run = await _poll_until_terminal_async(
             client=client,
             scenario_result_id=scenario_result_id,
-            total_strategies=total_strategies,
+            total_techniques=total_techniques,
         )
     except KeyboardInterrupt:
         print("\n\nCancelling scenario run...")

@@ -199,7 +199,7 @@ class TestBuildAtomicAttackIdentifier:
             attack_identifier=_make_attack(),
             seed_group=_FakeSeedGroup(seeds=[seed]),
         )
-        restored = ComponentIdentifier.from_dict(original.to_dict())
+        restored = ComponentIdentifier.model_validate(original.model_dump())
         assert restored.hash == original.hash
 
 
@@ -330,7 +330,7 @@ class TestAtomicAttackEvaluationIdentifier:
         wrapper = ComponentIdentifier(
             class_name="RoundRobinTarget",
             class_module="m",
-            params={"strategy": "round_robin"},
+            params={"technique": "round_robin"},
             children={"targets": [inner]},
         )
         a_bare = _make_attack(children={"adversarial_chat": bare})

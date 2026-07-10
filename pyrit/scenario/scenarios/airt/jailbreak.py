@@ -5,13 +5,8 @@ from pathlib import Path
 from typing import Any
 
 from pyrit.common import apply_defaults
-from pyrit.common.deprecation import print_deprecation_message  # Deprecated. Will be removed in 0.16.0.
 from pyrit.datasets import TextJailBreak
-from pyrit.executor.attack.core.attack_config import (
-    AttackAdversarialConfig,
-    AttackConverterConfig,
-    AttackScoringConfig,
-)
+from pyrit.executor.attack.core.attack_config import AttackAdversarialConfig, AttackConverterConfig, AttackScoringConfig
 from pyrit.executor.attack.single_turn.many_shot_jailbreak import ManyShotJailbreakAttack
 from pyrit.executor.attack.single_turn.prompt_sending import PromptSendingAttack
 from pyrit.executor.attack.single_turn.role_play import RolePlayAttack, RolePlayPaths
@@ -22,40 +17,37 @@ from pyrit.prompt_normalizer import PromptConverterConfiguration
 from pyrit.prompt_target.common.prompt_target import PromptTarget
 from pyrit.scenario.core.atomic_attack import AtomicAttack
 from pyrit.scenario.core.attack_technique import AttackTechnique
-from pyrit.scenario.core.dataset_configuration import (
-    DatasetAttackConfiguration,
-)
+from pyrit.scenario.core.dataset_configuration import DatasetAttackConfiguration
 from pyrit.scenario.core.scenario import Scenario
-from pyrit.scenario.core.scenario_strategy import ScenarioStrategy
+from pyrit.scenario.core.scenario_context import ScenarioContext
 from pyrit.scenario.core.scenario_target_defaults import get_default_adversarial_target
-from pyrit.score import (
-    TrueFalseScorer,
-)
+from pyrit.scenario.core.scenario_technique import ScenarioTechnique
+from pyrit.score import TrueFalseScorer
 
 
-class JailbreakStrategy(ScenarioStrategy):
+class JailbreakTechnique(ScenarioTechnique):
     """
-    Strategy for jailbreak attacks.
+    Technique for jailbreak attacks.
 
-    The SIMPLE strategy just sends the jailbroken prompt and records the response. It is meant to
+    The SIMPLE technique just sends the jailbroken prompt and records the response. It is meant to
     expose an obvious way of using this scenario without worrying about additional tweaks and changes
     to the prompt.
 
-    COMPLEX strategies use additional techniques to enhance the jailbreak like modifying the
+    COMPLEX techniques use additional techniques to enhance the jailbreak like modifying the
     system prompt or probing the target model for an additional vulnerability (e.g. the SkeletonKeyAttack).
     They are meant to provide a sense of how well a jailbreak generalizes to slight changes in the delivery
     method.
     """
 
-    # Aggregate members (special markers that expand to strategies with matching tags)
+    # Aggregate members (special markers that expand to techniques with matching tags)
     ALL = ("all", {"all"})
     SIMPLE = ("simple", {"simple"})
     COMPLEX = ("complex", {"complex"})
 
-    # Simple strategies
+    # Simple techniques
     PromptSending = ("prompt_sending", {"simple"})
 
-    # Complex strategies
+    # Complex techniques
     ManyShot = ("many_shot", {"complex"})
     SkeletonKey = ("skeleton", {"complex"})
     RolePlay = ("role_play", {"complex"})
@@ -97,7 +89,6 @@ class Jailbreak(Scenario):
         num_templates: int | None = None,
         num_attempts: int = 1,
         jailbreak_names: list[str] | None = None,
-        include_baseline: bool | None = None,  # Deprecated. Will be removed in 0.16.0.
     ) -> None:
         """
         Initialize the jailbreak scenario.
@@ -110,8 +101,6 @@ class Jailbreak(Scenario):
             num_attempts (int | None): Number of times to try each jailbreak.
             jailbreak_names (list[str] | None): List of jailbreak names from the template list under datasets.
                 to use.
-            include_baseline (bool | None): **Deprecated.** Will be removed in 0.16.0. Pass
-                ``include_baseline`` to ``initialize_async`` instead.
 
         Raises:
             ValueError: If both jailbreak_names and num_templates are provided, as random selection
@@ -154,25 +143,12 @@ class Jailbreak(Scenario):
 
         super().__init__(
             version=self.VERSION,
-            strategy_class=JailbreakStrategy,
-            default_strategy=JailbreakStrategy.SIMPLE,
+            technique_class=JailbreakTechnique,
+            default_technique=JailbreakTechnique.SIMPLE,
             default_dataset_config=DatasetAttackConfiguration(dataset_names=["airt_harms"], max_dataset_size=4),
             objective_scorer=self._objective_scorer,
             scenario_result_id=scenario_result_id,
         )
-
-        # Deprecated constructor-time baseline override. Will be removed in 0.16.0, along with
-        # the include_baseline kwarg above.
-        if include_baseline is not None:
-            print_deprecation_message(
-                old_item="Jailbreak(include_baseline=...)",
-                new_item="Jailbreak.initialize_async(include_baseline=...)",
-                removed_in="0.16.0",
-            )
-            self._legacy_include_baseline = include_baseline
-
-        # Will be resolved in _get_atomic_attacks_async
-        self._seed_groups: list[SeedAttackGroup] | None = None
 
     def _get_or_create_adversarial_target(self) -> PromptTarget:
         """
@@ -188,27 +164,16 @@ class Jailbreak(Scenario):
             self._adversarial_target = get_default_adversarial_target()
         return self._adversarial_target
 
-    async def _resolve_seed_groups_async(self) -> list[SeedAttackGroup]:
-        """
-        Resolve seed groups from dataset configuration.
-
-        Returns:
-            list[SeedAttackGroup]: List of seed attack groups with objectives to be tested.
-        """
-        # Use dataset_config (guaranteed to be set by initialize_async). Auto-fetch
-        # populates memory first; a still-empty result raises a DatasetConstraintError
-        # naming the offending dataset, which we let propagate.
-        return list(await self._dataset_config.get_seed_attack_groups_async())
-
-    async def _get_atomic_attack_from_strategy_async(
-        self, *, strategy: str, jailbreak_template_name: str
+    async def _get_atomic_attack_from_technique_async(
+        self, *, technique: str, jailbreak_template_name: str, seed_groups: list[SeedAttackGroup]
     ) -> AtomicAttack:
         """
         Create an atomic attack for a specific jailbreak template.
 
         Args:
-            strategy (str): JailbreakStrategy to use.
+            technique (str): JailbreakTechnique to use.
             jailbreak_template_name (str): Name of the jailbreak template file.
+            seed_groups (list[SeedAttackGroup]): Seed groups the attack draws from.
 
         Returns:
             AtomicAttack: An atomic attack using the specified jailbreak template.
@@ -238,7 +203,7 @@ class Jailbreak(Scenario):
             "attack_scoring_config": AttackScoringConfig(objective_scorer=self._objective_scorer),
             "attack_converter_config": converter_config,
         }
-        match strategy:
+        match technique:
             case "many_shot":
                 attack = ManyShotJailbreakAttack(**args)
             case "prompt_sending":
@@ -252,7 +217,7 @@ class Jailbreak(Scenario):
                 args["role_play_definition_path"] = RolePlayPaths.PERSUASION_SCRIPT.value
                 attack = RolePlayAttack(**args)
             case _:
-                raise ValueError(f"Unknown JailbreakStrategy `{strategy}`.")
+                raise ValueError(f"Unknown JailbreakTechnique `{technique}`.")
 
         if not attack:
             raise ValueError(f"Attack cannot be None!")
@@ -263,34 +228,32 @@ class Jailbreak(Scenario):
         return AtomicAttack(
             atomic_attack_name=f"jailbreak_{template_name}",
             attack_technique=AttackTechnique(attack=attack),
-            seed_groups=self._seed_groups or [],
+            seed_groups=seed_groups,
         )
 
-    async def _get_atomic_attacks_async(self) -> list[AtomicAttack]:
+    async def _build_atomic_attacks_async(self, *, context: ScenarioContext) -> list[AtomicAttack]:
         """
         Generate atomic attacks for each jailbreak template.
 
         This method creates an atomic attack for each retrieved jailbreak template.
+
+        Args:
+            context (ScenarioContext): The resolved runtime inputs for this run.
 
         Returns:
             list[AtomicAttack]: List of atomic attacks to execute, one per jailbreak template.
         """
         atomic_attacks: list[AtomicAttack] = []
 
-        # Retrieve seed prompts based on selected strategies
-        self._seed_groups = await self._resolve_seed_groups_async()
+        seed_groups = list(context.seed_groups)
+        techniques = {s.value for s in context.scenario_techniques}
 
-        strategies = {s.value for s in self._scenario_strategies}
-
-        for strategy in strategies:
+        for technique in techniques:
             for template_name in self._jailbreaks:
                 for _ in range(self._num_attempts):
-                    atomic_attack = await self._get_atomic_attack_from_strategy_async(
-                        strategy=strategy, jailbreak_template_name=template_name
+                    atomic_attack = await self._get_atomic_attack_from_technique_async(
+                        technique=technique, jailbreak_template_name=template_name, seed_groups=seed_groups
                     )
                     atomic_attacks.append(atomic_attack)
-
-        if self._include_baseline:
-            atomic_attacks.insert(0, self._build_baseline_atomic_attack(seed_groups=self._seed_groups or []))
 
         return atomic_attacks
