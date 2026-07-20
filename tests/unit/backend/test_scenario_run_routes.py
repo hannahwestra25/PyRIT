@@ -91,6 +91,22 @@ class TestStartScenarioRunRoute:
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "not found" in response.json()["detail"]
 
+    def test_start_run_preserves_safe_parameter_validation(self, client: TestClient) -> None:
+        """Known scenario parameter validation remains actionable."""
+        validation_message = "Unknown parameter 'bogus'. Valid parameters: objective, max_turns"
+        with patch("pyrit.backend.routes.scenarios.get_scenario_run_service") as mock_get:
+            mock_service = MagicMock()
+            mock_service.start_run_async = AsyncMock(side_effect=ClientRequestError(validation_message))
+            mock_get.return_value = mock_service
+
+            response = client.post(
+                "/api/scenarios/runs",
+                json={"scenario_name": "test.scenario", "target_name": "my_target", "scenario_params": {"bogus": 1}},
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == validation_message
+
     def test_start_run_missing_required_fields_returns_422(self, client: TestClient) -> None:
         """Test that missing required fields returns 422."""
         response = client.post("/api/scenarios/runs", json={})
@@ -303,6 +319,7 @@ class TestGetScenarioRunResultsRoute:
             conversation_id="conv-1",
             objective="Extract sensitive info",
             outcome=AttackOutcome.ERROR,
+            outcome_reason=f"Exception: ProviderConnectionError: {internal_detail}",
             executed_turns=1,
             execution_time_ms=100,
             timestamp=datetime(2025, 1, 1, tzinfo=timezone.utc),
@@ -344,4 +361,5 @@ class TestGetScenarioRunResultsRoute:
         assert response.status_code == status.HTTP_200_OK
         assert internal_detail not in response.text
         assert "api_key=sk-test" not in response.text
+        assert f"Exception: ProviderConnectionError: {internal_detail}" not in response.text
         assert "Attack execution failed. Check server logs for details." in response.text

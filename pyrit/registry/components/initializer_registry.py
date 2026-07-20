@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Any
 
 from pyrit.models import class_name_to_snake_case, validate_registry_name
 from pyrit.registry.discovery import discover_in_directory
+from pyrit.registry.exceptions import RegistryValidationError
 from pyrit.registry.registry import ParamBagRegistry
 from pyrit.registry.registry_metadata import RegistryMetadata
 
@@ -247,11 +248,14 @@ class InitializerRegistry(ParamBagRegistry["PyRITInitializer", InitializerMetada
 
         Raises:
             KeyError: If the name is not registered.
-            ValueError: If the configured parameters are invalid.
+            RegistryValidationError: If the configured parameters are invalid.
         """
         instance = self._create_and_configure(name, params=initializer_params or None)
         if initializer_params:
-            instance.validate_params()
+            try:
+                instance.validate_params()
+            except ValueError as exc:
+                raise RegistryValidationError(str(exc)) from exc
         return instance
 
     @staticmethod

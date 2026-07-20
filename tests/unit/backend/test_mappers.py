@@ -157,6 +157,21 @@ class TestAttackResultToSummary:
         assert summary.target is not None
         assert summary.target.target_type == "TextTarget"
 
+    async def test_error_outcome_reason_is_sanitized(self) -> None:
+        """Exception-derived outcome reasons are not exposed by attack APIs."""
+        internal_detail = r"provider secret=sk-test at C:\internal\provider.py"
+        ar = _make_attack_result().model_copy(
+            update={
+                "outcome": AttackOutcome.ERROR,
+                "outcome_reason": f"Exception: ProviderConnectionError: {internal_detail}",
+            }
+        )
+
+        summary = await attack_result_to_summary_async(ar, stats=ConversationStats(message_count=0))
+
+        assert summary.outcome_reason == "Attack execution failed. Check server logs for details."
+        assert internal_detail not in summary.model_dump_json()
+
     async def test_empty_pieces_gives_zero_messages(self) -> None:
         """Test mapping with no message pieces."""
         ar = _make_attack_result()

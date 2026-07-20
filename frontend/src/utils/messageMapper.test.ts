@@ -289,15 +289,18 @@ describe("messageMapper", () => {
     });
 
     it("should handle error response", () => {
+      const blockedMessage =
+        "The provider blocked this prompt because it matched a content filter";
       const msg: BackendMessage = {
         turn_number: 1,
         role: "assistant",
         message_pieces: [
           {
             id: "p1",
-            original_value_data_type: "text",
-            converted_value_data_type: "text",
-            converted_value: "",
+            original_value_data_type: "error",
+            converted_value_data_type: "error",
+            original_value: blockedMessage,
+            converted_value: blockedMessage,
             scores: [],
             response_error: "blocked",
             response_error_description: "Content was filtered",
@@ -311,6 +314,7 @@ describe("messageMapper", () => {
       expect(result.error).toBeDefined();
       expect(result.error!.type).toBe("blocked");
       expect(result.error!.description).toBe("Content was filtered");
+      expect(result.content).toBe(blockedMessage);
     });
 
     it("should sanitize internal error response content", () => {

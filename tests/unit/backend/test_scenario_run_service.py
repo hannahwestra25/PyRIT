@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 import pyrit.backend.services.scenario_run_service as _svc_mod
+from pyrit.backend.exceptions import ClientRequestError
 from pyrit.backend.services.scenario_run_service import (
     _DEFAULT_MAX_CONCURRENT_RUNS,
     ScenarioRunService,
@@ -19,6 +20,7 @@ from pyrit.backend.services.scenario_run_service import (
 from pyrit.converter import Converter
 from pyrit.models import AttackOutcome, AttackResult, ComponentIdentifier, ScenarioRunState
 from pyrit.models.catalog.scenario import RunScenarioRequest
+from pyrit.registry import RegistryValidationError
 from pyrit.scenario.core import DatasetAttackConfiguration, DatasetConfiguration
 from pyrit.scenario.core.scenario_technique import ScenarioTechnique
 from unit.mocks import make_scenario_result
@@ -529,6 +531,17 @@ class TestScenarioRunServiceStartRun:
         call = mock_sr.create_and_initialize_async.await_args
         assert call.args[0] == "foundry.red_team_agent"
         assert call.kwargs["scenario_result_id"] == "existing-result-uuid"
+
+    async def test_start_run_exposes_registry_parameter_validation(self, mock_all_registries) -> None:
+        """Scenario parameter resolution failures are marked safe for API clients."""
+        validation_message = "Unknown parameter 'bogus'. Valid parameters: objective, max_turns"
+        mock_all_registries["scenario_registry"].create_and_initialize_async.side_effect = RegistryValidationError(
+            validation_message
+        )
+        service = ScenarioRunService()
+
+        with pytest.raises(ClientRequestError, match="Unknown parameter 'bogus'"):
+            await service.start_run_async(request=_make_request())
 
     async def test_start_run_omits_scenario_result_id_when_none(self, mock_all_registries) -> None:
         """Test that scenario_result_id is None when not provided in the request."""

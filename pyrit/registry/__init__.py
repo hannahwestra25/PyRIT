@@ -18,6 +18,7 @@ from pyrit.registry.components import (
     TargetRegistry,
 )
 from pyrit.registry.discovery import discover_in_directory
+from pyrit.registry.exceptions import RegistryValidationError
 from pyrit.registry.instance_registry import (
     DefaultInstanceRegistry,
     InstanceRegistry,
@@ -38,6 +39,7 @@ __all__ = [
     "ParamBagRegistry",
     "Registry",
     "RegistryMetadata",
+    "RegistryValidationError",
     "SupportsInstances",
     "discover_in_directory",
     "InitializerMetadata",

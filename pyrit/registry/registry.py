@@ -31,6 +31,7 @@ import logging
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar
 
+from pyrit.registry.exceptions import RegistryValidationError
 from pyrit.registry.registry_metadata import RegistryMetadata
 from pyrit.registry.resolution import (
     derive_parameters,
@@ -616,15 +617,19 @@ class Registry(ABC, Generic[T, MetadataT]):
 
         Raises:
             KeyError: If the name is not registered.
-            ValueError: If an argument is not a valid constructor parameter, a
+            RegistryValidationError: If an argument is not a valid constructor parameter, a
                 registry reference cannot be resolved, or a value cannot be coerced.
+            ValueError: If the component constructor rejects the resolved arguments.
         """
         cls = self.get_class(name)
-        resolved = resolve_constructor_args(
-            cls=cls,
-            raw_args=dict(kwargs),
-            identifier_type=self._identifier_type(),
-        )
+        try:
+            resolved = resolve_constructor_args(
+                cls=cls,
+                raw_args=dict(kwargs),
+                identifier_type=self._identifier_type(),
+            )
+        except ValueError as exc:
+            raise RegistryValidationError(str(exc)) from exc
         return cls(**resolved)
 
     def __contains__(self, name: str) -> bool:
@@ -700,8 +705,15 @@ class ParamBagRegistry(Registry[ConfigurableT, MetadataT]):
         Returns:
             ConfigurableT: The constructed, parameterized instance. The caller owns
             any further lifecycle steps (initialize / validate).
+
+        Raises:
+            RegistryValidationError: If constructor arguments or parameter-bag values
+            cannot be resolved, coerced, or validated.
         """
         instance = self.create_instance(name, **(constructor_kwargs or {}))
         if params is not None:
-            instance.set_params_from_args(args=params)
+            try:
+                instance.set_params_from_args(args=params)
+            except ValueError as exc:
+                raise RegistryValidationError(str(exc)) from exc
         return instance

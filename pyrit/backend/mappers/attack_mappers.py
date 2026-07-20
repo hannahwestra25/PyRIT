@@ -36,6 +36,7 @@ from pyrit.backend.models.attacks import (
 from pyrit.memory import CentralMemory
 from pyrit.models import (
     MEDIA_PATH_DATA_TYPES,
+    AttackOutcome,
     AttackResult,
     ChatMessageRole,
     Message,
@@ -45,6 +46,8 @@ from pyrit.models import (
 )
 
 logger = logging.getLogger(__name__)
+
+_ATTACK_ERROR_MESSAGE = "Attack execution failed. Check server logs for details."
 
 if TYPE_CHECKING:
     from pyrit.models.conversation_stats import ConversationStats
@@ -212,6 +215,8 @@ async def attack_result_to_summary_async(
     created_at, updated_at = _resolve_summary_timestamps(ar)
 
     data = {name: getattr(ar, name) for name in AttackResult.model_fields}
+    if ar.outcome == AttackOutcome.ERROR:
+        data["outcome_reason"] = _ATTACK_ERROR_MESSAGE
     data.update(
         last_response=await _summary_last_response_async(ar.last_response),
         last_score=ScoreView.from_domain(ar.last_score) if ar.last_score else None,

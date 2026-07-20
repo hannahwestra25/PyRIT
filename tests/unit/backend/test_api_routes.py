@@ -911,6 +911,23 @@ class TestTargetRoutes:
             )
 
             assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert response.json()["detail"] == "Target type not found"
+
+    def test_create_target_preserves_safe_parameter_validation(self, client: TestClient) -> None:
+            """Known registry parameter validation remains actionable."""
+            validation_message = "Unknown parameter 'bogus'. Valid parameters: endpoint, model_name"
+            with patch("pyrit.backend.routes.targets.get_target_service") as mock_get_service:
+                mock_service = MagicMock()
+                mock_service.create_target_async = AsyncMock(side_effect=ClientRequestError(validation_message))
+                mock_get_service.return_value = mock_service
+
+                response = client.post(
+                    "/api/targets",
+                    json={"type": "TextTarget", "params": {"bogus": "value"}},
+                )
+
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert response.json()["detail"] == validation_message
 
     def test_create_target_internal_error(self, client: TestClient) -> None:
         """Test target creation with internal error returns 500."""
@@ -1126,6 +1143,22 @@ class TestConverterRoutes:
             )
 
             assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_create_converter_preserves_safe_parameter_validation(self, client: TestClient) -> None:
+            """Known registry parameter validation remains actionable."""
+            validation_message = "Could not coerce parameter 'caesar_offset' to int"
+            with patch("pyrit.backend.routes.converters.get_converter_service") as mock_get_service:
+                mock_service = MagicMock()
+                mock_service.create_converter_async = AsyncMock(side_effect=ClientRequestError(validation_message))
+                mock_get_service.return_value = mock_service
+
+                response = client.post(
+                    "/api/converters",
+                    json={"type": "CaesarConverter", "params": {"caesar_offset": "invalid"}},
+                )
+
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert response.json()["detail"] == validation_message
 
     def test_create_converter_internal_error(self, client: TestClient) -> None:
         """Test converter creation with internal error returns 500."""

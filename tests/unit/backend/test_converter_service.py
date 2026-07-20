@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from pyrit import converter
+from pyrit.backend.exceptions import ClientRequestError
 from pyrit.backend.models.converters import (
     ConverterPreviewRequest,
     CreateConverterRequest,
@@ -239,6 +240,28 @@ class TestCreateConverter:
         # Object should be retrievable from registry
         converter_obj = service.get_converter_object(converter_id=result.converter_id)
         assert converter_obj is not None
+
+    async def test_create_converter_exposes_registry_parameter_validation(self) -> None:
+        """Registry argument validation is explicitly marked safe for API clients."""
+        service = ConverterService()
+        request = CreateConverterRequest(type="Base64Converter", params={"not_a_param": "value"})
+
+        with pytest.raises(ClientRequestError, match="Unknown parameter 'not_a_param'"):
+            await service.create_converter_async(request=request)
+
+    async def test_create_converter_does_not_mark_constructor_value_error_safe(self) -> None:
+        """Constructor failures remain ordinary ValueErrors for route sanitization."""
+        internal_detail = r"provider secret=sk-test at C:\internal\converter.py"
+        service = ConverterService()
+        request = CreateConverterRequest(type="Base64Converter", params={})
+
+        with (
+            patch.object(service._registry, "create_instance", side_effect=ValueError(internal_detail)),
+            pytest.raises(ValueError, match="sk-test") as exc_info,
+        ):
+            await service.create_converter_async(request=request)
+
+        assert type(exc_info.value) is ValueError
 
 
 class TestPersistDataUriParams:

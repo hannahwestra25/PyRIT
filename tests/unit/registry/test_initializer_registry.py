@@ -8,6 +8,7 @@ from unittest.mock import patch
 import pytest
 
 from pyrit.models.parameter import Parameter
+from pyrit.registry import RegistryValidationError
 from pyrit.registry.components.initializer_registry import PYRIT_PATH, InitializerRegistry
 from pyrit.setup.pyrit_initializer import PyRITInitializer
 
@@ -300,11 +301,11 @@ def test_create_and_configure_without_params_leaves_instance_unconfigured(lazy_r
     assert instance.params == {}
 
 
-def test_create_and_configure_unknown_param_raises_value_error(lazy_registry):
-    """Test that an unknown parameter raises ValueError during configuration."""
+def test_create_and_configure_unknown_param_raises_registry_validation_error(lazy_registry):
+    """Test that an unknown parameter is identified as registry validation."""
     lazy_registry.register_class(_ParamInitializer, name="param_init")
 
-    with pytest.raises(ValueError, match="unknown parameter"):
+    with pytest.raises(RegistryValidationError, match="unknown parameter"):
         lazy_registry.create_and_configure("param_init", initializer_params={"bogus": "x"})
 
 

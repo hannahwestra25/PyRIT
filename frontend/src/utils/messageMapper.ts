@@ -191,7 +191,7 @@ function isInternalErrorPiece(piece: BackendMessagePiece): boolean {
   return (
     piece.response_error === 'processing' ||
     piece.response_error === 'unknown' ||
-    piece.converted_value_data_type === 'error'
+    (piece.response_error !== 'blocked' && piece.converted_value_data_type === 'error')
   )
 }
 

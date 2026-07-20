@@ -17,6 +17,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from pyrit.registry import RegistryValidationError
 from pyrit.registry.registry import Registry, _get_metadata_value, _matches_filters
 from pyrit.registry.registry_metadata import RegistryMetadata
 
@@ -34,6 +35,11 @@ class SampleWidget:
 class UndocumentedWidget:
     def __init__(self, *, size: int = 1) -> None:
         self.size = size
+
+
+class ExplodingWidget:
+    def __init__(self, *, detail: str) -> None:
+        raise ValueError(detail)
 
 
 class UnregisteredWidget:
@@ -115,6 +121,24 @@ def test_create_instance_builds_object():
 
     assert isinstance(widget, SampleWidget)
     assert widget.size == 3
+
+
+def test_create_instance_wraps_only_resolution_value_errors():
+    registry = WidgetRegistry()
+
+    with pytest.raises(RegistryValidationError, match="Unknown parameter 'unknown'"):
+        registry.create_instance("SampleWidget", unknown="value")
+
+
+def test_create_instance_preserves_constructor_value_errors():
+    registry = WidgetRegistry()
+    registry.register_class(ExplodingWidget)
+    internal_detail = r"provider secret=sk-test at C:\internal\widget.py"
+
+    with pytest.raises(ValueError, match="sk-test") as exc_info:
+        registry.create_instance("ExplodingWidget", detail=internal_detail)
+
+    assert type(exc_info.value) is ValueError
 
 
 def test_lazy_discovery_defers_until_access():

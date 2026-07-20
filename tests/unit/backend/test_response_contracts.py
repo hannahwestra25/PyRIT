@@ -109,6 +109,25 @@ class TestMessagePieceViewContract:
         assert "response_error_description" in dumped
         assert dumped["scores"] == []
 
+    def test_blocked_error_piece_preserves_public_message(self) -> None:
+        """Blocked error pieces retain their public content-filter explanation."""
+        blocked_message = "The provider blocked this prompt because it matched a content filter."
+        piece = MessagePiece(
+            role="assistant",
+            original_value=blocked_message,
+            original_value_data_type="error",
+            converted_value=blocked_message,
+            converted_value_data_type="error",
+            conversation_id="conversation-id",
+            sequence=1,
+            response_error="blocked",
+        )
+
+        view = MessagePieceView.from_domain(piece)
+
+        assert view.original_value == blocked_message
+        assert view.converted_value == blocked_message
+
     def test_scores_are_score_views(self) -> None:
         """Test that nested scores serialize with the ScoreView computed field."""
         piece = _make_piece()

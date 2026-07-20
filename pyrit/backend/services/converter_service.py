@@ -36,6 +36,7 @@ from pyrit.backend.models.converters import (
 )
 from pyrit.memory import data_serializer_factory
 from pyrit.models import PromptDataType
+from pyrit.registry import RegistryValidationError
 from pyrit.registry.components import ConverterRegistry
 
 
@@ -149,7 +150,10 @@ class ConverterService:
         if request.type not in self._registry:
             raise ClientRequestError(f"Converter type '{request.type}' not found")
         params = await self._persist_data_uri_params_async(converter_type=request.type, params=request.params)
-        converter_obj = self._registry.create_instance(request.type, **params)
+        try:
+            converter_obj = self._registry.create_instance(request.type, **params)
+        except RegistryValidationError as exc:
+            raise ClientRequestError(str(exc)) from exc
         self._registry.instances.register(converter_obj, name=converter_id)
 
         return CreateConverterResponse(

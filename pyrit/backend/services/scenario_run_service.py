@@ -27,6 +27,7 @@ from pyrit.models.catalog.scenario import (
 from pyrit.registry import (
     ConverterRegistry,
     InitializerRegistry,
+    RegistryValidationError,
     ScenarioRegistry,
     TargetRegistry,
 )
@@ -79,6 +80,8 @@ def _sanitize_scenario_result(scenario_result: ScenarioResult) -> ScenarioResult
 
     for attack_results in sanitized.attack_results.values():
         for attack_result in attack_results:
+            if attack_result.outcome == AttackOutcome.ERROR:
+                attack_result.outcome_reason = _ATTACK_ERROR_MESSAGE
             if attack_result.error_message or attack_result.error_type or attack_result.error_traceback:
                 attack_result.error_message = _ATTACK_ERROR_MESSAGE
                 attack_result.error_type = "AttackExecutionError"
@@ -290,6 +293,8 @@ class ScenarioRunService:
                 )
             except KeyError as e:
                 raise ClientRequestError(f"Initializer not found: {e}") from None
+            except RegistryValidationError as exc:
+                raise ClientRequestError(str(exc)) from exc
             await instance.initialize_async()
 
     def _resolve_target(self, *, request: RunScenarioRequest) -> "PromptTarget":
@@ -557,12 +562,15 @@ class ScenarioRunService:
             The fully initialized Scenario instance ready for run_async.
         """
         scenario_registry = ScenarioRegistry.get_registry_singleton()
-        return await scenario_registry.create_and_initialize_async(
-            request.scenario_name,
-            scenario_params=request.scenario_params or {},
-            scenario_result_id=request.scenario_result_id or None,
-            **init_kwargs,
-        )
+        try:
+            return await scenario_registry.create_and_initialize_async(
+                request.scenario_name,
+                scenario_params=request.scenario_params or {},
+                scenario_result_id=request.scenario_result_id or None,
+                **init_kwargs,
+            )
+        except RegistryValidationError as exc:
+            raise ClientRequestError(str(exc)) from exc
 
     async def _execute_run_async(self, *, scenario_result_id: str) -> None:
         """

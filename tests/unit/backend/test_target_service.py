@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from pyrit.backend.exceptions import ClientRequestError
 from pyrit.backend.models.targets import CreateTargetRequest
 from pyrit.backend.services.target_service import TargetService, get_target_service
 from pyrit.models import ComponentIdentifier
@@ -368,8 +369,22 @@ class TestCreateTarget:
             params={"level": "unknown"},
         )
 
-        with pytest.raises(ValueError, match="Parameter 'level'.*expected one of"):
+        with pytest.raises(ClientRequestError, match="Parameter 'level'.*expected one of"):
             await service.create_target_async(request=request)
+
+    async def test_create_target_does_not_mark_constructor_value_error_safe(self) -> None:
+        """Constructor failures remain ordinary ValueErrors for route sanitization."""
+        internal_detail = r"provider secret=sk-test at C:\internal\target.py"
+        service = TargetService()
+        request = CreateTargetRequest(type="TextTarget", params={})
+
+        with (
+            patch.object(service._registry, "create_instance", side_effect=ValueError(internal_detail)),
+            pytest.raises(ValueError, match="sk-test") as exc_info,
+        ):
+            await service.create_target_async(request=request)
+
+        assert type(exc_info.value) is ValueError
 
     async def test_create_azure_blob_target_coerces_content_type_string(self, sqlite_instance) -> None:
         """An explicit blob content type from JSON is coerced before target construction."""

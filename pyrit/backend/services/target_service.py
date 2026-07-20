@@ -26,7 +26,7 @@ from pyrit.backend.models.targets import (
     TargetListResponse,
 )
 from pyrit.models.catalog.target import TargetInstance
-from pyrit.registry import TargetRegistry
+from pyrit.registry import RegistryValidationError, TargetRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -189,7 +189,10 @@ class TargetService:
             # Omit any api_key so the target validates its own endpoint and authenticates itself.
             params.pop("api_key", None)
 
-        target_obj = self._registry.create_instance(request.type, **params)
+        try:
+            target_obj = self._registry.create_instance(request.type, **params)
+        except RegistryValidationError as exc:
+            raise ClientRequestError(str(exc)) from exc
 
         self._registry.instances.register(target_obj)
 

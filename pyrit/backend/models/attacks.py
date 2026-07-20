@@ -143,7 +143,9 @@ class MessagePieceView(MessagePiece):
             A ``MessagePieceView`` with derived MIME types, filenames, and views.
         """
         data = {name: getattr(piece, name) for name in MessagePiece.model_fields}
-        if piece.response_error in ("processing", "unknown") or piece.converted_value_data_type == "error":
+        if piece.response_error in ("processing", "unknown") or (
+            piece.response_error != "blocked" and piece.converted_value_data_type == "error"
+        ):
             data.update(
                 original_value=cls._INTERNAL_ERROR_MESSAGE,
                 original_value_sha256=None,
