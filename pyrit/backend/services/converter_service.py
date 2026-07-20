@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+from pyrit.backend.exceptions import ClientRequestError
 from pyrit.backend.mappers.converter_mappers import converter_object_to_instance
 from pyrit.backend.models import DEFAULT_MEDIA_EXTENSIONS
 from pyrit.backend.models.converters import (
@@ -146,7 +147,7 @@ class ConverterService:
         # construction (incl. param coercion and reference resolution) to the
         # converter registry.
         if request.type not in self._registry:
-            raise ValueError(f"Converter type '{request.type}' not found")
+            raise ClientRequestError(f"Converter type '{request.type}' not found")
         params = await self._persist_data_uri_params_async(converter_type=request.type, params=request.params)
         converter_obj = self._registry.create_instance(request.type, **params)
         self._registry.instances.register(converter_obj, name=converter_id)
@@ -235,7 +236,7 @@ class ConverterService:
         for conv_id in converter_ids:
             conv_obj = self.get_converter_object(converter_id=conv_id)
             if conv_obj is None:
-                raise ValueError(f"Converter instance '{conv_id}' not found")
+                raise ClientRequestError(f"Converter instance '{conv_id}' not found")
             converters.append(conv_obj)
         return converters
 
@@ -318,7 +319,7 @@ class ConverterService:
         for conv_id in converter_ids:
             conv_obj = self.get_converter_object(converter_id=conv_id)
             if conv_obj is None:
-                raise ValueError(f"Converter instance '{conv_id}' not found")
+                raise ClientRequestError(f"Converter instance '{conv_id}' not found")
             conv_type = conv_obj.__class__.__name__
             converters.append((conv_id, conv_type, conv_obj))
         return converters

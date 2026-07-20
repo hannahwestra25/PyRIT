@@ -56,16 +56,18 @@ describe('toApiError', () => {
   })
 
   // 2. Axios error with plain-string body (e.g. proxy HTML)
-  it('uses a plain-string response body as detail', () => {
+  it('sanitizes a plain-string server error response', () => {
+    const internalDetail = '<html>C:\\internal\\proxy.conf secret=sk-test</html>'
     const err = makeAxiosError({
       status: 502,
-      data: '<html><body>Bad Gateway</body></html>',
+      data: internalDetail,
     })
 
     const result = toApiError(err)
 
     expect(result.status).toBe(502)
-    expect(result.detail).toBe('<html><body>Bad Gateway</body></html>')
+    expect(result.detail).toBe('The server could not complete the request. Please try again.')
+    expect(result.detail).not.toContain(internalDetail)
     expect(result.type).toBeUndefined()
     expect(result.isNetworkError).toBe(false)
   })
@@ -80,7 +82,7 @@ describe('toApiError', () => {
     const result = toApiError(err)
 
     expect(result.status).toBe(500)
-    expect(result.detail).toBe('Server error (500)')
+    expect(result.detail).toBe('The server could not complete the request. Please try again.')
     expect(result.type).toBeUndefined()
   })
 
@@ -116,24 +118,26 @@ describe('toApiError', () => {
   })
 
   // 6. Non-Axios Error instance
-  it('uses Error.message for non-Axios Error instances', () => {
-    const err = new Error('Something broke')
+  it('sanitizes non-Axios Error messages', () => {
+    const err = new Error('secret=sk-test at C:\\internal\\runtime.ts')
 
     const result = toApiError(err)
 
     expect(result.status).toBeNull()
-    expect(result.detail).toBe('Something broke')
+    expect(result.detail).toBe('An unexpected error occurred.')
+    expect(result.detail).not.toContain('sk-test')
     expect(result.isNetworkError).toBe(false)
     expect(result.isTimeout).toBe(false)
     expect(result.raw).toBe(err)
   })
 
   // 7. String throw
-  it('uses the string directly for string throws', () => {
-    const result = toApiError('unexpected failure')
+  it('sanitizes string throws', () => {
+    const result = toApiError('provider deployment secret-model failed')
 
     expect(result.status).toBeNull()
-    expect(result.detail).toBe('unexpected failure')
+    expect(result.detail).toBe('An unexpected error occurred.')
+    expect(result.detail).not.toContain('secret-model')
     expect(result.isNetworkError).toBe(false)
   })
 
@@ -161,6 +165,16 @@ describe('toApiError', () => {
 
     expect(result.status).toBe(403)
     expect(result.detail).toBe('Server error (403)')
+  })
+
+  it('does not expose plain-string client error bodies', () => {
+    const internalDetail = 'provider token secret=sk-test at C:\\internal\\proxy.conf'
+    const err = makeAxiosError({ status: 400, data: internalDetail })
+
+    const result = toApiError(err)
+
+    expect(result.detail).toBe('Server error (400)')
+    expect(result.detail).not.toContain(internalDetail)
   })
 
   // 11. Error with empty message

@@ -8,8 +8,11 @@ Provides endpoints for managing target instances.
 Target types are set at app startup via initializers - you cannot add new types at runtime.
 """
 
+import logging
+
 from fastapi import APIRouter, HTTPException, Query, status
 
+from pyrit.backend.exceptions import ClientRequestError
 from pyrit.backend.models.common import ProblemDetail
 from pyrit.backend.models.targets import (
     CreateTargetRequest,
@@ -18,6 +21,8 @@ from pyrit.backend.models.targets import (
 )
 from pyrit.backend.services.target_service import get_target_service
 from pyrit.models.catalog.target import TargetInstance
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/targets", tags=["targets"])
 
@@ -92,15 +97,22 @@ async def create_target(
 
     try:
         return await service.create_target_async(request=request)
-    except ValueError as e:
+    except ClientRequestError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
+    except ValueError as e:
+        logger.warning("Invalid target configuration: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Target parameters are invalid.",
+        ) from e
     except Exception as e:
+        logger.exception("Failed to create target")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create target: {str(e)}",
+            detail="Failed to create target. Check server logs for details.",
         ) from e
 
 

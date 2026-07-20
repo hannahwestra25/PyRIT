@@ -93,7 +93,8 @@ class TestErrorHandlers:
         assert data["type"] == "/errors/bad-request"
         assert data["title"] == "Bad Request"
         assert data["status"] == 400
-        assert "Invalid input value" in data["detail"]
+        assert data["detail"] == "The request could not be processed"
+        assert "Invalid input value" not in response.text
 
     def test_file_not_found_error_returns_404(self, app: FastAPI, client: TestClient) -> None:
         """Test that FileNotFoundError returns 404 with RFC 7807 format."""
@@ -156,6 +157,34 @@ class TestErrorHandlers:
         assert data["status"] == 500
         # Should not leak internal error details
         assert "An unexpected error occurred" in data["detail"]
+        assert "Something went wrong" not in response.text
+
+    @pytest.mark.parametrize(
+        ("exception", "expected_status"),
+        [
+            (ValueError("secret=sk-test-value"), 400),
+            (FileNotFoundError(r"C:\internal\secrets.json"), 404),
+            (PermissionError("provider token verification failed"), 403),
+            (NotImplementedError("provider deployment detail"), 501),
+        ],
+    )
+    def test_expected_exception_details_are_not_returned(
+        self,
+        app: FastAPI,
+        client: TestClient,
+        exception: Exception,
+        expected_status: int,
+    ) -> None:
+        """Test that exception handlers do not expose exception-derived details."""
+
+        @app.get("/test")
+        async def test_endpoint() -> dict:
+            raise exception
+
+        response = client.get("/test")
+
+        assert response.status_code == expected_status
+        assert str(exception) not in response.text
 
     def test_error_response_includes_instance(self, app: FastAPI, client: TestClient) -> None:
         """Test that error responses include the request path as instance."""

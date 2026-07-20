@@ -8,8 +8,11 @@ Provides endpoints for managing converter instances and previewing conversions.
 Converter types are set at app startup - you cannot add new types at runtime.
 """
 
+import logging
+
 from fastapi import APIRouter, HTTPException, status
 
+from pyrit.backend.exceptions import ClientRequestError
 from pyrit.backend.models.common import ProblemDetail
 from pyrit.backend.models.converters import (
     ConverterCatalogResponse,
@@ -21,6 +24,8 @@ from pyrit.backend.models.converters import (
     CreateConverterResponse,
 )
 from pyrit.backend.services.converter_service import get_converter_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/converters", tags=["converters"])
 
@@ -79,15 +84,22 @@ async def create_converter(request: CreateConverterRequest) -> CreateConverterRe
 
     try:
         return await service.create_converter_async(request=request)
-    except ValueError as e:
+    except ClientRequestError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
+    except ValueError as e:
+        logger.warning("Invalid converter configuration: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Converter parameters are invalid.",
+        ) from e
     except Exception as e:
+        logger.exception("Failed to create converter")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create converter: {str(e)}",
+            detail="Failed to create converter. Check server logs for details.",
         ) from e
 
 
@@ -138,13 +150,20 @@ async def preview_conversion(request: ConverterPreviewRequest) -> ConverterPrevi
 
     try:
         return await service.preview_conversion_async(request=request)
-    except ValueError as e:
+    except ClientRequestError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
+    except ValueError as e:
+        logger.warning("Invalid converter preview configuration: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Converter preview parameters are invalid.",
+        ) from e
     except Exception as e:
+        logger.exception("Failed to preview converter")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Converter preview failed: {str(e)}",
+            detail="Converter preview failed. Check server logs for details.",
         ) from e

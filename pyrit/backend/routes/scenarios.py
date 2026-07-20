@@ -14,6 +14,7 @@ Route structure:
 
 from fastapi import APIRouter, HTTPException, Query, status
 
+from pyrit.backend.exceptions import ClientRequestError
 from pyrit.backend.models.common import ProblemDetail
 from pyrit.backend.models.scenarios import (
     ListRegisteredScenariosResponse,
@@ -114,7 +115,7 @@ async def start_scenario_run(request: RunScenarioRequest) -> ScenarioRunSummary:
     service = get_scenario_run_service()
     try:
         return await service.start_run_async(request=request)
-    except ValueError as e:
+    except ClientRequestError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from None
 
 
@@ -184,7 +185,7 @@ async def cancel_scenario_run(scenario_result_id: str) -> ScenarioRunSummary:  #
     service = get_scenario_run_service()
     try:
         result = await service.cancel_run_async(scenario_result_id=scenario_result_id)
-    except ValueError as e:
+    except ClientRequestError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from None
 
     if result is None:
@@ -216,7 +217,7 @@ async def get_scenario_run_results(scenario_result_id: str) -> ScenarioResult:  
     service = get_scenario_run_service()
     try:
         result = service.get_run_results(scenario_result_id=scenario_result_id)
-    except ValueError as e:
+    except ClientRequestError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from None
 
     if result is None:

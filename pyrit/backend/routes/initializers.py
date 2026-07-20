@@ -13,6 +13,8 @@ Route structure:
     DELETE /api/initializers/{name}         — unregister an initializer
 """
 
+import logging
+
 from fastapi import APIRouter, HTTPException, Query, Request, status
 
 from pyrit.backend.models.common import ProblemDetail
@@ -22,6 +24,8 @@ from pyrit.backend.models.initializers import (
 )
 from pyrit.backend.services.initializer_service import get_initializer_service
 from pyrit.models.catalog.initializer import RegisteredInitializer
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/initializers", tags=["initializers"])
 
@@ -130,9 +134,13 @@ async def register_initializer(  # pyrit-async-suffix-exempt
         return await service.register_initializer_async(name=body.name, script_content=body.script_content)
     except ValueError as e:
         detail = str(e)
-        if "already registered" in detail:
+        if detail.startswith(f"Initializer '{body.name}' is already registered."):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail) from None
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail) from None
+        logger.warning("Failed to register initializer '%s': %s", body.name, e)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Initializer script is invalid or could not be loaded.",
+        ) from None
 
 
 @router.delete(
@@ -164,9 +172,16 @@ async def unregister_initializer(  # pyrit-async-suffix-exempt
     try:
         await service.unregister_initializer_async(initializer_name=initializer_name)
     except ValueError as e:
+        detail = str(e)
+        if detail.startswith("Cannot remove built-in initializer"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=detail,
+            ) from None
+        logger.warning("Failed to unregister initializer '%s': %s", initializer_name, e)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
+            detail="The initializer could not be removed.",
         ) from None
     except KeyError:
         raise HTTPException(

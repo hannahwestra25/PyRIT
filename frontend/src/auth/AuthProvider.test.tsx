@@ -146,9 +146,11 @@ describe("AuthProvider", () => {
     });
   });
 
-  // Test 13: fetchAuthConfig rejects with Error → err.message shown
-  it("shows error when initialization fails with Error", async () => {
-    mockFetchAuthConfig.mockRejectedValue(new Error("Config fetch failed"));
+  // Test 13: fetchAuthConfig rejects with Error → generic message shown
+  it("shows a generic error when initialization fails with Error", async () => {
+    mockFetchAuthConfig.mockRejectedValue(
+      new Error("token secret=sk-test failed at C:\\internal\\auth.ts")
+    );
 
     render(
       <AuthProvider>
@@ -158,7 +160,8 @@ describe("AuthProvider", () => {
 
     await waitFor(() => {
       expect(screen.getByText("Authentication Error")).toBeVisible();
-      expect(screen.getByText("Config fetch failed")).toBeVisible();
+      expect(screen.getByText("Failed to initialize authentication")).toBeVisible();
+      expect(screen.queryByText(/sk-test|internal\\auth/i)).not.toBeInTheDocument();
     });
   });
 

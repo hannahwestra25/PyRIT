@@ -4,7 +4,7 @@ import type { FallbackProps } from 'react-error-boundary'
 import type { ReactNode } from 'react'
 import { Button, MessageBar, MessageBarBody, tokens } from '@fluentui/react-components'
 
-function ErrorFallback({ error, resetErrorBoundary }: FallbackProps) {
+function ErrorFallback({ resetErrorBoundary }: FallbackProps) {
   const [crashCount, setCrashCount] = useState(1)
 
   const handleRetry = () => {
@@ -31,7 +31,7 @@ function ErrorFallback({ error, resetErrorBoundary }: FallbackProps) {
     >
       <MessageBar intent="error">
         <MessageBarBody>
-          Something went wrong: {error instanceof Error ? error.message : 'Unknown error'}
+          Something went wrong. Please try again.
         </MessageBarBody>
       </MessageBar>
 

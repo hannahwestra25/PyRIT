@@ -16,6 +16,7 @@ import logging
 from functools import lru_cache
 from typing import Any, Literal, cast
 
+from pyrit.backend.exceptions import ClientRequestError
 from pyrit.backend.mappers.target_mappers import target_object_to_instance
 from pyrit.backend.models.common import PaginationInfo
 from pyrit.backend.models.targets import (
@@ -173,7 +174,7 @@ class TargetService:
                 endpoints) are raised by the registry / target classes.
         """
         if request.type not in self._registry:
-            raise ValueError(
+            raise ClientRequestError(
                 f"Target type '{request.type}' not found. Available types: {self._registry.get_class_names()}"
             )
 
@@ -182,7 +183,9 @@ class TargetService:
 
         if request.auth_mode == "identity":
             if "identity" not in target_cls.supported_auth_modes:
-                raise ValueError(f"Target type '{request.type}' does not support identity-based authentication.")
+                raise ClientRequestError(
+                    f"Target type '{request.type}' does not support identity-based authentication."
+                )
             # Omit any api_key so the target validates its own endpoint and authenticates itself.
             params.pop("api_key", None)
 

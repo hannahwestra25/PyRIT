@@ -14,9 +14,10 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from pyrit.backend.exceptions import ClientRequestError
 from pyrit.backend.models.scenarios import ScenarioRunListResponse
 from pyrit.memory import CentralMemory
-from pyrit.models import AttackOutcome, ScenarioResult, ScenarioRunState
+from pyrit.models import AttackOutcome, RetryEvent, ScenarioResult, ScenarioRunState
 from pyrit.models.catalog.scenario import (
     AttackErrorSummary,
     AttackRetrySummary,
@@ -41,6 +42,59 @@ logger = logging.getLogger(__name__)
 _DEFAULT_MAX_CONCURRENT_RUNS = 3
 
 _CONVERTER_MODIFIER_PREFIX = "converter."
+_SCENARIO_ERROR_MESSAGE = "Scenario run failed. Check server logs for details."
+_ATTACK_ERROR_MESSAGE = "Attack execution failed. Check server logs for details."
+_RETRY_ERROR_MESSAGE = "Retryable operation failed. Check server logs for details."
+
+
+def _remove_endpoint_fields(value: Any) -> Any:
+    """
+    Remove endpoint fields from a serialized API payload.
+
+    Returns:
+        A recursively copied value without endpoint fields.
+    """
+    if isinstance(value, dict):
+        return {
+            key: _remove_endpoint_fields(item)
+            for key, item in value.items()
+            if str(key).lower() != "endpoint"
+        }
+    if isinstance(value, list):
+        return [_remove_endpoint_fields(item) for item in value]
+    return value
+
+
+def _sanitize_scenario_result(scenario_result: ScenarioResult) -> ScenarioResult:
+    """
+    Create an API-safe copy of a persisted scenario result.
+
+    Returns:
+        A deep copy with exception-derived fields replaced by stable messages.
+    """
+    sanitized = ScenarioResult.model_validate(_remove_endpoint_fields(scenario_result.model_dump()))
+    if sanitized.error_message or sanitized.error_type:
+        sanitized.error_message = _SCENARIO_ERROR_MESSAGE
+        sanitized.error_type = "ScenarioRunError"
+
+    for attack_results in sanitized.attack_results.values():
+        for attack_result in attack_results:
+            if attack_result.error_message or attack_result.error_type or attack_result.error_traceback:
+                attack_result.error_message = _ATTACK_ERROR_MESSAGE
+                attack_result.error_type = "AttackExecutionError"
+                attack_result.error_traceback = None
+            attack_result.retry_events = [
+                event.model_copy(
+                    update={
+                        "exception_type": "RetryableOperationError",
+                        "exception_message": _RETRY_ERROR_MESSAGE,
+                        "endpoint": None,
+                    }
+                )
+                for event in attack_result.retry_events
+            ]
+
+    return sanitized
 
 
 @dataclass
@@ -88,7 +142,7 @@ class ScenarioRunService:
                 or concurrent limit exceeded.
         """
         if self._run_semaphore.locked():
-            raise ValueError(
+            raise ClientRequestError(
                 f"Maximum concurrent runs ({self._max_concurrent_runs}) reached. "
                 "Wait for an existing run to complete or cancel one."
             )
@@ -176,7 +230,7 @@ class ScenarioRunService:
         db_status = ScenarioRunState(scenario_result.scenario_run_state)
 
         if db_status in (ScenarioRunState.COMPLETED, ScenarioRunState.FAILED, ScenarioRunState.CANCELLED):
-            raise ValueError(f"Cannot cancel run in '{db_status}' state.")
+            raise ClientRequestError(f"Cannot cancel run in '{db_status}' state.")
 
         # Cancel the asyncio task if active and wait for it to finish
         active = self._active_tasks.get(scenario_result_id)
@@ -212,7 +266,7 @@ class ScenarioRunService:
         try:
             return scenario_registry.get_class(request.scenario_name)
         except KeyError as e:
-            raise ValueError(str(e)) from None
+            raise ClientRequestError(str(e)) from None
 
     async def _run_initializers_async(self, *, request: RunScenarioRequest) -> None:
         """
@@ -235,7 +289,7 @@ class ScenarioRunService:
                     initializer_name, initializer_params=initializer_params
                 )
             except KeyError as e:
-                raise ValueError(f"Initializer not found: {e}") from None
+                raise ClientRequestError(f"Initializer not found: {e}") from None
             await instance.initialize_async()
 
     def _resolve_target(self, *, request: RunScenarioRequest) -> "PromptTarget":
@@ -256,12 +310,12 @@ class ScenarioRunService:
         if objective_target is None:
             available_names = target_registry.instances.get_names()
             if not available_names:
-                raise ValueError(
+                raise ClientRequestError(
                     f"Target '{request.target_name}' not found. The target registry is empty. "
                     "Make sure to include an initializer that registers targets "
                     "(e.g., initializers: ['target'])."
                 )
-            raise ValueError(
+            raise ClientRequestError(
                 f"Target '{request.target_name}' not found in registry. Available targets: {', '.join(available_names)}"
             )
         return objective_target
@@ -429,7 +483,7 @@ class ScenarioRunService:
                 technique_enum = technique_class(base_name)
             except ValueError:
                 available_techniques = [s.value for s in technique_class]
-                raise ValueError(
+                raise ClientRequestError(
                     f"Technique '{base_name}' not found for scenario '{scenario_name}'. "
                     f"Available: {', '.join(available_techniques)}"
                 ) from None
@@ -466,7 +520,7 @@ class ScenarioRunService:
         converters: list[Converter] = []
         for modifier in modifiers:
             if not modifier.startswith(_CONVERTER_MODIFIER_PREFIX):
-                raise ValueError(
+                raise ClientRequestError(
                     f"Unknown technique modifier '{modifier}' in '{token}'. "
                     f"Supported modifiers must use the '{_CONVERTER_MODIFIER_PREFIX}' prefix "
                     f"(e.g. '{_CONVERTER_MODIFIER_PREFIX}translation_spanish')."
@@ -476,7 +530,7 @@ class ScenarioRunService:
             if converter is None:
                 available = instances.get_names()
                 available_text = ", ".join(available) if available else "(none registered)"
-                raise ValueError(
+                raise ClientRequestError(
                     f"Converter '{converter_name}' in '{token}' is not a registered converter "
                     f"instance. Available converters: {available_text}"
                 )
@@ -534,9 +588,9 @@ class ScenarioRunService:
         except asyncio.CancelledError:
             logger.info(f"Scenario run {scenario_result_id} was cancelled.")
 
-        except Exception as e:
-            active.error = str(e)
-            logger.exception(f"Scenario run {scenario_result_id} failed: {e}")
+        except Exception:
+            active.error = _SCENARIO_ERROR_MESSAGE
+            logger.exception("Scenario run %s failed", scenario_result_id)
 
         finally:
             self._run_semaphore.release()
@@ -573,6 +627,8 @@ class ScenarioRunService:
         if active is not None and active.task is not None and active.task.done():
             del self._active_tasks[scenario_result_id]
 
+        status = ScenarioRunState(scenario_result.scenario_run_state)
+
         # Primary source: DB-persisted error fields
         error = scenario_result.error_message
         error_type = scenario_result.error_type
@@ -592,7 +648,9 @@ class ScenarioRunService:
         if not error and active is not None:
             error = active.error
 
-        status = ScenarioRunState(scenario_result.scenario_run_state)
+        if error and status != ScenarioRunState.CANCELLED:
+            error = _SCENARIO_ERROR_MESSAGE
+            error_type = "ScenarioRunError"
 
         # Build result fields from DB (always computed so in-progress runs show progress)
         total_attacks = sum(len(results) for results in scenario_result.attack_results.values())
@@ -616,7 +674,20 @@ class ScenarioRunService:
                         AttackRetrySummary(
                             attack_result_id=str(attack_result.attack_result_id),
                             atomic_attack_name=atomic_attack_name,
-                            retries=retry_events,
+                            retries=[
+                                RetryEvent(
+                                    timestamp=event.timestamp,
+                                    attempt_number=event.attempt_number,
+                                    function_name=event.function_name,
+                                    exception_type="RetryableOperationError",
+                                    exception_message=_RETRY_ERROR_MESSAGE,
+                                    component_role=event.component_role,
+                                    component_name=event.component_name,
+                                    endpoint=None,
+                                    elapsed_seconds=event.elapsed_seconds,
+                                )
+                                for event in retry_events
+                            ],
                         )
                     )
 
@@ -625,8 +696,8 @@ class ScenarioRunService:
                         AttackErrorSummary(
                             atomic_attack_name=atomic_attack_name,
                             objective=attack_result.objective,
-                            error_type=attack_result.error_type,
-                            error_message=attack_result.error_message,
+                            error_type="AttackExecutionError",
+                            error_message=_ATTACK_ERROR_MESSAGE,
                             total_retries=retries if isinstance(retries, int) else 0,
                         )
                     )
@@ -672,9 +743,11 @@ class ScenarioRunService:
         run_response = self._build_response_from_db(scenario_result=scenario_result)
 
         if run_response.status != ScenarioRunState.COMPLETED:
-            raise ValueError(f"Results are only available for completed runs. Current status: '{run_response.status}'.")
+            raise ClientRequestError(
+                f"Results are only available for completed runs. Current status: '{run_response.status}'."
+            )
 
-        return scenario_result
+        return _sanitize_scenario_result(scenario_result)
 
 
 _service_instance: ScenarioRunService | None = None

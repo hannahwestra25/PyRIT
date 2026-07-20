@@ -1112,7 +1112,11 @@ class TestAddMessage:
 
         # The PromptNormalizer persists a full error piece before re-raising; model
         # that by flipping to return the stored error piece only after send fails.
-        traceback_text = "Connection error.\nAPIConnectionError('Connection error.')\nTraceback..."
+        traceback_text = (
+            "Connection error.\n"
+            "APIConnectionError('provider secret=sk-test')\n"
+            r"Traceback at C:\internal\provider.py"
+        )
         error_piece = MessagePiece(
             role="assistant",
             original_value=traceback_text,
@@ -1160,12 +1164,16 @@ class TestAddMessage:
             mock_normalizer.send_prompt_async.assert_called_once()
             assert result.attack is not None
 
-            # The error turn (response_error="processing" + traceback) must come back in the response,
-            # so the send-time view matches the conversation-reload view.
+            # The error turn must come back in the response without its stored traceback,
+            # so the send-time view matches the sanitized conversation-reload view.
             returned_pieces = [piece for message in result.messages.messages for piece in message.message_pieces]
             error_views = [piece for piece in returned_pieces if piece.response_error == "processing"]
             assert len(error_views) == 1
-            assert "APIConnectionError" in error_views[0].converted_value
+            assert error_views[0].converted_value == (
+                "The target could not complete the request. Check server logs for details."
+            )
+            assert "sk-test" not in error_views[0].model_dump_json()
+            assert "internal" not in error_views[0].model_dump_json()
 
     async def test_add_message_reraises_when_send_fails_without_stored_error_piece(
         self, attack_service, mock_memory

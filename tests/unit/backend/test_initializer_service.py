@@ -416,9 +416,13 @@ class TestRegisterInitializerRoute:
             assert data["initializer_name"] == "my_custom"
 
     def test_post_returns_400_for_invalid_script(self, client_with_custom_initializers_enabled: TestClient) -> None:
+        internal_detail = (
+            r"Failed to load initializer: already registered; "
+            r"secret=sk-test at C:\internal\initializers\bad.py"
+        )
         with patch("pyrit.backend.routes.initializers.get_initializer_service") as mock_get_service:
             mock_service = MagicMock()
-            mock_service.register_initializer_async = AsyncMock(side_effect=ValueError("no classes"))
+            mock_service.register_initializer_async = AsyncMock(side_effect=ValueError(internal_detail))
             mock_get_service.return_value = mock_service
 
             response = client_with_custom_initializers_enabled.post(
@@ -426,6 +430,8 @@ class TestRegisterInitializerRoute:
             )
 
             assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert response.json()["detail"] == "Initializer script is invalid or could not be loaded."
+            assert internal_detail not in response.text
 
     def test_post_forwards_name_and_content(self, client_with_custom_initializers_enabled: TestClient) -> None:
         summary = RegisteredInitializer(

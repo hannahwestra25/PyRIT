@@ -313,6 +313,38 @@ describe("messageMapper", () => {
       expect(result.error!.description).toBe("Content was filtered");
     });
 
+    it("should sanitize internal error response content", () => {
+      const internalDetail = "secret=sk-test at C:\\internal\\provider.py";
+      const msg: BackendMessage = {
+        turn_number: 1,
+        role: "assistant",
+        message_pieces: [
+          {
+            id: "p1",
+            original_value_data_type: "error",
+            converted_value_data_type: "error",
+            original_value: internalDetail,
+            converted_value: internalDetail,
+            scores: [],
+            response_error: "processing",
+            response_error_description: internalDetail,
+          },
+        ],
+        created_at: "2026-02-15T00:00:00Z",
+      };
+
+      const result = backendMessageToFrontend(msg);
+
+      expect(result.content).toBe(
+        "The target could not complete the request. Check server logs for details."
+      );
+      expect(result.error?.description).toBe(
+        "The target could not complete the request. Check server logs for details."
+      );
+      expect(JSON.stringify(result)).not.toContain("sk-test");
+      expect(JSON.stringify(result)).not.toContain("internal\\\\provider.py");
+    });
+
     it("should handle multi-piece message with text + image", () => {
       const msg: BackendMessage = {
         turn_number: 1,

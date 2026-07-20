@@ -7,6 +7,8 @@ import type {
   MessagePieceRequest,
 } from '../types'
 
+const INTERNAL_MESSAGE_ERROR = 'The target could not complete the request. Check server logs for details.'
+
 /**
  * Read a File and return its contents as a base64-encoded string (no data URI prefix).
  */
@@ -177,10 +179,20 @@ function pieceToError(piece: BackendMessagePiece): MessageError | undefined {
   if (piece.response_error && piece.response_error !== 'none') {
     return {
       type: piece.response_error,
-      description: piece.response_error_description || undefined,
+      description: isInternalErrorPiece(piece)
+        ? INTERNAL_MESSAGE_ERROR
+        : piece.response_error_description || undefined,
     }
   }
   return undefined
+}
+
+function isInternalErrorPiece(piece: BackendMessagePiece): boolean {
+  return (
+    piece.response_error === 'processing' ||
+    piece.response_error === 'unknown' ||
+    piece.converted_value_data_type === 'error'
+  )
 }
 
 /**
@@ -199,6 +211,10 @@ export function backendMessageToFrontend(msg: BackendMessage): Message {
     const pieceError = pieceToError(piece)
     if (pieceError && !error) {
       error = pieceError
+    }
+    if (isInternalErrorPiece(piece)) {
+      textParts.push(INTERNAL_MESSAGE_ERROR)
+      continue
     }
 
     // Extract reasoning summaries from reasoning-type pieces

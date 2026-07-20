@@ -15,6 +15,7 @@ import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
 
+from pyrit.backend.exceptions import ClientRequestError
 from pyrit.backend.main import app
 from pyrit.backend.models.attacks import (
     AddMessageResponse,
@@ -206,7 +207,7 @@ class TestAttackRoutes:
         """Test attack creation with non-existent target."""
         with patch("pyrit.backend.routes.attacks.get_attack_service") as mock_get_service:
             mock_service = MagicMock()
-            mock_service.create_attack_async = AsyncMock(side_effect=ValueError("Target not found"))
+            mock_service.create_attack_async = AsyncMock(side_effect=ClientRequestError("Target not found"))
             mock_get_service.return_value = mock_service
 
             response = client.post(
@@ -340,7 +341,9 @@ class TestAttackRoutes:
         """Test adding message to non-existent attack returns 404."""
         with patch("pyrit.backend.routes.attacks.get_attack_service") as mock_get_service:
             mock_service = MagicMock()
-            mock_service.add_message_async = AsyncMock(side_effect=ValueError("Attack 'nonexistent' not found"))
+            mock_service.add_message_async = AsyncMock(
+                side_effect=ClientRequestError("Attack 'nonexistent' not found")
+            )
             mock_get_service.return_value = mock_service
 
             response = client.post(
@@ -354,7 +357,9 @@ class TestAttackRoutes:
         """Test adding message when target object not found returns 404."""
         with patch("pyrit.backend.routes.attacks.get_attack_service") as mock_get_service:
             mock_service = MagicMock()
-            mock_service.add_message_async = AsyncMock(side_effect=ValueError("Target object for 'target-1' not found"))
+            mock_service.add_message_async = AsyncMock(
+                side_effect=ClientRequestError("Target object for 'target-1' not found")
+            )
             mock_get_service.return_value = mock_service
 
             response = client.post(
@@ -368,7 +373,7 @@ class TestAttackRoutes:
         """Test adding message with invalid request returns 400."""
         with patch("pyrit.backend.routes.attacks.get_attack_service") as mock_get_service:
             mock_service = MagicMock()
-            mock_service.add_message_async = AsyncMock(side_effect=ValueError("Invalid message format"))
+            mock_service.add_message_async = AsyncMock(side_effect=ClientRequestError("Invalid message format"))
             mock_get_service.return_value = mock_service
 
             response = client.post(
@@ -380,9 +385,10 @@ class TestAttackRoutes:
 
     def test_add_message_internal_error(self, client: TestClient) -> None:
         """Test adding message when internal error occurs returns 500."""
+        internal_detail = r"secret=sk-test C:\internal\provider.py"
         with patch("pyrit.backend.routes.attacks.get_attack_service") as mock_get_service:
             mock_service = MagicMock()
-            mock_service.add_message_async = AsyncMock(side_effect=RuntimeError("Unexpected internal error"))
+            mock_service.add_message_async = AsyncMock(side_effect=RuntimeError(internal_detail))
             mock_get_service.return_value = mock_service
 
             response = client.post(
@@ -391,6 +397,55 @@ class TestAttackRoutes:
             )
 
             assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+            assert internal_detail not in response.text
+
+    def test_add_message_stored_error_does_not_leak_internal_details(self, client: TestClient) -> None:
+        """Test that stored target error pieces are sanitized in the HTTP response."""
+        internal_detail = r"provider secret=sk-test at C:\internal\target.py"
+        now = datetime.now(timezone.utc)
+        error_piece = MessagePiece(
+            role="assistant",
+            original_value=internal_detail,
+            converted_value=internal_detail,
+            original_value_data_type="error",
+            converted_value_data_type="error",
+            response_error="processing",
+            conversation_id="attack-1",
+            sequence=1,
+        )
+        response_data = AddMessageResponse(
+            attack=AttackSummary(
+                attack_result_id="ar-attack-1",
+                conversation_id="attack-1",
+                objective="test objective",
+                last_message_preview=None,
+                message_count=1,
+                created_at=now,
+                updated_at=now,
+            ),
+            messages=ConversationMessagesResponse(
+                conversation_id="attack-1",
+                messages=[
+                    MessageView.model_construct(
+                        message_pieces=[MessagePieceView.from_domain(error_piece)],
+                    )
+                ],
+            ),
+        )
+
+        with patch("pyrit.backend.routes.attacks.get_attack_service") as mock_get_service:
+            mock_service = MagicMock()
+            mock_service.add_message_async = AsyncMock(return_value=response_data)
+            mock_get_service.return_value = mock_service
+
+            response = client.post(
+                "/api/attacks/attack-1/messages",
+                json={"pieces": [{"original_value": "Hello"}], "target_conversation_id": "attack-1"},
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert internal_detail not in response.text
+        assert "The target could not complete the request" in response.text
 
     def test_get_conversation_messages_success(self, client: TestClient) -> None:
         """Test getting attack messages."""
@@ -429,7 +484,7 @@ class TestAttackRoutes:
         with patch("pyrit.backend.routes.attacks.get_attack_service") as mock_get_service:
             mock_service = MagicMock()
             mock_service.get_conversation_messages_async = AsyncMock(
-                side_effect=ValueError("conversation does not belong to this attack")
+                side_effect=ClientRequestError("conversation does not belong to this attack")
             )
             mock_get_service.return_value = mock_service
 
@@ -744,7 +799,9 @@ class TestAttackRoutes:
         """Test changing main conversation with invalid conversation returns 400."""
         with patch("pyrit.backend.routes.attacks.get_attack_service") as mock_get_service:
             mock_service = MagicMock()
-            mock_service.update_main_conversation_async = AsyncMock(side_effect=ValueError("invalid conversation"))
+            mock_service.update_main_conversation_async = AsyncMock(
+                side_effect=ClientRequestError("invalid conversation")
+            )
             mock_get_service.return_value = mock_service
 
             response = client.post(
@@ -845,7 +902,7 @@ class TestTargetRoutes:
         """Test target creation with invalid type."""
         with patch("pyrit.backend.routes.targets.get_target_service") as mock_get_service:
             mock_service = MagicMock()
-            mock_service.create_target_async = AsyncMock(side_effect=ValueError("Target type not found"))
+            mock_service.create_target_async = AsyncMock(side_effect=ClientRequestError("Target type not found"))
             mock_get_service.return_value = mock_service
 
             response = client.post(
@@ -857,9 +914,10 @@ class TestTargetRoutes:
 
     def test_create_target_internal_error(self, client: TestClient) -> None:
         """Test target creation with internal error returns 500."""
+        internal_detail = "provider deployment=my-secret-deployment"
         with patch("pyrit.backend.routes.targets.get_target_service") as mock_get_service:
             mock_service = MagicMock()
-            mock_service.create_target_async = AsyncMock(side_effect=RuntimeError("Unexpected error"))
+            mock_service.create_target_async = AsyncMock(side_effect=RuntimeError(internal_detail))
             mock_get_service.return_value = mock_service
 
             response = client.post(
@@ -868,6 +926,25 @@ class TestTargetRoutes:
             )
 
             assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+            assert response.json()["detail"] == "Failed to create target. Check server logs for details."
+            assert internal_detail not in response.text
+
+    def test_create_target_invalid_parameters_do_not_leak_details(self, client: TestClient) -> None:
+        """Test that unexpected validation details are sanitized."""
+        internal_detail = r"api_key=sk-test failed validation in C:\internal\target.py"
+        with patch("pyrit.backend.routes.targets.get_target_service") as mock_get_service:
+            mock_service = MagicMock()
+            mock_service.create_target_async = AsyncMock(side_effect=ValueError(internal_detail))
+            mock_get_service.return_value = mock_service
+
+            response = client.post(
+                "/api/targets",
+                json={"type": "TextTarget", "params": {}},
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "Target parameters are invalid."
+        assert internal_detail not in response.text
 
     def test_get_target_success(self, client: TestClient) -> None:
         """Test getting a target by ID."""
@@ -1038,7 +1115,9 @@ class TestConverterRoutes:
         """Test converter creation with invalid type."""
         with patch("pyrit.backend.routes.converters.get_converter_service") as mock_get_service:
             mock_service = MagicMock()
-            mock_service.create_converter_async = AsyncMock(side_effect=ValueError("Converter type not found"))
+            mock_service.create_converter_async = AsyncMock(
+                side_effect=ClientRequestError("Converter type not found")
+            )
             mock_get_service.return_value = mock_service
 
             response = client.post(
@@ -1050,9 +1129,10 @@ class TestConverterRoutes:
 
     def test_create_converter_internal_error(self, client: TestClient) -> None:
         """Test converter creation with internal error returns 500."""
+        internal_detail = r"secret=sk-test C:\internal\converter.py"
         with patch("pyrit.backend.routes.converters.get_converter_service") as mock_get_service:
             mock_service = MagicMock()
-            mock_service.create_converter_async = AsyncMock(side_effect=RuntimeError("Unexpected error"))
+            mock_service.create_converter_async = AsyncMock(side_effect=RuntimeError(internal_detail))
             mock_get_service.return_value = mock_service
 
             response = client.post(
@@ -1061,6 +1141,25 @@ class TestConverterRoutes:
             )
 
             assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+            assert response.json()["detail"] == "Failed to create converter. Check server logs for details."
+            assert internal_detail not in response.text
+
+    def test_create_converter_invalid_parameters_do_not_leak_details(self, client: TestClient) -> None:
+        """Test that unexpected converter validation details are sanitized."""
+        internal_detail = r"secret=sk-test at C:\internal\converter.py"
+        with patch("pyrit.backend.routes.converters.get_converter_service") as mock_get_service:
+            mock_service = MagicMock()
+            mock_service.create_converter_async = AsyncMock(side_effect=ValueError(internal_detail))
+            mock_get_service.return_value = mock_service
+
+            response = client.post(
+                "/api/converters",
+                json={"type": "Base64Converter", "params": {}},
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "Converter parameters are invalid."
+        assert internal_detail not in response.text
 
     def test_get_converter_success(self, client: TestClient) -> None:
         """Test getting a converter instance by ID."""
@@ -1137,7 +1236,7 @@ class TestConverterRoutes:
         with patch("pyrit.backend.routes.converters.get_converter_service") as mock_get_service:
             mock_service = MagicMock()
             mock_service.preview_conversion_async = AsyncMock(
-                side_effect=ValueError("Converter instance 'nonexistent' not found")
+                side_effect=ClientRequestError("Converter instance 'nonexistent' not found")
             )
             mock_get_service.return_value = mock_service
 
@@ -1154,9 +1253,10 @@ class TestConverterRoutes:
 
     def test_preview_conversion_internal_error(self, client: TestClient) -> None:
         """Test preview conversion with internal error returns 500."""
+        internal_detail = "provider response included secret=sk-test"
         with patch("pyrit.backend.routes.converters.get_converter_service") as mock_get_service:
             mock_service = MagicMock()
-            mock_service.preview_conversion_async = AsyncMock(side_effect=RuntimeError("Converter execution failed"))
+            mock_service.preview_conversion_async = AsyncMock(side_effect=RuntimeError(internal_detail))
             mock_get_service.return_value = mock_service
 
             response = client.post(
@@ -1169,6 +1269,8 @@ class TestConverterRoutes:
             )
 
             assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+            assert response.json()["detail"] == "Converter preview failed. Check server logs for details."
+            assert internal_detail not in response.text
 
 
 # ============================================================================

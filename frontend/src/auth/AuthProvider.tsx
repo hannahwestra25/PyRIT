@@ -133,9 +133,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
           setMsalInstance(instance)
           setAuthConfig(config)
         }
-      } catch (err) {
+      } catch {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Failed to initialize authentication')
+          setError('Failed to initialize authentication')
         }
       }
     }

@@ -9,7 +9,7 @@ This is the attack-centric API design where every user interaction targets a mod
 """
 
 from datetime import datetime, timezone
-from typing import Any, Literal, cast
+from typing import Any, ClassVar, Literal, cast
 
 from pydantic import BaseModel, Field, computed_field, field_serializer
 
@@ -109,6 +109,10 @@ class MessagePieceView(MessagePiece):
         default=None, description="Description of the error if response_error is not 'none'"
     )
 
+    _INTERNAL_ERROR_MESSAGE: ClassVar[str] = (
+        "The target could not complete the request. Check server logs for details."
+    )
+
     @classmethod
     def from_domain(
         cls,
@@ -139,19 +143,32 @@ class MessagePieceView(MessagePiece):
             A ``MessagePieceView`` with derived MIME types, filenames, and views.
         """
         data = {name: getattr(piece, name) for name in MessagePiece.model_fields}
+        if piece.response_error in ("processing", "unknown") or piece.converted_value_data_type == "error":
+            data.update(
+                original_value=cls._INTERNAL_ERROR_MESSAGE,
+                original_value_sha256=None,
+                converted_value=cls._INTERNAL_ERROR_MESSAGE,
+                converted_value_sha256=None,
+                prompt_metadata={},
+                response_error_description=cls._INTERNAL_ERROR_MESSAGE,
+            )
+        original_value = cast("str", data["original_value"])
+        converted_value = cast("str", data["converted_value"])
+        original_value_sha256 = cast("str | None", data["original_value_sha256"])
+        converted_value_sha256 = cast("str | None", data["converted_value_sha256"])
         orig_dtype = piece.original_value_data_type or "text"
         conv_dtype = piece.converted_value_data_type or "text"
         data.update(
             scores=[ScoreView.from_domain(score) for score in (scores or [])],
             original_value_url=original_value_url,
             converted_value_url=converted_value_url,
-            original_value_mime_type=infer_mime_type(value=piece.original_value, data_type=orig_dtype),
-            converted_value_mime_type=infer_mime_type(value=piece.converted_value, data_type=conv_dtype),
+            original_value_mime_type=infer_mime_type(value=original_value, data_type=orig_dtype),
+            converted_value_mime_type=infer_mime_type(value=converted_value, data_type=conv_dtype),
             original_filename=build_filename(
-                data_type=orig_dtype, sha256=piece.original_value_sha256, value=piece.original_value
+                data_type=orig_dtype, sha256=original_value_sha256, value=original_value
             ),
             converted_filename=build_filename(
-                data_type=conv_dtype, sha256=piece.converted_value_sha256, value=piece.converted_value
+                data_type=conv_dtype, sha256=converted_value_sha256, value=converted_value
             ),
         )
         return cls.model_construct(**data)

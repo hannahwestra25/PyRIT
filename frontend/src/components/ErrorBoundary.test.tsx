@@ -4,7 +4,7 @@ import { ErrorBoundary } from './ErrorBoundary'
 // Component that throws on render
 function ThrowingChild({ shouldThrow }: { shouldThrow: boolean }) {
   if (shouldThrow) {
-    throw new Error('Test crash')
+    throw new Error('secret=sk-test at C:\\internal\\component.tsx')
   }
   return <div data-testid="child-content">OK</div>
 }
@@ -31,7 +31,7 @@ describe('ErrorBoundary', () => {
     expect(screen.queryByTestId('error-boundary-fallback')).toBeNull()
   })
 
-  it('catches render error and shows fallback', () => {
+  it('catches render error without showing internal details', () => {
     render(
       <ErrorBoundary>
         <ThrowingChild shouldThrow={true} />
@@ -39,7 +39,8 @@ describe('ErrorBoundary', () => {
     )
 
     expect(screen.getByTestId('error-boundary-fallback')).toBeInTheDocument()
-    expect(screen.getByText(/test crash/i)).toBeInTheDocument()
+    expect(screen.getByText(/something went wrong\. please try again\./i)).toBeInTheDocument()
+    expect(screen.queryByText(/sk-test|internal\\component/i)).not.toBeInTheDocument()
     expect(screen.getByText('Try again')).toBeInTheDocument()
   })
 

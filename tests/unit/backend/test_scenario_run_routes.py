@@ -13,9 +13,10 @@ from fastapi import status
 from fastapi.testclient import TestClient
 
 import pyrit.backend.services.scenario_run_service as _svc_mod
+from pyrit.backend.exceptions import ClientRequestError
 from pyrit.backend.main import app
 from pyrit.backend.models.scenarios import ScenarioRunListResponse
-from pyrit.models import ScenarioRunState
+from pyrit.models import AttackOutcome, AttackResult, RetryEvent, ScenarioRunState, TargetIdentifier
 from pyrit.models.catalog.scenario import ScenarioRunSummary
 from unit.mocks import make_scenario_result
 
@@ -77,7 +78,9 @@ class TestStartScenarioRunRoute:
         """Test that an invalid scenario returns 400."""
         with patch("pyrit.backend.routes.scenarios.get_scenario_run_service") as mock_get:
             mock_service = MagicMock()
-            mock_service.start_run_async = AsyncMock(side_effect=ValueError("'bad.scenario' not found in registry."))
+            mock_service.start_run_async = AsyncMock(
+                side_effect=ClientRequestError("'bad.scenario' not found in registry.")
+            )
             mock_get.return_value = mock_service
 
             response = client.post(
@@ -216,7 +219,9 @@ class TestCancelScenarioRunRoute:
         """Test that cancelling a completed run returns 409 Conflict."""
         with patch("pyrit.backend.routes.scenarios.get_scenario_run_service") as mock_get:
             mock_service = MagicMock()
-            mock_service.cancel_run_async = AsyncMock(side_effect=ValueError("Cannot cancel run in 'completed' state."))
+            mock_service.cancel_run_async = AsyncMock(
+                side_effect=ClientRequestError("Cannot cancel run in 'completed' state.")
+            )
             mock_get.return_value = mock_service
 
             response = client.post("/api/scenarios/runs/test-run-id/cancel")
@@ -251,10 +256,13 @@ class TestGetScenarioRunResultsRoute:
             scenario_run_state="COMPLETED",
         )
 
-        with patch("pyrit.backend.routes.scenarios.get_scenario_run_service") as mock_get:
-            mock_service = MagicMock()
-            mock_service.get_run_results.return_value = scenario_result
-            mock_get.return_value = mock_service
+        service = _svc_mod.ScenarioRunService.__new__(_svc_mod.ScenarioRunService)
+        service._memory = MagicMock()
+        service._memory.get_scenario_results.return_value = [scenario_result]
+        service._memory.get_attack_results.return_value = []
+        service._active_tasks = {}
+
+        with patch("pyrit.backend.routes.scenarios.get_scenario_run_service", return_value=service):
 
             response = client.get("/api/scenarios/runs/test-run-id/results")
 
@@ -278,7 +286,7 @@ class TestGetScenarioRunResultsRoute:
         """Test that getting results of a non-completed run returns 409."""
         with patch("pyrit.backend.routes.scenarios.get_scenario_run_service") as mock_get:
             mock_service = MagicMock()
-            mock_service.get_run_results.side_effect = ValueError(
+            mock_service.get_run_results.side_effect = ClientRequestError(
                 "Results are only available for completed runs. Current status: 'running'."
             )
             mock_get.return_value = mock_service
@@ -287,3 +295,53 @@ class TestGetScenarioRunResultsRoute:
 
         assert response.status_code == status.HTTP_409_CONFLICT
         assert "only available for completed runs" in response.json()["detail"]
+
+    def test_get_results_sanitizes_persisted_attack_errors(self, client: TestClient) -> None:
+        """Test that detailed results do not expose persisted provider diagnostics."""
+        internal_detail = r"provider secret=sk-test at C:\internal\provider.py"
+        attack = AttackResult(
+            conversation_id="conv-1",
+            objective="Extract sensitive info",
+            outcome=AttackOutcome.ERROR,
+            executed_turns=1,
+            execution_time_ms=100,
+            timestamp=datetime(2025, 1, 1, tzinfo=timezone.utc),
+            error_message=internal_detail,
+            error_type="ProviderConnectionError",
+            error_traceback=f"Traceback: {internal_detail}",
+            retry_events=[
+                RetryEvent(
+                    attempt_number=1,
+                    exception_type="ProviderRetryError",
+                    exception_message=internal_detail,
+                    endpoint="https://provider.internal/?api_key=sk-test",
+                )
+            ],
+        )
+        scenario_result = make_scenario_result(
+            scenario_name="foundry.red_team_agent",
+            scenario_description="Foundry red-team agent",
+            objective_target_identifier=TargetIdentifier(
+                class_name="FakeTarget",
+                class_module="test.mod",
+                endpoint="https://provider.internal/?api_key=sk-test",
+            ),
+            objective_scorer_identifier=None,
+            attack_results={"base64_attack": [attack]},
+            scenario_run_state="COMPLETED",
+        )
+
+        service = _svc_mod.ScenarioRunService.__new__(_svc_mod.ScenarioRunService)
+        service._memory = MagicMock()
+        service._memory.get_scenario_results.return_value = [scenario_result]
+        service._memory.get_attack_results.return_value = []
+        service._active_tasks = {}
+
+        with patch("pyrit.backend.routes.scenarios.get_scenario_run_service", return_value=service):
+
+            response = client.get("/api/scenarios/runs/test-run-id/results")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert internal_detail not in response.text
+        assert "api_key=sk-test" not in response.text
+        assert "Attack execution failed. Check server logs for details." in response.text

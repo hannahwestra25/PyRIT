@@ -14,6 +14,7 @@ from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query, status
 
+from pyrit.backend.exceptions import ClientRequestError
 from pyrit.backend.models.attacks import (
     AddMessageRequest,
     AddMessageResponse,
@@ -205,7 +206,7 @@ async def create_attack(request: CreateAttackRequest) -> CreateAttackResponse:  
 
     try:
         return await service.create_attack_async(request=request)
-    except ValueError as e:
+    except ClientRequestError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
@@ -298,7 +299,7 @@ async def get_conversation_messages(  # pyrit-async-suffix-exempt
             attack_result_id=attack_result_id,
             conversation_id=conversation_id,
         )
-    except ValueError as e:
+    except ClientRequestError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
@@ -371,7 +372,7 @@ async def create_related_conversation(  # pyrit-async-suffix-exempt
             attack_result_id=attack_result_id,
             request=request,
         )
-    except ValueError as e:
+    except ClientRequestError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
@@ -414,7 +415,7 @@ async def update_main_conversation(  # pyrit-async-suffix-exempt
             attack_result_id=attack_result_id,
             request=request,
         )
-    except ValueError as e:
+    except ClientRequestError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
@@ -460,7 +461,7 @@ async def add_message(  # pyrit-async-suffix-exempt
 
     try:
         return await service.add_message_async(attack_result_id=attack_result_id, request=request)
-    except ValueError as e:
+    except ClientRequestError as e:
         error_msg = str(e)
         if "not found" in error_msg.lower():
             raise HTTPException(

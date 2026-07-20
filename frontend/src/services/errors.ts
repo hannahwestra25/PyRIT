@@ -22,12 +22,15 @@ export interface ApiError {
   raw: unknown
 }
 
+const UNEXPECTED_ERROR_DETAIL = 'An unexpected error occurred.'
+const SERVER_ERROR_DETAIL = 'The server could not complete the request. Please try again.'
+
 /**
  * Convert any caught value into a normalized {@link ApiError}.
  *
  * Handles:
  * - Axios errors with an RFC 7807 JSON body (`response.data.detail`)
- * - Axios errors with a plain-string body (e.g. nginx 502 HTML)
+ * - Axios errors with a plain-string body (sanitized rather than displayed)
  * - Axios errors with no response at all (network / CORS)
  * - Axios timeout errors (`code === 'ECONNABORTED'`)
  * - Plain `Error` instances
@@ -61,6 +64,15 @@ export function toApiError(err: unknown): ApiError {
 
     // We have an HTTP response — try to extract RFC 7807 detail
     const { status, data } = err.response
+    if (status >= 500) {
+      return {
+        status,
+        detail: SERVER_ERROR_DETAIL,
+        isNetworkError: false,
+        isTimeout: false,
+        raw: err,
+      }
+    }
     const { detail, type } = extractDetail(data)
 
     return {
@@ -77,7 +89,7 @@ export function toApiError(err: unknown): ApiError {
   if (err instanceof Error) {
     return {
       status: null,
-      detail: err.message || 'An unexpected error occurred.',
+      detail: UNEXPECTED_ERROR_DETAIL,
       isNetworkError: false,
       isTimeout: false,
       raw: err,
@@ -88,7 +100,7 @@ export function toApiError(err: unknown): ApiError {
   if (typeof err === 'string') {
     return {
       status: null,
-      detail: err,
+      detail: UNEXPECTED_ERROR_DETAIL,
       isNetworkError: false,
       isTimeout: false,
       raw: err,
@@ -98,7 +110,7 @@ export function toApiError(err: unknown): ApiError {
   // Unknown throw (null, undefined, number, object, etc.)
   return {
     status: null,
-    detail: 'An unexpected error occurred.',
+    detail: UNEXPECTED_ERROR_DETAIL,
     isNetworkError: false,
     isTimeout: false,
     raw: err,
@@ -119,12 +131,12 @@ function isAxiosError(err: unknown): err is AxiosError {
  *
  * The body may be:
  * - An RFC 7807 JSON object with `.detail` and optionally `.type`
- * - A plain string (e.g. nginx HTML error page)
+ * - A plain string (ignored because proxy or server text is not trusted for display)
  * - Something else entirely (null, number, etc.)
  */
 function extractDetail(data: unknown): { detail: string | undefined; type: string | undefined } {
   if (typeof data === 'string') {
-    return { detail: data, type: undefined }
+    return { detail: undefined, type: undefined }
   }
   if (typeof data === 'object' && data !== null) {
     const obj = data as Record<string, unknown>

@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any, Literal, cast
 from urllib.parse import parse_qs, urlparse
 
+from pyrit.backend.exceptions import ClientRequestError
 from pyrit.backend.mappers import (
     attack_result_to_summary_async,
     format_last_message_preview,
@@ -272,7 +273,7 @@ class AttackService:
         # Verify the conversation belongs to this attack
         ar = results[0]
         if conversation_id not in ar.get_active_conversation_ids():
-            raise ValueError(f"Conversation '{conversation_id}' is not part of attack '{attack_result_id}'")
+            raise ClientRequestError(f"Conversation '{conversation_id}' is not part of attack '{attack_result_id}'")
 
         # Get messages for this conversation
         pyrit_messages = self._memory.get_conversation_messages(conversation_id=conversation_id)
@@ -302,7 +303,7 @@ class AttackService:
         target_service = get_target_service()
         target_instance = await target_service.get_target_async(target_registry_name=request.target_registry_name)
         if not target_instance:
-            raise ValueError(f"Target instance '{request.target_registry_name}' not found")
+            raise ClientRequestError(f"Target instance '{request.target_registry_name}' not found")
 
         # Get the actual target object so we can capture its ComponentIdentifier
         target_obj = target_service.get_target_object(target_registry_name=request.target_registry_name)
@@ -484,11 +485,11 @@ class AttackService:
 
         # Validate that both or neither branching fields are provided
         if (request.source_conversation_id is None) != (request.cutoff_index is None):
-            raise ValueError("Both source_conversation_id and cutoff_index must be provided together")
+            raise ClientRequestError("Both source_conversation_id and cutoff_index must be provided together")
 
         # Validate source_conversation_id belongs to this attack
         if request.source_conversation_id is not None and not ar.includes_conversation(request.source_conversation_id):
-            raise ValueError(
+            raise ClientRequestError(
                 f"Conversation '{request.source_conversation_id}' is not part of attack '{attack_result_id}'"
             )
 
@@ -550,7 +551,7 @@ class AttackService:
 
         # Verify the conversation belongs to this attack (main or related)
         if not ar.includes_conversation(target_conv_id):
-            raise ValueError(f"Conversation '{target_conv_id}' is not part of this attack")
+            raise ClientRequestError(f"Conversation '{target_conv_id}' is not part of this attack")
 
         # Build updated DB columns: remove target from its list, add old main
         # to pruned list (user-visible GUI conversations are PRUNED, not ADVERSARIAL).
@@ -601,7 +602,7 @@ class AttackService:
         """
         results = self._memory.get_attack_results(attack_result_ids=[attack_result_id])
         if not results:
-            raise ValueError(f"Attack '{attack_result_id}' not found")
+            raise ClientRequestError(f"Attack '{attack_result_id}' not found")
 
         ar = results[0]
         main_conversation_id = ar.conversation_id
@@ -613,11 +614,13 @@ class AttackService:
 
         # Validate the target conversation belongs to this attack (main + pruned only)
         if msg_conversation_id not in ar.get_active_conversation_ids():
-            raise ValueError(f"Conversation '{msg_conversation_id}' is not part of attack '{attack_result_id}'")
+            raise ClientRequestError(
+                f"Conversation '{msg_conversation_id}' is not part of attack '{attack_result_id}'"
+            )
 
         target_registry_name = request.target_registry_name
         if request.send and not target_registry_name:
-            raise ValueError("target_registry_name is required when send=True")
+            raise ClientRequestError("target_registry_name is required when send=True")
 
         # Get existing messages to determine sequence.
         # NOTE: This read-then-write is not atomic (TOCTOU). Fine for the
@@ -703,7 +706,7 @@ class AttackService:
             or (stored_target_id.params.get("endpoint") or "") != (request_target_id.params.get("endpoint") or "")
             or (stored_target_id.params.get("model_name") or "") != (request_target_id.params.get("model_name") or "")
         ):
-            raise ValueError(
+            raise ClientRequestError(
                 f"Target mismatch: attack was created with "
                 f"{stored_target_id.class_name}/{stored_target_id.params.get('model_name')} "
                 f"but request uses "
@@ -727,7 +730,7 @@ class AttackService:
 
         request_operator = request.labels.get("operator")
         if request_operator and request_operator != attack_operator:
-            raise ValueError(
+            raise ClientRequestError(
                 f"Operator mismatch: attack belongs to operator '{attack_operator}' "
                 f"but request is from '{request_operator}'. "
                 f"Create a new attack to continue."
@@ -1030,7 +1033,7 @@ class AttackService:
         """Send message to target via normalizer and store response."""
         target_obj = get_target_service().get_target_object(target_registry_name=target_registry_name)
         if not target_obj:
-            raise ValueError(f"Target object for '{target_registry_name}' not found")
+            raise ClientRequestError(f"Target object for '{target_registry_name}' not found")
 
         await self._persist_base64_pieces_async(request)
 

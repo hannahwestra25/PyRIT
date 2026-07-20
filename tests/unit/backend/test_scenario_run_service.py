@@ -17,10 +17,11 @@ from pyrit.backend.services.scenario_run_service import (
     ScenarioRunService,
 )
 from pyrit.converter import Converter
-from pyrit.models import AttackOutcome, ScenarioRunState
+from pyrit.models import AttackOutcome, AttackResult, ComponentIdentifier, ScenarioRunState
 from pyrit.models.catalog.scenario import RunScenarioRequest
 from pyrit.scenario.core import DatasetAttackConfiguration, DatasetConfiguration
 from pyrit.scenario.core.scenario_technique import ScenarioTechnique
+from unit.mocks import make_scenario_result
 
 
 class _StubTechnique(ScenarioTechnique):
@@ -576,8 +577,9 @@ class TestScenarioRunServiceGetRun:
 
         # Mock the error AttackResult lookup
         error_ar = MagicMock()
-        error_ar.error_message = "Connection refused"
-        error_ar.error_type = "ConnectionError"
+        internal_detail = r"Connection refused: secret=sk-test C:\internal\provider.py"
+        error_ar.error_message = internal_detail
+        error_ar.error_type = "ProviderConnectionError"
         mock_memory.get_scenario_results.return_value = [db_result]
         mock_memory.get_attack_results.return_value = [error_ar]
 
@@ -585,8 +587,9 @@ class TestScenarioRunServiceGetRun:
         fetched = service.get_run(scenario_result_id="sr-fail")
 
         assert fetched is not None
-        assert fetched.error == "Connection refused"
-        assert fetched.error_type == "ConnectionError"
+        assert fetched.error == "Scenario run failed. Check server logs for details."
+        assert fetched.error_type == "ScenarioRunError"
+        assert internal_detail not in fetched.model_dump_json()
         mock_memory.get_attack_results.assert_called_once_with(
             scenario_result_id="sr-fail",
             outcome=AttackOutcome.ERROR,
@@ -715,7 +718,8 @@ class TestScenarioRunServiceExecution:
         service = ScenarioRunService()
         mock_instance = mock_all_registries["scenario_instance"]
 
-        mock_instance.run_async = AsyncMock(side_effect=RuntimeError("scenario exploded"))
+        internal_detail = r"scenario exploded: secret=sk-test C:\internal\scenario.py"
+        mock_instance.run_async = AsyncMock(side_effect=RuntimeError(internal_detail))
 
         response = await service.start_run_async(request=_make_request())
 
@@ -726,13 +730,14 @@ class TestScenarioRunServiceExecution:
         await active.task
 
         # Error is stored on the active task until get_run reads it
-        assert active.error == "scenario exploded"
+        assert active.error == "Scenario run failed. Check server logs for details."
         assert response.scenario_result_id in service._active_tasks
 
         # get_run should surface the error and clean up
         fetched = service.get_run(scenario_result_id=response.scenario_result_id)
         assert fetched is not None
-        assert fetched.error == "scenario exploded"
+        assert fetched.error == "Scenario run failed. Check server logs for details."
+        assert internal_detail not in fetched.model_dump_json()
         assert response.scenario_result_id not in service._active_tasks
 
 
@@ -757,24 +762,31 @@ class TestScenarioRunServiceGetResults:
 
     def test_get_results_returns_details_for_completed_run(self, mock_memory) -> None:
         """Test that get_run_results returns the ScenarioResult for a completed run."""
-        from pyrit.models import AttackOutcome
-
-        mock_attack_result = MagicMock()
-        mock_attack_result.outcome = AttackOutcome.SUCCESS
-        mock_attack_result.objective = "Extract info"
-
-        db_result = _make_db_scenario_result(
-            result_id="sr-123",
-            run_state="COMPLETED",
-            attack_results={"base64_attack": [mock_attack_result]},
+        attack_result = AttackResult(
+            conversation_id="conv-1",
+            objective="Extract info",
+            outcome=AttackOutcome.SUCCESS,
+            executed_turns=1,
+            execution_time_ms=100,
+            timestamp=datetime(2025, 1, 1, tzinfo=timezone.utc),
         )
-        db_result.objective_achieved_rate.return_value = 100
+        db_result = make_scenario_result(
+            scenario_name="foundry.red_team_agent",
+            scenario_description="Foundry red-team agent",
+            objective_target_identifier=ComponentIdentifier.model_validate(
+                {"__type__": "FakeTarget", "__module__": "test.mod", "params": {}}
+            ),
+            objective_scorer_identifier=None,
+            attack_results={"base64_attack": [attack_result]},
+            scenario_run_state="COMPLETED",
+        )
         mock_memory.get_scenario_results.return_value = [db_result]
 
         service = ScenarioRunService()
         result = service.get_run_results(scenario_result_id="sr-123")
 
-        assert result is db_result
+        assert result is not db_result
+        assert result is not None
         assert result.attack_results["base64_attack"][0].outcome == AttackOutcome.SUCCESS
 
 
@@ -863,7 +875,7 @@ class TestScenarioRunServiceFailedAttackReporting:
     """Tests that per-attack errors and retry pressure surface in the summary."""
 
     def test_error_attacks_and_retries_are_surfaced(self, mock_memory) -> None:
-        from pyrit.models import AttackOutcome
+        from pyrit.models import AttackOutcome, RetryEvent
 
         success = MagicMock()
         success.outcome = AttackOutcome.SUCCESS
@@ -873,8 +885,18 @@ class TestScenarioRunServiceFailedAttackReporting:
         errored.outcome = AttackOutcome.ERROR
         errored.objective = "do the bad thing"
         errored.error_type = "RateLimitError"
-        errored.error_message = "429 Too Many Requests"
+        errored.error_message = "429 Too Many Requests from provider deployment secret-model"
         errored.total_retries = 4
+        errored.attack_result_id = "ar-error"
+        errored.retry_events = [
+            RetryEvent(
+                attempt_number=1,
+                function_name="send_prompt_async",
+                exception_type="ProviderRateLimitError",
+                exception_message="secret-model returned provider token sk-test",
+                component_role="objective_target",
+            )
+        ]
 
         db_result = _make_db_scenario_result(
             result_id="sr-mixed",
@@ -892,9 +914,14 @@ class TestScenarioRunServiceFailedAttackReporting:
         assert len(fetched.failed_attacks) == 1
         failed = fetched.failed_attacks[0]
         assert failed.atomic_attack_name == "baseline_airt_hate"
-        assert failed.error_type == "RateLimitError"
-        assert failed.error_message == "429 Too Many Requests"
+        assert failed.error_type == "AttackExecutionError"
+        assert failed.error_message == "Attack execution failed. Check server logs for details."
         assert failed.total_retries == 4
+        assert fetched.attack_retries[0].retries[0].exception_type == "RetryableOperationError"
+        assert fetched.attack_retries[0].retries[0].exception_message == (
+            "Retryable operation failed. Check server logs for details."
+        )
+        assert "sk-test" not in fetched.model_dump_json()
 
     def test_no_failed_attacks_when_all_succeed(self, mock_memory) -> None:
         from pyrit.models import AttackOutcome
@@ -953,7 +980,7 @@ class TestScenarioRunServiceFailedAttackReporting:
         summary = fetched.attack_retries[0]
         assert summary.attack_result_id == "ar-9"
         assert summary.atomic_attack_name == "baseline_airt_hate"
-        assert summary.retries[0].endpoint == "https://ep/"
+        assert summary.retries[0].endpoint is None
         assert summary.retries[0].component_role == "objective_scorer"
 
 

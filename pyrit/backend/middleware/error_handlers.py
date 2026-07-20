@@ -66,11 +66,12 @@ def register_error_handlers(app: FastAPI) -> None:
         Returns:
             JSONResponse: RFC 7807 problem detail response with 400 status.
         """
+        logger.warning("Bad request on %s %s: %s", request.method, request.url.path, exc)
         problem = ProblemDetail(
             type="/errors/bad-request",
             title="Bad Request",
             status=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
+            detail="The request could not be processed",
             instance=str(request.url.path),
         )
 
@@ -90,11 +91,12 @@ def register_error_handlers(app: FastAPI) -> None:
         Returns:
             JSONResponse: RFC 7807 problem detail response with 404 status.
         """
+        logger.warning("Resource not found on %s %s: %s", request.method, request.url.path, exc)
         problem = ProblemDetail(
             type="/errors/not-found",
             title="Not Found",
             status=status.HTTP_404_NOT_FOUND,
-            detail=str(exc),
+            detail="The requested resource was not found",
             instance=str(request.url.path),
         )
 
@@ -114,11 +116,12 @@ def register_error_handlers(app: FastAPI) -> None:
         Returns:
             JSONResponse: RFC 7807 problem detail response with 403 status.
         """
+        logger.warning("Permission denied on %s %s: %s", request.method, request.url.path, exc)
         problem = ProblemDetail(
             type="/errors/forbidden",
             title="Forbidden",
             status=status.HTTP_403_FORBIDDEN,
-            detail=str(exc),
+            detail="You are not authorized to access this resource",
             instance=str(request.url.path),
         )
 
@@ -138,11 +141,12 @@ def register_error_handlers(app: FastAPI) -> None:
         Returns:
             JSONResponse: RFC 7807 problem detail response with 501 status.
         """
+        logger.warning("Unimplemented operation on %s %s: %s", request.method, request.url.path, exc)
         problem = ProblemDetail(
             type="/errors/not-implemented",
             title="Not Implemented",
             status=status.HTTP_501_NOT_IMPLEMENTED,
-            detail=str(exc) or "This feature is not yet implemented",
+            detail="This feature is not yet implemented",
             instance=str(request.url.path),
         )
 
