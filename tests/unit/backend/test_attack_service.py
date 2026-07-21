@@ -1196,9 +1196,7 @@ class TestAddMessage:
             returned_pieces = [piece for message in result.messages.messages for piece in message.message_pieces]
             error_views = [piece for piece in returned_pieces if piece.response_error == "processing"]
             assert len(error_views) == 1
-            assert error_views[0].converted_value == (
-                "The target could not complete the request. Check server logs for details."
-            )
+            assert error_views[0].converted_value == "The target could not complete the request."
             assert "sk-test" not in error_views[0].model_dump_json()
             assert "internal" not in error_views[0].model_dump_json()
 

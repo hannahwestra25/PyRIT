@@ -110,7 +110,7 @@ class MessagePieceView(MessagePiece):
         default=None, description="Description of the error if response_error is not 'none'"
     )
 
-    _INTERNAL_ERROR_MESSAGE: ClassVar[str] = "The target could not complete the request. Check server logs for details."
+    _INTERNAL_ERROR_MESSAGE: ClassVar[str] = "The target could not complete the request."
 
     @classmethod
     def from_domain(

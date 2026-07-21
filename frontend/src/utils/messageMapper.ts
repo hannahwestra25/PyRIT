@@ -7,7 +7,7 @@ import type {
   MessagePieceRequest,
 } from '../types'
 
-const INTERNAL_MESSAGE_ERROR = 'The target could not complete the request. Check server logs for details.'
+const INTERNAL_MESSAGE_ERROR = 'The target could not complete the request.'
 
 /**
  * Read a File and return its contents as a base64-encoded string (no data URI prefix).

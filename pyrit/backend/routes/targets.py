@@ -112,7 +112,7 @@ async def create_target(
         logger.exception("Failed to create target")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create target. Check server logs for details.",
+            detail="Failed to create target.",
         ) from e
 
 

@@ -43,9 +43,9 @@ logger = logging.getLogger(__name__)
 _DEFAULT_MAX_CONCURRENT_RUNS = 3
 
 _CONVERTER_MODIFIER_PREFIX = "converter."
-_SCENARIO_ERROR_MESSAGE = "Scenario run failed. Check server logs for details."
-_ATTACK_ERROR_MESSAGE = "Attack execution failed. Check server logs for details."
-_RETRY_ERROR_MESSAGE = "Retryable operation failed. Check server logs for details."
+_SCENARIO_ERROR_MESSAGE = "Scenario run failed."
+_ATTACK_ERROR_MESSAGE = "Attack execution failed."
+_RETRY_ERROR_MESSAGE = "Retryable operation failed."
 
 
 def _remove_endpoint_fields(value: Any) -> Any:

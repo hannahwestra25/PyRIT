@@ -941,7 +941,7 @@ class TestTargetRoutes:
             )
 
             assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
-            assert response.json()["detail"] == "Failed to create target. Check server logs for details."
+            assert response.json()["detail"] == "Failed to create target."
             assert internal_detail not in response.text
 
     def test_create_target_invalid_parameters_do_not_leak_details(self, client: TestClient) -> None:
@@ -1170,7 +1170,7 @@ class TestConverterRoutes:
             )
 
             assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
-            assert response.json()["detail"] == "Failed to create converter. Check server logs for details."
+            assert response.json()["detail"] == "Failed to create converter."
             assert internal_detail not in response.text
 
     def test_create_converter_invalid_parameters_do_not_leak_details(self, client: TestClient) -> None:
@@ -1298,7 +1298,7 @@ class TestConverterRoutes:
             )
 
             assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
-            assert response.json()["detail"] == "Converter preview failed. Check server logs for details."
+            assert response.json()["detail"] == "Converter preview failed."
             assert internal_detail not in response.text
 
 

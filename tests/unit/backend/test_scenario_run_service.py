@@ -600,7 +600,7 @@ class TestScenarioRunServiceGetRun:
         fetched = service.get_run(scenario_result_id="sr-fail")
 
         assert fetched is not None
-        assert fetched.error == "Scenario run failed. Check server logs for details."
+        assert fetched.error == "Scenario run failed."
         assert fetched.error_type == "ScenarioRunError"
         assert internal_detail not in fetched.model_dump_json()
         mock_memory.get_attack_results.assert_called_once_with(
@@ -743,13 +743,13 @@ class TestScenarioRunServiceExecution:
         await active.task
 
         # Error is stored on the active task until get_run reads it
-        assert active.error == "Scenario run failed. Check server logs for details."
+        assert active.error == "Scenario run failed."
         assert response.scenario_result_id in service._active_tasks
 
         # get_run should surface the error and clean up
         fetched = service.get_run(scenario_result_id=response.scenario_result_id)
         assert fetched is not None
-        assert fetched.error == "Scenario run failed. Check server logs for details."
+        assert fetched.error == "Scenario run failed."
         assert internal_detail not in fetched.model_dump_json()
         assert response.scenario_result_id not in service._active_tasks
 
@@ -928,12 +928,10 @@ class TestScenarioRunServiceFailedAttackReporting:
         failed = fetched.failed_attacks[0]
         assert failed.atomic_attack_name == "baseline_airt_hate"
         assert failed.error_type == "AttackExecutionError"
-        assert failed.error_message == "Attack execution failed. Check server logs for details."
+        assert failed.error_message == "Attack execution failed."
         assert failed.total_retries == 4
         assert fetched.attack_retries[0].retries[0].exception_type == "RetryableOperationError"
-        assert fetched.attack_retries[0].retries[0].exception_message == (
-            "Retryable operation failed. Check server logs for details."
-        )
+        assert fetched.attack_retries[0].retries[0].exception_message == "Retryable operation failed."
         assert "sk-test" not in fetched.model_dump_json()
 
     def test_no_failed_attacks_when_all_succeed(self, mock_memory) -> None:

@@ -476,5 +476,5 @@ async def add_message(  # pyrit-async-suffix-exempt
         logger.exception("Failed to add message to attack '%s'", attack_result_id)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal server error. Check server logs for details.",
+            detail="Internal server error.",
         ) from e

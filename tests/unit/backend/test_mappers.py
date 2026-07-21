@@ -168,7 +168,7 @@ class TestAttackResultToSummary:
 
         summary = await attack_result_to_summary_async(ar, stats=ConversationStats(message_count=0))
 
-        assert summary.outcome_reason == "Attack execution failed. Check server logs for details."
+        assert summary.outcome_reason == "Attack execution failed."
         assert internal_detail not in summary.model_dump_json()
 
     async def test_round_robin_target_includes_canonical_identifier_hash(self) -> None:

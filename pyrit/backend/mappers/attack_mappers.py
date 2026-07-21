@@ -47,7 +47,7 @@ from pyrit.models import (
 
 logger = logging.getLogger(__name__)
 
-_ATTACK_ERROR_MESSAGE = "Attack execution failed. Check server logs for details."
+_ATTACK_ERROR_MESSAGE = "Attack execution failed."
 
 if TYPE_CHECKING:
     from pyrit.models.conversation_stats import ConversationStats

@@ -339,11 +339,9 @@ describe("messageMapper", () => {
 
       const result = backendMessageToFrontend(msg);
 
-      expect(result.content).toBe(
-        "The target could not complete the request. Check server logs for details."
-      );
+      expect(result.content).toBe("The target could not complete the request.");
       expect(result.error?.description).toBe(
-        "The target could not complete the request. Check server logs for details."
+        "The target could not complete the request."
       );
       expect(JSON.stringify(result)).not.toContain("sk-test");
       expect(JSON.stringify(result)).not.toContain("internal\\\\provider.py");

@@ -360,4 +360,4 @@ class TestGetScenarioRunResultsRoute:
         assert internal_detail not in response.text
         assert "api_key=sk-test" not in response.text
         assert f"Exception: ProviderConnectionError: {internal_detail}" not in response.text
-        assert "Attack execution failed. Check server logs for details." in response.text
+        assert "Attack execution failed." in response.text

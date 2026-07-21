@@ -99,7 +99,7 @@ async def create_converter(request: CreateConverterRequest) -> CreateConverterRe
         logger.exception("Failed to create converter")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create converter. Check server logs for details.",
+            detail="Failed to create converter.",
         ) from e
 
 
@@ -165,5 +165,5 @@ async def preview_conversion(request: ConverterPreviewRequest) -> ConverterPrevi
         logger.exception("Failed to preview converter")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Converter preview failed. Check server logs for details.",
+            detail="Converter preview failed.",
         ) from e
