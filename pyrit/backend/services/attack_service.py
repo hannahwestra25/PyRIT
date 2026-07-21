@@ -684,7 +684,7 @@ class AttackService:
         Validate that the request target matches the attack's stored target.
 
         Raises:
-            ValueError: If the target in the request doesn't match the attack's target.
+            ClientRequestError: If the target in the request doesn't match the attack's target.
         """
         if not request.send or not request.target_registry_name:
             return
@@ -699,17 +699,10 @@ class AttackService:
             return
 
         request_target_id = request_target_obj.get_identifier()
-        if (
-            stored_target_id.class_name != request_target_id.class_name
-            or (stored_target_id.params.get("endpoint") or "") != (request_target_id.params.get("endpoint") or "")
-            or (stored_target_id.params.get("model_name") or "") != (request_target_id.params.get("model_name") or "")
-        ):
+        if stored_target_id.hash != request_target_id.hash:
             raise ClientRequestError(
-                f"Target mismatch: attack was created with "
-                f"{stored_target_id.class_name}/{stored_target_id.params.get('model_name')} "
-                f"but request uses "
-                f"{request_target_id.class_name}/{request_target_id.params.get('model_name')}. "
-                f"Create a new attack to use a different target."
+                "Target mismatch: the request target does not match the attack target. "
+                "Create a new attack to use a different target."
             )
 
     def _validate_operator_match(self, *, attack_result: AttackResult, request: AddMessageRequest) -> None:
