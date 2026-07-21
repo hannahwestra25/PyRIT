@@ -425,7 +425,7 @@ describe('AttackHistory', () => {
     await waitFor(() => {
       expect(screen.getByTestId('error-state')).toBeInTheDocument()
     })
-    expect(screen.getByText('Internal server error')).toBeInTheDocument()
+    expect(screen.getByText('The server could not complete the request. Please try again.')).toBeInTheDocument()
     expect(screen.getByTestId('retry-btn')).toBeInTheDocument()
   })
 

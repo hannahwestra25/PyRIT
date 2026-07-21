@@ -614,9 +614,7 @@ class AttackService:
 
         # Validate the target conversation belongs to this attack (main + pruned only)
         if msg_conversation_id not in ar.get_active_conversation_ids():
-            raise ClientRequestError(
-                f"Conversation '{msg_conversation_id}' is not part of attack '{attack_result_id}'"
-            )
+            raise ClientRequestError(f"Conversation '{msg_conversation_id}' is not part of attack '{attack_result_id}'")
 
         target_registry_name = request.target_registry_name
         if request.send and not target_registry_name:

@@ -366,7 +366,7 @@ describe("ConversationPanel", () => {
     await waitFor(() => {
       expect(screen.getByTestId("conversation-error")).toBeInTheDocument();
     });
-    expect(screen.getByText("Network error")).toBeInTheDocument();
+    expect(screen.getByText("An unexpected error occurred.")).toBeInTheDocument();
   });
 
   // -----------------------------------------------------------------------
@@ -428,7 +428,9 @@ describe("ConversationPanel", () => {
     await waitFor(() => {
       expect(screen.getByTestId("conversation-error")).toBeInTheDocument();
     });
-    expect(screen.getByText("Server exploded")).toBeInTheDocument();
+    expect(
+      screen.getByText("The server could not complete the request. Please try again.")
+    ).toBeInTheDocument();
     expect(screen.getByTestId("conversation-retry-btn")).toBeInTheDocument();
   });
 

@@ -814,7 +814,7 @@ describe("ChatWindow Integration", () => {
     await user.click(screen.getByRole("button", { name: /send/i }));
 
     await waitFor(() => {
-      expect(screen.getByText(/Network error/)).toBeInTheDocument();
+      expect(screen.getByText(/An unexpected error occurred\./)).toBeInTheDocument();
     });
   });
 
@@ -847,11 +847,11 @@ describe("ChatWindow Integration", () => {
     await user.click(screen.getByRole("button", { name: /send/i }));
 
     await waitFor(() => {
-      expect(screen.getByText(/Request failed with status code 404/)).toBeInTheDocument();
+      expect(screen.getByText(/An unexpected error occurred\./)).toBeInTheDocument();
     });
   });
 
-  it("should extract detail from axios-style error response", async () => {
+  it("should sanitize detail from a 500 axios-style error response", async () => {
     const user = userEvent.setup();
 
     mockedMapper.buildMessagePieces.mockResolvedValue([
@@ -881,7 +881,7 @@ describe("ChatWindow Integration", () => {
     await user.click(screen.getByRole("button", { name: /send/i }));
 
     await waitFor(() => {
-      expect(screen.getByText(/Failed to add message/)).toBeInTheDocument();
+      expect(screen.getByText(/The server could not complete the request\. Please try again\./)).toBeInTheDocument();
     });
   });
 
@@ -915,7 +915,7 @@ describe("ChatWindow Integration", () => {
     await user.click(screen.getByRole("button", { name: /send/i }));
 
     await waitFor(() => {
-      expect(screen.getByText(/Internal Server Error/)).toBeInTheDocument();
+      expect(screen.getByText(/The server could not complete the request\. Please try again\./)).toBeInTheDocument();
     });
   });
 
@@ -941,7 +941,7 @@ describe("ChatWindow Integration", () => {
     await user.click(screen.getByRole("button", { name: /send/i }));
 
     await waitFor(() => {
-      expect(screen.getByText(/string error/)).toBeInTheDocument();
+      expect(screen.getByText(/An unexpected error occurred\./)).toBeInTheDocument();
     });
   });
 

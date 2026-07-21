@@ -353,7 +353,7 @@ describe("CreateTargetDialog", () => {
     await user.click(screen.getByText("Create Target"));
 
     await waitFor(() => {
-      expect(screen.getByText("Invalid API key")).toBeInTheDocument();
+      expect(screen.getByText("An unexpected error occurred.")).toBeInTheDocument();
     });
   });
 
@@ -449,7 +449,7 @@ describe("CreateTargetDialog", () => {
     });
   });
 
-  it("should surface string throws verbatim via toApiError", async () => {
+  it("should sanitize string throws via toApiError", async () => {
     const user = userEvent.setup();
     mockedTargetsApi.createTarget.mockRejectedValue("string error");
 
@@ -469,7 +469,7 @@ describe("CreateTargetDialog", () => {
     await user.click(screen.getByText("Create Target"));
 
     await waitFor(() => {
-      expect(screen.getByText("string error")).toBeInTheDocument();
+      expect(screen.getByText("An unexpected error occurred.")).toBeInTheDocument();
     });
   });
 

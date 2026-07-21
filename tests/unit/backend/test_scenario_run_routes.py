@@ -279,7 +279,6 @@ class TestGetScenarioRunResultsRoute:
         service._active_tasks = {}
 
         with patch("pyrit.backend.routes.scenarios.get_scenario_run_service", return_value=service):
-
             response = client.get("/api/scenarios/runs/test-run-id/results")
 
         assert response.status_code == status.HTTP_200_OK
@@ -355,7 +354,6 @@ class TestGetScenarioRunResultsRoute:
         service._active_tasks = {}
 
         with patch("pyrit.backend.routes.scenarios.get_scenario_run_service", return_value=service):
-
             response = client.get("/api/scenarios/runs/test-run-id/results")
 
         assert response.status_code == status.HTTP_200_OK

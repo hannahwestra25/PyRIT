@@ -109,9 +109,7 @@ class MessagePieceView(MessagePiece):
         default=None, description="Description of the error if response_error is not 'none'"
     )
 
-    _INTERNAL_ERROR_MESSAGE: ClassVar[str] = (
-        "The target could not complete the request. Check server logs for details."
-    )
+    _INTERNAL_ERROR_MESSAGE: ClassVar[str] = "The target could not complete the request. Check server logs for details."
 
     @classmethod
     def from_domain(
@@ -166,9 +164,7 @@ class MessagePieceView(MessagePiece):
             converted_value_url=converted_value_url,
             original_value_mime_type=infer_mime_type(value=original_value, data_type=orig_dtype),
             converted_value_mime_type=infer_mime_type(value=converted_value, data_type=conv_dtype),
-            original_filename=build_filename(
-                data_type=orig_dtype, sha256=original_value_sha256, value=original_value
-            ),
+            original_filename=build_filename(data_type=orig_dtype, sha256=original_value_sha256, value=original_value),
             converted_filename=build_filename(
                 data_type=conv_dtype, sha256=converted_value_sha256, value=converted_value
             ),

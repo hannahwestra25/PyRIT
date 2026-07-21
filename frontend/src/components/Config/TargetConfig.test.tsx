@@ -135,7 +135,9 @@ describe("TargetConfig", () => {
 
       await waitFor(
         () => {
-          expect(screen.getByText(/Connection refused/)).toBeInTheDocument();
+          expect(
+            screen.getByText(/An unexpected error occurred\./)
+          ).toBeInTheDocument();
         },
         { timeout: 15000 }
       );

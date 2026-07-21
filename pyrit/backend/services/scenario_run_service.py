@@ -56,11 +56,7 @@ def _remove_endpoint_fields(value: Any) -> Any:
         A recursively copied value without endpoint fields.
     """
     if isinstance(value, dict):
-        return {
-            key: _remove_endpoint_fields(item)
-            for key, item in value.items()
-            if str(key).lower() != "endpoint"
-        }
+        return {key: _remove_endpoint_fields(item) for key, item in value.items() if str(key).lower() != "endpoint"}
     if isinstance(value, list):
         return [_remove_endpoint_fields(item) for item in value]
     return value
