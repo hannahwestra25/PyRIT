@@ -259,8 +259,9 @@ test.describe("Error: backend 500 on send message", () => {
 
     // Error message should appear in chat
     await expect(
-      page.getByText(/Internal server error/i),
+      page.getByText(/The server could not complete the request\. Please try again\./i),
     ).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText(/Internal server error/i)).toHaveCount(0);
 
     // The failed text should be restored in the input for easy re-send
     await expect(input).toHaveValue("This should fail", { timeout: 5000 });
@@ -282,9 +283,10 @@ test.describe("Error: backend 500 on send message", () => {
     await input.fill("First send fails");
     await page.getByRole("button", { name: /send/i }).click();
 
-    await expect(page.getByText(/Internal server error/i)).toBeVisible({
-      timeout: 10000,
-    });
+    await expect(
+      page.getByText(/The server could not complete the request\. Please try again\./i),
+    ).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText(/Internal server error/i)).toHaveCount(0);
     await expect(page.getByTestId("loading-state")).toHaveCount(0);
     await expect(input).toHaveValue("First send fails", { timeout: 5000 });
   });
