@@ -24,6 +24,7 @@ export interface ApiError {
 
 const UNEXPECTED_ERROR_DETAIL = 'An unexpected error occurred.'
 const SERVER_ERROR_DETAIL = 'The server could not complete the request. Please try again.'
+// Only reviewed problem types may expose 5xx detail; untrusted proxy or provider text can contain internal data.
 const PUBLIC_SERVER_PROBLEM_TYPES = new Set([
   '/errors/target-timeout',
   '/errors/target-unavailable',
