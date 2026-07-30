@@ -290,6 +290,35 @@ test.describe("Error: backend 500 on send message", () => {
     await expect(page.getByTestId("loading-state")).toHaveCount(0);
     await expect(input).toHaveValue("First send fails", { timeout: 5000 });
   });
+
+  test("should show an explicitly categorized server error", async ({ page }) => {
+    await mockAllAPIs(page, async (route) => {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({
+          type: "/errors/target-unavailable",
+          title: "Target Unavailable",
+          status: 503,
+          detail: "The target is temporarily unavailable. Please try again later.",
+        }),
+      });
+    });
+
+    await page.goto("/");
+    await activateMockTarget(page);
+
+    const input = page.getByRole("textbox");
+    await input.fill("Unavailable target");
+    await page.getByRole("button", { name: /send/i }).click();
+
+    await expect(
+      page.getByText("The target is temporarily unavailable. Please try again later."),
+    ).toBeVisible({ timeout: 10000 });
+    await expect(
+      page.getByText("The server could not complete the request. Please try again."),
+    ).toHaveCount(0);
+  });
 });
 
 // ---------------------------------------------------------------------------

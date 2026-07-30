@@ -24,6 +24,10 @@ export interface ApiError {
 
 const UNEXPECTED_ERROR_DETAIL = 'An unexpected error occurred.'
 const SERVER_ERROR_DETAIL = 'The server could not complete the request. Please try again.'
+const PUBLIC_SERVER_PROBLEM_TYPES = new Set([
+  '/errors/target-timeout',
+  '/errors/target-unavailable',
+])
 
 /**
  * Convert any caught value into a normalized {@link ApiError}.
@@ -64,7 +68,8 @@ export function toApiError(err: unknown): ApiError {
 
     // We have an HTTP response — try to extract RFC 7807 detail
     const { status, data } = err.response
-    if (status >= 500) {
+    const { detail, type, isProblemDetail } = extractDetail(data, status)
+    if (status >= 500 && (!isProblemDetail || !isPublicServerProblemType(type))) {
       return {
         status,
         detail: SERVER_ERROR_DETAIL,
@@ -73,7 +78,6 @@ export function toApiError(err: unknown): ApiError {
         raw: err,
       }
     }
-    const { detail, type } = extractDetail(data)
 
     return {
       status,
@@ -134,15 +138,27 @@ function isAxiosError(err: unknown): err is AxiosError {
  * - A plain string (ignored because proxy or server text is not trusted for display)
  * - Something else entirely (null, number, etc.)
  */
-function extractDetail(data: unknown): { detail: string | undefined; type: string | undefined } {
+function extractDetail(
+  data: unknown,
+  responseStatus: number,
+): { detail: string | undefined; type: string | undefined; isProblemDetail: boolean } {
   if (typeof data === 'string') {
-    return { detail: undefined, type: undefined }
+    return { detail: undefined, type: undefined, isProblemDetail: false }
   }
   if (typeof data === 'object' && data !== null) {
     const obj = data as Record<string, unknown>
     const detail = typeof obj.detail === 'string' ? obj.detail : undefined
     const type = typeof obj.type === 'string' ? obj.type : undefined
-    return { detail, type }
+    const isProblemDetail =
+      detail !== undefined &&
+      type !== undefined &&
+      typeof obj.title === 'string' &&
+      obj.status === responseStatus
+    return { detail, type, isProblemDetail }
   }
-  return { detail: undefined, type: undefined }
+  return { detail: undefined, type: undefined, isProblemDetail: false }
+}
+
+function isPublicServerProblemType(type: string | undefined): boolean {
+  return type !== undefined && PUBLIC_SERVER_PROBLEM_TYPES.has(type)
 }

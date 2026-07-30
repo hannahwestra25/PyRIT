@@ -86,6 +86,99 @@ describe('toApiError', () => {
     expect(result.type).toBeUndefined()
   })
 
+  it('preserves an explicitly categorized server error', () => {
+    const err = makeAxiosError({
+      status: 503,
+      data: {
+        type: '/errors/target-unavailable',
+        title: 'Target Unavailable',
+        status: 503,
+        detail: 'The target is temporarily unavailable. Please try again later.',
+      },
+    })
+
+    const result = toApiError(err)
+
+    expect(result.status).toBe(503)
+    expect(result.detail).toBe('The target is temporarily unavailable. Please try again later.')
+    expect(result.type).toBe('/errors/target-unavailable')
+  })
+
+  it('sanitizes an untyped server error detail', () => {
+    const internalDetail = 'provider secret=sk-test failed at C:\\internal\\provider.py'
+    const err = makeAxiosError({
+      status: 500,
+      data: { detail: internalDetail },
+    })
+
+    const result = toApiError(err)
+
+    expect(result.detail).toBe('The server could not complete the request. Please try again.')
+    expect(result.detail).not.toContain(internalDetail)
+  })
+
+  it('sanitizes an internal RFC 7807 server error detail', () => {
+    const internalDetail = 'provider secret=sk-test failed at C:\\internal\\provider.py'
+    const err = makeAxiosError({
+      status: 500,
+      data: {
+        type: '/errors/internal-error',
+        title: 'Internal Server Error',
+        status: 500,
+        detail: internalDetail,
+      },
+    })
+
+    const result = toApiError(err)
+
+    expect(result.detail).toBe('The server could not complete the request. Please try again.')
+    expect(result.detail).not.toContain(internalDetail)
+    expect(result.type).toBeUndefined()
+  })
+
+  it('sanitizes an unreviewed RFC 7807 server error type', () => {
+    const internalDetail = 'database secret=sk-test failed at C:\\internal\\database.py'
+    const err = makeAxiosError({
+      status: 503,
+      data: {
+        type: '/errors/database-error',
+        title: 'Database Error',
+        status: 503,
+        detail: internalDetail,
+      },
+    })
+
+    const result = toApiError(err)
+
+    expect(result.detail).toBe('The server could not complete the request. Please try again.')
+    expect(result.detail).not.toContain(internalDetail)
+  })
+
+  it.each([
+    {
+      name: 'a mismatched status',
+      data: {
+        type: '/errors/target-unavailable',
+        title: 'Target Unavailable',
+        status: 200,
+        detail: 'provider secret=sk-test',
+      },
+    },
+    {
+      name: 'a missing title',
+      data: {
+        type: '/errors/target-unavailable',
+        status: 503,
+        detail: 'provider secret=sk-test',
+      },
+    },
+  ])('sanitizes a server problem with $name', ({ data }) => {
+    const result = toApiError(makeAxiosError({ status: 503, data }))
+
+    expect(result.detail).toBe('The server could not complete the request. Please try again.')
+    expect(result.detail).not.toContain('sk-test')
+  })
+
   // 4. Axios error with no response (network / CORS)
   it('returns isNetworkError for Axios errors without response', () => {
     const err = makeAxiosError({
