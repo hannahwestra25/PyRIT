@@ -14,6 +14,7 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from pyrit.backend.error_classification import classify_public_error, sanitize_retry_event
 from pyrit.backend.exceptions import ClientRequestError
 from pyrit.backend.models.scenarios import ScenarioRunListResponse
 from pyrit.memory import CentralMemory
@@ -43,9 +44,10 @@ logger = logging.getLogger(__name__)
 _DEFAULT_MAX_CONCURRENT_RUNS = 3
 
 _CONVERTER_MODIFIER_PREFIX = "converter."
+_SCENARIO_ERROR_TYPE = "ScenarioRunError"
 _SCENARIO_ERROR_MESSAGE = "Scenario run failed."
+_ATTACK_ERROR_TYPE = "AttackExecutionError"
 _ATTACK_ERROR_MESSAGE = "Attack execution failed."
-_RETRY_ERROR_MESSAGE = "Retryable operation failed."
 
 
 def _remove_endpoint_fields(value: Any) -> Any:
@@ -71,27 +73,34 @@ def _sanitize_scenario_result(scenario_result: ScenarioResult) -> ScenarioResult
     """
     sanitized = ScenarioResult.model_validate(_remove_endpoint_fields(scenario_result.model_dump()))
     if sanitized.error_message or sanitized.error_type:
-        sanitized.error_message = _SCENARIO_ERROR_MESSAGE
-        sanitized.error_type = "ScenarioRunError"
+        public_error = classify_public_error(
+            exception_type=sanitized.error_type,
+            default_error_type=_SCENARIO_ERROR_TYPE,
+            default_message=_SCENARIO_ERROR_MESSAGE,
+            default_subject="The scenario run",
+        )
+        sanitized.error_message = public_error.message
+        sanitized.error_type = public_error.error_type
 
     for attack_results in sanitized.attack_results.values():
         for attack_result in attack_results:
-            if attack_result.outcome == AttackOutcome.ERROR:
-                attack_result.outcome_reason = _ATTACK_ERROR_MESSAGE
-            if attack_result.error_message or attack_result.error_type or attack_result.error_traceback:
-                attack_result.error_message = _ATTACK_ERROR_MESSAGE
-                attack_result.error_type = "AttackExecutionError"
+            has_error_details = bool(
+                attack_result.error_message or attack_result.error_type or attack_result.error_traceback
+            )
+            public_error = classify_public_error(
+                exception_type=attack_result.error_type,
+                retry_events=attack_result.retry_events,
+                default_error_type=_ATTACK_ERROR_TYPE,
+                default_message=_ATTACK_ERROR_MESSAGE,
+                default_subject="Attack execution",
+            )
+            if attack_result.outcome == AttackOutcome.ERROR or has_error_details:
+                attack_result.outcome_reason = public_error.message
+            if has_error_details:
+                attack_result.error_message = public_error.message
+                attack_result.error_type = public_error.error_type
                 attack_result.error_traceback = None
-            attack_result.retry_events = [
-                event.model_copy(
-                    update={
-                        "exception_type": "RetryableOperationError",
-                        "exception_message": _RETRY_ERROR_MESSAGE,
-                        "endpoint": None,
-                    }
-                )
-                for event in attack_result.retry_events
-            ]
+            attack_result.retry_events = [sanitize_retry_event(event) for event in attack_result.retry_events]
 
     return sanitized
 
@@ -636,6 +645,7 @@ class ScenarioRunService:
         # Primary source: DB-persisted error fields
         error = scenario_result.error_message
         error_type = scenario_result.error_type
+        error_retry_events: list[RetryEvent] = []
 
         # Fallback: look up error from any persisted error AttackResults linked
         # to this scenario via the new attribution_parent_id foreign key.
@@ -647,14 +657,22 @@ class ScenarioRunService:
             if error_ars:
                 error = error_ars[0].error_message
                 error_type = error_ars[0].error_type
+                error_retry_events = error_ars[0].retry_events
 
         # Fallback: in-memory error for in-flight tasks where DB hasn't been updated yet
         if not error and active is not None:
             error = active.error
 
         if error and status != ScenarioRunState.CANCELLED:
-            error = _SCENARIO_ERROR_MESSAGE
-            error_type = "ScenarioRunError"
+            public_error = classify_public_error(
+                exception_type=error_type,
+                retry_events=error_retry_events,
+                default_error_type=_SCENARIO_ERROR_TYPE,
+                default_message=_SCENARIO_ERROR_MESSAGE,
+                default_subject="The scenario run",
+            )
+            error = public_error.message
+            error_type = public_error.error_type
 
         # Build result fields from DB (always computed so in-progress runs show progress)
         total_attacks = sum(len(results) for results in scenario_result.attack_results.values())
@@ -678,30 +696,24 @@ class ScenarioRunService:
                         AttackRetrySummary(
                             attack_result_id=str(attack_result.attack_result_id),
                             atomic_attack_name=atomic_attack_name,
-                            retries=[
-                                RetryEvent(
-                                    timestamp=event.timestamp,
-                                    attempt_number=event.attempt_number,
-                                    function_name=event.function_name,
-                                    exception_type="RetryableOperationError",
-                                    exception_message=_RETRY_ERROR_MESSAGE,
-                                    component_role=event.component_role,
-                                    component_name=event.component_name,
-                                    endpoint=None,
-                                    elapsed_seconds=event.elapsed_seconds,
-                                )
-                                for event in retry_events
-                            ],
+                            retries=[sanitize_retry_event(event) for event in retry_events],
                         )
                     )
 
                 if attack_result.outcome == AttackOutcome.ERROR:
+                    public_error = classify_public_error(
+                        exception_type=attack_result.error_type,
+                        retry_events=retry_events if isinstance(retry_events, list) else (),
+                        default_error_type=_ATTACK_ERROR_TYPE,
+                        default_message=_ATTACK_ERROR_MESSAGE,
+                        default_subject="Attack execution",
+                    )
                     failed_attacks.append(
                         AttackErrorSummary(
                             atomic_attack_name=atomic_attack_name,
                             objective=attack_result.objective,
-                            error_type="AttackExecutionError",
-                            error_message=_ATTACK_ERROR_MESSAGE,
+                            error_type=public_error.error_type,
+                            error_message=public_error.message,
                             total_retries=retries if isinstance(retries, int) else 0,
                         )
                     )

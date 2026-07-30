@@ -593,6 +593,7 @@ class TestScenarioRunServiceGetRun:
         internal_detail = r"Connection refused: secret=sk-test C:\internal\provider.py"
         error_ar.error_message = internal_detail
         error_ar.error_type = "ProviderConnectionError"
+        error_ar.retry_events = []
         mock_memory.get_scenario_results.return_value = [db_result]
         mock_memory.get_attack_results.return_value = [error_ar]
 
@@ -897,7 +898,7 @@ class TestScenarioRunServiceFailedAttackReporting:
         errored = MagicMock()
         errored.outcome = AttackOutcome.ERROR
         errored.objective = "do the bad thing"
-        errored.error_type = "RateLimitError"
+        errored.error_type = "RetryError"
         errored.error_message = "429 Too Many Requests from provider deployment secret-model"
         errored.total_retries = 4
         errored.attack_result_id = "ar-error"
@@ -905,7 +906,7 @@ class TestScenarioRunServiceFailedAttackReporting:
             RetryEvent(
                 attempt_number=1,
                 function_name="send_prompt_async",
-                exception_type="ProviderRateLimitError",
+                exception_type="RateLimitError",
                 exception_message="secret-model returned provider token sk-test",
                 component_role="objective_target",
             )
@@ -927,11 +928,14 @@ class TestScenarioRunServiceFailedAttackReporting:
         assert len(fetched.failed_attacks) == 1
         failed = fetched.failed_attacks[0]
         assert failed.atomic_attack_name == "baseline_airt_hate"
-        assert failed.error_type == "AttackExecutionError"
-        assert failed.error_message == "Attack execution failed."
+        assert failed.error_type == "RateLimitedError"
+        assert failed.error_message == "The objective target was rate limited. Please try again later."
         assert failed.total_retries == 4
-        assert fetched.attack_retries[0].retries[0].exception_type == "RetryableOperationError"
-        assert fetched.attack_retries[0].retries[0].exception_message == "Retryable operation failed."
+        assert fetched.attack_retries[0].retries[0].exception_type == "RateLimitedError"
+        assert (
+            fetched.attack_retries[0].retries[0].exception_message
+            == "The objective target was rate limited. Please try again later."
+        )
         assert "sk-test" not in fetched.model_dump_json()
 
     def test_no_failed_attacks_when_all_succeed(self, mock_memory) -> None:
@@ -993,6 +997,8 @@ class TestScenarioRunServiceFailedAttackReporting:
         assert summary.atomic_attack_name == "baseline_airt_hate"
         assert summary.retries[0].endpoint is None
         assert summary.retries[0].component_role == "objective_scorer"
+        assert summary.retries[0].exception_type == "RateLimitedError"
+        assert summary.retries[0].exception_message == "The objective scorer was rate limited. Please try again later."
 
 
 class TestResolveTechniquesAndConverters:

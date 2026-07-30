@@ -318,18 +318,19 @@ class TestGetScenarioRunResultsRoute:
             conversation_id="conv-1",
             objective="Extract sensitive info",
             outcome=AttackOutcome.ERROR,
-            outcome_reason=f"Exception: ProviderConnectionError: {internal_detail}",
+            outcome_reason=f"Exception: APIConnectionError: {internal_detail}",
             executed_turns=1,
             execution_time_ms=100,
             timestamp=datetime(2025, 1, 1, tzinfo=timezone.utc),
             error_message=internal_detail,
-            error_type="ProviderConnectionError",
+            error_type="APIConnectionError",
             error_traceback=f"Traceback: {internal_detail}",
             retry_events=[
                 RetryEvent(
                     attempt_number=1,
-                    exception_type="ProviderRetryError",
+                    exception_type="APIConnectionError",
                     exception_message=internal_detail,
+                    component_role="objective_target",
                     endpoint="https://provider.internal/?api_key=sk-test",
                 )
             ],
@@ -359,5 +360,8 @@ class TestGetScenarioRunResultsRoute:
         assert response.status_code == status.HTTP_200_OK
         assert internal_detail not in response.text
         assert "api_key=sk-test" not in response.text
-        assert f"Exception: ProviderConnectionError: {internal_detail}" not in response.text
-        assert "Attack execution failed." in response.text
+        assert f"Exception: APIConnectionError: {internal_detail}" not in response.text
+        assert "The objective target is unavailable. Verify connectivity and try again." in response.text
+        assert attack.error_message == internal_detail
+        assert attack.error_traceback == f"Traceback: {internal_detail}"
+        assert attack.retry_events[0].endpoint == "https://provider.internal/?api_key=sk-test"

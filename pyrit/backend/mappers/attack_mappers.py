@@ -24,6 +24,7 @@ from azure.identity.aio import DefaultAzureCredential
 from azure.storage.blob import ContainerSasPermissions, generate_container_sas
 from azure.storage.blob.aio import BlobServiceClient
 
+from pyrit.backend.error_classification import classify_public_error, sanitize_retry_event
 from pyrit.backend.mappers._preview import format_last_message_preview
 from pyrit.backend.models.attacks import (
     AddMessageRequest,
@@ -47,6 +48,7 @@ from pyrit.models import (
 
 logger = logging.getLogger(__name__)
 
+_ATTACK_ERROR_TYPE = "AttackExecutionError"
 _ATTACK_ERROR_MESSAGE = "Attack execution failed."
 
 if TYPE_CHECKING:
@@ -215,8 +217,21 @@ async def attack_result_to_summary_async(
     created_at, updated_at = _resolve_summary_timestamps(ar)
 
     data = {name: getattr(ar, name) for name in AttackResult.model_fields}
-    if ar.outcome == AttackOutcome.ERROR:
-        data["outcome_reason"] = _ATTACK_ERROR_MESSAGE
+    data["retry_events"] = [sanitize_retry_event(event) for event in ar.retry_events]
+    if ar.outcome == AttackOutcome.ERROR or ar.error_message or ar.error_type or ar.error_traceback:
+        public_error = classify_public_error(
+            exception_type=ar.error_type,
+            retry_events=ar.retry_events,
+            default_error_type=_ATTACK_ERROR_TYPE,
+            default_message=_ATTACK_ERROR_MESSAGE,
+            default_subject="Attack execution",
+        )
+        data.update(
+            error_type=public_error.error_type,
+            error_message=public_error.message,
+            error_traceback=None,
+            outcome_reason=public_error.message,
+        )
     data.update(
         last_response=await _summary_last_response_async(ar.last_response),
         last_score=ScoreView.from_domain(ar.last_score) if ar.last_score else None,

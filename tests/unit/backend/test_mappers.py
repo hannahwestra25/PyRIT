@@ -171,6 +171,42 @@ class TestAttackResultToSummary:
         assert summary.outcome_reason == "Attack execution failed."
         assert internal_detail not in summary.model_dump_json()
 
+    async def test_error_outcome_uses_safe_retry_classification(self) -> None:
+        """Known retry types remain actionable without exposing provider diagnostics."""
+        from pyrit.models.retry_event import RetryEvent
+
+        internal_detail = r"provider secret=sk-test at C:\internal\provider.py"
+        ar = _make_attack_result().model_copy(
+            update={
+                "outcome": AttackOutcome.ERROR,
+                "outcome_reason": f"Exception: RetryError: {internal_detail}",
+                "error_type": "RetryError",
+                "error_message": internal_detail,
+                "error_traceback": f"Traceback: {internal_detail}",
+                "retry_events": [
+                    RetryEvent(
+                        exception_type="APITimeoutError",
+                        exception_message=internal_detail,
+                        component_role="objective_target",
+                        endpoint="https://provider.internal/?api_key=sk-test",
+                    )
+                ],
+            }
+        )
+
+        summary = await attack_result_to_summary_async(ar, stats=ConversationStats(message_count=0))
+
+        assert summary.outcome_reason == "The objective target timed out. Please try again."
+        assert summary.error_type == "OperationTimeoutError"
+        assert summary.error_message == "The objective target timed out. Please try again."
+        assert summary.error_traceback is None
+        assert summary.retry_events[0].exception_type == "OperationTimeoutError"
+        assert summary.retry_events[0].endpoint is None
+        assert internal_detail not in summary.model_dump_json()
+        assert ar.error_message == internal_detail
+        assert ar.error_traceback == f"Traceback: {internal_detail}"
+        assert ar.retry_events[0].endpoint == "https://provider.internal/?api_key=sk-test"
+
     async def test_round_robin_target_includes_canonical_identifier_hash(self) -> None:
         """Composite targets retain their full identity even when root display fields are absent."""
         target_identifier = ComponentIdentifier(
@@ -475,10 +511,14 @@ class TestAttackResultToSummary:
         evt = summary.retry_events[0]
         assert evt.attempt_number == 1
         assert evt.function_name == "send_prompt_async"
-        assert evt.exception_type == "RateLimitError"
+        assert evt.exception_type == "RateLimitedError"
+        assert evt.exception_message == "The objective target was rate limited. Please try again later."
         assert evt.component_role == "objective_target"
+        assert evt.endpoint is None
         assert evt.elapsed_seconds == 1.5
         assert summary.total_retries == 1
+        assert ar.retry_events[0].exception_type == "RateLimitError"
+        assert ar.retry_events[0].endpoint == "https://api.openai.com"
 
     """Tests for retry-event passthrough on AttackSummary."""
 
