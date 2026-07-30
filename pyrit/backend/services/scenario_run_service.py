@@ -235,7 +235,7 @@ class ScenarioRunService:
             return None
 
         scenario_result = results[0]
-        db_status = ScenarioRunState(scenario_result.scenario_run_state)
+        db_status = scenario_result.scenario_run_state
 
         if db_status in (ScenarioRunState.COMPLETED, ScenarioRunState.FAILED, ScenarioRunState.CANCELLED):
             raise ClientRequestError(f"Cannot cancel run in '{db_status}' state.")
@@ -250,7 +250,7 @@ class ScenarioRunService:
         # Persist cancelled state to DB
         self._memory.update_scenario_run_state(
             scenario_result_id=scenario_result_id,
-            scenario_run_state="CANCELLED",
+            scenario_run_state=ScenarioRunState.CANCELLED,
             error_message="Run was cancelled by user",
             error_type="CancelledError",
         )
@@ -640,7 +640,7 @@ class ScenarioRunService:
         if active is not None and active.task is not None and active.task.done():
             del self._active_tasks[scenario_result_id]
 
-        status = ScenarioRunState(scenario_result.scenario_run_state)
+        status = scenario_result.scenario_run_state
 
         # Primary source: DB-persisted error fields
         error = scenario_result.error_message

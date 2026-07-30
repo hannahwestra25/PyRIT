@@ -18,7 +18,7 @@ from pyrit.backend.services.scenario_run_service import (
     ScenarioRunService,
 )
 from pyrit.converter import Converter
-from pyrit.models import AttackOutcome, AttackResult, ComponentIdentifier, ScenarioRunState
+from pyrit.models import AttackOutcome, AttackResult, ComponentIdentifier, ScenarioResult, ScenarioRunState
 from pyrit.models.catalog.scenario import RunScenarioRequest
 from pyrit.registry import RegistryValidationError
 from pyrit.scenario.core import DatasetAttackConfiguration, DatasetConfiguration
@@ -87,11 +87,11 @@ def _make_db_scenario_result(
     *,
     result_id: str = "sr-uuid-1",
     scenario_name: str = "foundry.red_team_agent",
-    run_state: str = "IN_PROGRESS",
+    run_state: ScenarioRunState = ScenarioRunState.IN_PROGRESS,
     attack_results: dict | None = None,
 ) -> MagicMock:
     """Create a mock ScenarioResult as returned by CentralMemory."""
-    sr = MagicMock()
+    sr = MagicMock(spec=ScenarioResult)
     sr.id = result_id
     sr.scenario_name = scenario_name
     sr.scenario_version = 1
@@ -567,7 +567,7 @@ class TestScenarioRunServiceGetRun:
 
     def test_get_run_returns_existing_run(self, mock_memory) -> None:
         """Test that get_run returns a run from the database."""
-        db_result = _make_db_scenario_result(result_id="sr-123", run_state="IN_PROGRESS")
+        db_result = _make_db_scenario_result(result_id="sr-123", run_state=ScenarioRunState.IN_PROGRESS)
         mock_memory.get_scenario_results.return_value = [db_result]
 
         service = ScenarioRunService()
@@ -578,6 +578,25 @@ class TestScenarioRunServiceGetRun:
         assert fetched.scenario_name == "foundry.red_team_agent"
         assert fetched.status == ScenarioRunState.IN_PROGRESS
 
+    def test_get_run_maps_typed_scenario_result_state(self, mock_memory) -> None:
+        """Test the service boundary with a real ScenarioResult domain model."""
+        db_result = make_scenario_result(
+            scenario_name="foundry.red_team_agent",
+            attack_results={},
+            scenario_run_state=ScenarioRunState.FAILED,
+            error_message="Scenario failed",
+            error_type="RuntimeError",
+        )
+        mock_memory.get_scenario_results.return_value = [db_result]
+
+        service = ScenarioRunService()
+        fetched = service.get_run(scenario_result_id=str(db_result.id))
+
+        assert fetched is not None
+        assert fetched.status is ScenarioRunState.FAILED
+        assert fetched.error == "Scenario run failed."
+        assert fetched.error_type == "ScenarioRunError"
+
     def test_get_run_falls_back_to_persisted_error(self, mock_memory) -> None:
         """Test that get_run extracts error from persisted error AttackResult when no active task.
 
@@ -586,7 +605,7 @@ class TestScenarioRunServiceGetRun:
         ``get_attack_results(scenario_result_id=..., outcome=ERROR)`` rather
         than via a per-scenario error_attack_result_ids manifest.
         """
-        db_result = _make_db_scenario_result(result_id="sr-fail", run_state="FAILED")
+        db_result = _make_db_scenario_result(result_id="sr-fail", run_state=ScenarioRunState.FAILED)
 
         # Mock the error AttackResult lookup
         error_ar = MagicMock()
@@ -624,8 +643,8 @@ class TestScenarioRunServiceListRuns:
     def test_list_runs_returns_all_runs(self, mock_memory) -> None:
         """Test that list_runs returns all runs from the database."""
         db_results = [
-            _make_db_scenario_result(result_id="sr-1", run_state="COMPLETED"),
-            _make_db_scenario_result(result_id="sr-2", run_state="IN_PROGRESS"),
+            _make_db_scenario_result(result_id="sr-1", run_state=ScenarioRunState.COMPLETED),
+            _make_db_scenario_result(result_id="sr-2", run_state=ScenarioRunState.IN_PROGRESS),
         ]
         mock_memory.get_scenario_results.return_value = db_results
 
@@ -660,14 +679,17 @@ class TestScenarioRunServiceCancelRun:
 
         # After update_scenario_run_state, the next DB query should return CANCELLED
         running_result = mock_all_registries["db_result"]
-        cancelled_result = _make_db_scenario_result(result_id=response.scenario_result_id, run_state="CANCELLED")
+        cancelled_result = _make_db_scenario_result(
+            result_id=response.scenario_result_id,
+            run_state=ScenarioRunState.CANCELLED,
+        )
         mock_memory.get_scenario_results.side_effect = [[running_result], [cancelled_result]]
 
         result = await service.cancel_run_async(scenario_result_id=response.scenario_result_id)
 
         mock_memory.update_scenario_run_state.assert_called_once_with(
             scenario_result_id=response.scenario_result_id,
-            scenario_run_state="CANCELLED",
+            scenario_run_state=ScenarioRunState.CANCELLED,
             error_message="Run was cancelled by user",
             error_type="CancelledError",
         )
@@ -676,7 +698,7 @@ class TestScenarioRunServiceCancelRun:
 
     async def test_cancel_completed_run_raises_value_error(self, mock_memory) -> None:
         """Test that cancelling a completed run raises ValueError."""
-        db_result = _make_db_scenario_result(result_id="sr-done", run_state="COMPLETED")
+        db_result = _make_db_scenario_result(result_id="sr-done", run_state=ScenarioRunState.COMPLETED)
         mock_memory.get_scenario_results.return_value = [db_result]
 
         service = ScenarioRunService()
@@ -685,7 +707,7 @@ class TestScenarioRunServiceCancelRun:
 
     async def test_cancel_already_cancelled_run_raises_value_error(self, mock_memory) -> None:
         """Test that cancelling an already-cancelled run raises ValueError."""
-        db_result = _make_db_scenario_result(result_id="sr-cancelled", run_state="CANCELLED")
+        db_result = _make_db_scenario_result(result_id="sr-cancelled", run_state=ScenarioRunState.CANCELLED)
         mock_memory.get_scenario_results.return_value = [db_result]
 
         service = ScenarioRunService()
@@ -767,7 +789,7 @@ class TestScenarioRunServiceGetResults:
 
     def test_get_results_raises_if_not_completed(self, mock_memory) -> None:
         """Test that get_run_results raises ValueError if run is not completed."""
-        db_result = _make_db_scenario_result(result_id="sr-running", run_state="IN_PROGRESS")
+        db_result = _make_db_scenario_result(result_id="sr-running", run_state=ScenarioRunState.IN_PROGRESS)
         mock_memory.get_scenario_results.return_value = [db_result]
 
         service = ScenarioRunService()
@@ -792,7 +814,7 @@ class TestScenarioRunServiceGetResults:
             ),
             objective_scorer_identifier=None,
             attack_results={"base64_attack": [attack_result]},
-            scenario_run_state="COMPLETED",
+            scenario_run_state=ScenarioRunState.COMPLETED,
         )
         mock_memory.get_scenario_results.return_value = [db_result]
 
@@ -820,7 +842,7 @@ class TestScenarioRunServiceProgressReporting:
 
         db_result = _make_db_scenario_result(
             result_id="sr-running",
-            run_state="IN_PROGRESS",
+            run_state=ScenarioRunState.IN_PROGRESS,
             attack_results={
                 "attack_a": [mock_success, mock_failure],
                 "attack_b": [mock_undetermined],
@@ -844,7 +866,7 @@ class TestScenarioRunServiceProgressReporting:
         """Test that a CREATED run with no results shows zero counts."""
         db_result = _make_db_scenario_result(
             result_id="sr-new",
-            run_state="CREATED",
+            run_state=ScenarioRunState.CREATED,
             attack_results={},
         )
         mock_memory.get_scenario_results.return_value = [db_result]
@@ -867,7 +889,7 @@ class TestScenarioRunServiceProgressReporting:
 
         db_result = _make_db_scenario_result(
             result_id="sr-done",
-            run_state="COMPLETED",
+            run_state=ScenarioRunState.COMPLETED,
             attack_results={"attack_a": [mock_success]},
         )
         db_result.get_techniques_used.return_value = ["attack_a"]
@@ -914,7 +936,7 @@ class TestScenarioRunServiceFailedAttackReporting:
 
         db_result = _make_db_scenario_result(
             result_id="sr-mixed",
-            run_state="COMPLETED",
+            run_state=ScenarioRunState.COMPLETED,
             attack_results={"baseline_airt_hate": [success, errored]},
         )
         db_result.objective_achieved_rate.return_value = 50
@@ -948,7 +970,7 @@ class TestScenarioRunServiceFailedAttackReporting:
 
         db_result = _make_db_scenario_result(
             result_id="sr-clean",
-            run_state="COMPLETED",
+            run_state=ScenarioRunState.COMPLETED,
             attack_results={"attack_a": [success]},
         )
         mock_memory.get_scenario_results.return_value = [db_result]
@@ -982,7 +1004,7 @@ class TestScenarioRunServiceFailedAttackReporting:
 
         db_result = _make_db_scenario_result(
             result_id="sr-retry",
-            run_state="COMPLETED",
+            run_state=ScenarioRunState.COMPLETED,
             attack_results={"baseline_airt_hate": [attack]},
         )
         mock_memory.get_scenario_results.return_value = [db_result]
