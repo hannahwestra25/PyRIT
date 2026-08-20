@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from pyrit.exceptions import (
+    BadRequestException,
     ComponentRole,
     InvalidJsonException,
     execution_context,
@@ -755,6 +756,7 @@ class _AdversarialConversationManager:
             AdversarialReply: ``next_message`` plus the parsed ``rationale`` / ``last_response_summary``.
 
         Raises:
+            BadRequestException: If the adversarial chat returns a blocked or otherwise errored response.
             ValueError: If no response is received from the adversarial chat.
             InvalidJsonException: If the reply is not valid JSON after the retry budget is exhausted.
         """
@@ -831,6 +833,7 @@ class _AdversarialConversationManager:
             AdversarialReply: ``next_message`` plus the parsed ``rationale`` / ``last_response_summary``.
 
         Raises:
+            BadRequestException: If the adversarial chat returns a blocked or otherwise errored response.
             ValueError: If no response is received from the adversarial chat.
             InvalidJsonException: If the reply is not valid JSON after the retry budget is exhausted.
         """
@@ -853,6 +856,10 @@ class _AdversarialConversationManager:
         schema = self._response_json_schema
 
         def _parse(response: Message) -> AdversarialReply:
+            if response.is_error():
+                raise BadRequestException(
+                    message=f"Adversarial chat returned a blocked or errored response: {response.get_value()}"
+                )
             return _parse_adversarial_reply(response.get_value(), schema=schema)
 
         with execution_context(
