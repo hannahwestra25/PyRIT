@@ -77,6 +77,7 @@ jobs:
             --config .github/docs-versions.yml \
             --event-name "${{ github.event_name }}" \
             --github-sha "${{ github.sha }}" \
+            --github-base-ref "${{ github.base_ref }}" \
             --github-output "$GITHUB_OUTPUT"
 
   # ------------------------------------------------------------------

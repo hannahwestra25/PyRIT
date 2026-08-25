@@ -54,12 +54,18 @@ def load_config(config_path: Path) -> dict[str, Any]:
     return cfg
 
 
-def _resolve_build_ref(*, version: dict[str, Any], event_name: str | None, github_sha: str | None) -> str:
+def _resolve_build_ref(
+    *,
+    version: dict[str, Any],
+    event_name: str | None,
+    github_sha: str | None,
+    github_base_ref: str | None,
+) -> str:
     """Resolve the source revision for one docs matrix entry."""
-    if event_name != "pull_request" or version["slug"] != "latest":
+    if event_name != "pull_request" or version["ref"] != github_base_ref:
         return version["ref"]
     if not github_sha:
-        raise ValueError("github_sha is required when resolving the latest pull request docs build")
+        raise ValueError("github_sha is required when resolving a pull request docs build")
     return github_sha
 
 
@@ -68,14 +74,26 @@ def build_outputs(
     *,
     event_name: str | None = None,
     github_sha: str | None = None,
+    github_base_ref: str | None = None,
 ) -> dict[str, str]:
     """Return the four GitHub Actions step outputs (all values are strings)."""
     versions = cfg["versions"]
+    if event_name == "pull_request":
+        if not github_base_ref:
+            raise ValueError("github_base_ref is required when resolving a pull request docs build")
+        if not any(version["ref"] == github_base_ref for version in versions):
+            raise ValueError(f"pull request base ref {github_base_ref!r} is not configured in docs versions")
+
     matrix = {
         "include": [
             {
                 "slug": version["slug"],
-                "ref": _resolve_build_ref(version=version, event_name=event_name, github_sha=github_sha),
+                "ref": _resolve_build_ref(
+                    version=version,
+                    event_name=event_name,
+                    github_sha=github_sha,
+                    github_base_ref=github_base_ref,
+                ),
             }
             for version in versions
         ]
@@ -118,12 +136,18 @@ def main(argv: list[str] | None = None) -> int:
         help="Path to the $GITHUB_OUTPUT file. If omitted, outputs are written to stdout.",
     )
     parser.add_argument("--event-name", help="GitHub event name used to resolve event-specific build refs.")
-    parser.add_argument("--github-sha", help="GitHub event commit SHA used for the latest pull request build.")
+    parser.add_argument("--github-sha", help="GitHub event commit SHA used for a pull request build.")
+    parser.add_argument("--github-base-ref", help="Pull request base branch matched to a configured docs version.")
     args = parser.parse_args(argv)
 
     try:
         cfg = load_config(args.config.resolve())
-        outputs = build_outputs(cfg, event_name=args.event_name, github_sha=args.github_sha)
+        outputs = build_outputs(
+            cfg,
+            event_name=args.event_name,
+            github_sha=args.github_sha,
+            github_base_ref=args.github_base_ref,
+        )
     except (FileNotFoundError, ValueError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
