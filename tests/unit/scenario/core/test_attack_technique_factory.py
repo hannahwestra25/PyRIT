@@ -11,7 +11,13 @@ import pytest
 from pyrit.converter import Base64Converter, QRCodeConverter, ROT13Converter, TranslationConverter
 from pyrit.executor.attack.core.attack_config import AttackConverterConfig, AttackScoringConfig
 from pyrit.executor.attack.single_turn.prompt_sending import PromptSendingAttack
-from pyrit.models import AttackTechniqueSeedGroup, ComponentIdentifier, Identifiable, SeedPrompt
+from pyrit.models import (
+    AttackTechniqueSeedGroup,
+    ComponentIdentifier,
+    Identifiable,
+    SeedPrompt,
+    SeedSimulatedConversation,
+)
 from pyrit.prompt_normalizer import ConverterConfiguration
 from pyrit.prompt_target import PromptTarget
 from pyrit.scenario.core.attack_technique import AttackTechnique
@@ -92,6 +98,28 @@ class TestFactoryInit:
         )
 
         assert factory.description == "Staged as a journalist interview."
+
+    def test_with_simulated_conversation_accepts_inline_adversarial_prompt(self):
+        prompt = SeedPrompt(value="Merged {{ objective }}", parameters=["objective"], is_jinja_template=True)
+
+        factory = AttackTechniqueFactory.with_simulated_conversation(
+            name="custom_simulated",
+            adversarial_chat_system_prompt=prompt,
+        )
+
+        assert factory.seed_technique is not None
+        simulated_seed = factory.seed_technique.seeds[0]
+        assert isinstance(simulated_seed, SeedSimulatedConversation)
+        assert simulated_seed.adversarial_chat_system_prompt is prompt
+        assert simulated_seed.adversarial_chat_system_prompt_path is None
+
+    def test_with_simulated_conversation_rejects_inline_prompt_and_path(self, tmp_path):
+        with pytest.raises(ValueError, match="Set only one"):
+            AttackTechniqueFactory.with_simulated_conversation(
+                name="custom_simulated",
+                adversarial_chat_system_prompt_path=tmp_path / "prompt.yaml",
+                adversarial_chat_system_prompt=SeedPrompt(value="Inline"),
+            )
 
     def test_description_does_not_affect_identifier(self):
         """Description is decorative metadata and must not change the behavioral identity hash."""

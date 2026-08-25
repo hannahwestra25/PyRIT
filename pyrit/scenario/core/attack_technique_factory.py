@@ -160,6 +160,7 @@ class AttackTechniqueFactory(Identifiable):
         attack_class: type[AttackStrategy[Any, Any]] | None = None,
         description: str | None = None,
         adversarial_chat_system_prompt_path: str | Path | None = None,
+        adversarial_chat_system_prompt: SeedPrompt | None = None,
         simulated_target_system_prompt_path: str | Path | None = None,
         next_message_system_prompt_path: str | Path | None = None,
         final_user_message: str | None = None,
@@ -188,6 +189,10 @@ class AttackTechniqueFactory(Identifiable):
             adversarial_chat_system_prompt_path: Path to the YAML file containing
                 the adversarial chat system prompt for the simulated conversation.
                 Defaults to ``EXECUTOR_SEED_PROMPT_PATH/red_teaming/{name}.yaml``.
+                Mutually exclusive with ``adversarial_chat_system_prompt``.
+            adversarial_chat_system_prompt: Inline adversarial chat system prompt
+                for the simulated conversation. Mutually exclusive with
+                ``adversarial_chat_system_prompt_path``.
             simulated_target_system_prompt_path: Optional path to the YAML file
                 containing the system prompt for the simulated target (the
                 assistant side of the generated conversation). When ``None``,
@@ -227,10 +232,15 @@ class AttackTechniqueFactory(Identifiable):
         Returns:
             AttackTechniqueFactory: A new factory whose ``seed_technique`` is the
                 wrapped simulated conversation.
+
+        Raises:
+            ValueError: If both an inline adversarial prompt and a prompt path are supplied.
         """
         if attack_class is None:
             attack_class = PromptSendingAttack
-        if adversarial_chat_system_prompt_path is None:
+        if adversarial_chat_system_prompt_path is not None and adversarial_chat_system_prompt is not None:
+            raise ValueError("Set only one of adversarial_chat_system_prompt_path or adversarial_chat_system_prompt")
+        if adversarial_chat_system_prompt_path is None and adversarial_chat_system_prompt is None:
             adversarial_chat_system_prompt_path = Path(EXECUTOR_SEED_PROMPT_PATH) / "red_teaming" / f"{name}.yaml"
 
         # A fixed final user message and an LLM-generated next message are mutually
@@ -242,9 +252,14 @@ class AttackTechniqueFactory(Identifiable):
             next_message_system_prompt_path = NextMessageSystemPromptPaths.DIRECT.value
 
         simulated_conversation_kwargs: dict[str, Any] = {
-            "adversarial_chat_system_prompt_path": Path(adversarial_chat_system_prompt_path),
             "num_turns": num_turns,
         }
+        if adversarial_chat_system_prompt is not None:
+            simulated_conversation_kwargs["adversarial_chat_system_prompt"] = adversarial_chat_system_prompt
+        elif adversarial_chat_system_prompt_path is not None:
+            simulated_conversation_kwargs["adversarial_chat_system_prompt_path"] = Path(
+                adversarial_chat_system_prompt_path
+            )
         if simulated_target_system_prompt_path is not None:
             simulated_conversation_kwargs["simulated_target_system_prompt_path"] = Path(
                 simulated_target_system_prompt_path
