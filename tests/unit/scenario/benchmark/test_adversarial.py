@@ -17,8 +17,8 @@ These tests cover the new contract:
 * Technique enum is built from registered factories with ``uses_adversarial=True``
   that do not bake their own ``adversarial_chat``; the default expands to the exact
   benchmark set while the ``light`` aggregate remains selectable.
-* ``supported_parameters`` declares ``adversarial_targets: list[str]`` and the
-  optional ``adversarial_system_prompt: str`` override.
+* ``supported_parameters`` declares ``adversarial_targets: list[str]``.
+* The three default techniques resolve to benchmark-owned prompt variants.
 * ``_resolve_adversarial_targets`` raises with available names on typos.
 * ``_build_atomic_attacks_async`` produces ``N × M × D`` atomic attacks
   with the expected ``atomic_attack_name`` and ``display_group``.
@@ -38,6 +38,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from pyrit.common.path import EXECUTOR_SEED_PROMPT_PATH
 from pyrit.executor.attack import AttackScoringConfig, TreeOfAttacksWithPruningAttack
 from pyrit.memory.memory_interface import MemoryInterface
 from pyrit.models import (
@@ -47,8 +48,9 @@ from pyrit.models import (
     AttackSeedGroup,
     ComponentIdentifier,
     ObjectiveTargetEvaluationIdentifier,
-    ScenarioIdentifier,
     SeedObjective,
+    SeedPrompt,
+    SeedSimulatedConversation,
 )
 from pyrit.prompt_target import PromptTarget
 from pyrit.registry import TargetRegistry
@@ -56,7 +58,11 @@ from pyrit.registry.components.attack_technique_registry import AttackTechniqueR
 from pyrit.scenario.core import BaselineAttackPolicy
 from pyrit.scenario.core.attack_technique_factory import AttackTechniqueFactory
 from pyrit.scenario.core.scenario import Scenario
-from pyrit.scenario.scenarios.benchmark.adversarial import AdversarialBenchmark, _build_benchmark_technique
+from pyrit.scenario.scenarios.benchmark.adversarial import (
+    AdversarialBenchmark,
+    _build_benchmark_technique,
+    _build_benchmark_technique_overrides,
+)
 from pyrit.score import TrueFalseScorer
 from pyrit.setup.initializers.techniques import build_technique_factories
 
@@ -107,6 +113,7 @@ def reset_technique_registry():
     AttackTechniqueRegistry.reset_registry_singleton()
     TargetRegistry.reset_registry_singleton()
     _build_benchmark_technique.cache_clear()
+    _build_benchmark_technique_overrides.cache_clear()
 
     adv_target = MagicMock(spec=PromptTarget)
     adv_target.capabilities.includes.return_value = True
@@ -117,6 +124,7 @@ def reset_technique_registry():
     AttackTechniqueRegistry.reset_registry_singleton()
     TargetRegistry.reset_registry_singleton()
     _build_benchmark_technique.cache_clear()
+    _build_benchmark_technique_overrides.cache_clear()
 
 
 def _register_adversarial_target(*, name: str) -> PromptTarget:
@@ -161,9 +169,9 @@ async def _build_atomic_attacks(bench: AdversarialBenchmark) -> list:
 class TestAdversarialBenchmarkMetadata:
     """Tests for class-level metadata that doesn't depend on any runtime state."""
 
-    def test_version_is_4(self):
-        """VERSION 4 identifies runs using the evidence-backed default technique set."""
-        assert AdversarialBenchmark.VERSION == 4
+    def test_version_is_5(self):
+        """VERSION 5 identifies runs using the benchmark-owned default prompts."""
+        assert AdversarialBenchmark.VERSION == 5
 
     def test_baseline_attack_policy_is_forbidden(self):
         """A baseline contributes no signal to a model-comparison benchmark, so it is forbidden."""
@@ -176,7 +184,7 @@ class TestAdversarialBenchmarkMetadata:
 
 
 class TestAdversarialBenchmarkSupportedParameters:
-    """Tests for the adversarial target and system prompt parameter declarations."""
+    """Tests for the ``adversarial_targets`` parameter declaration."""
 
     def test_declares_adversarial_targets_param(self):
         params = AdversarialBenchmark.supported_parameters()
@@ -199,44 +207,9 @@ class TestAdversarialBenchmarkSupportedParameters:
         description = params["adversarial_targets"].description
         assert "--adversarial-targets" in description
 
-    def test_declares_optional_adversarial_system_prompt_param(self):
-        params = {p.name: p for p in AdversarialBenchmark.supported_parameters()}
-        prompt_param = params["adversarial_system_prompt"]
-
-        assert prompt_param.param_type is str
-        assert prompt_param.default is None
-        assert "--adversarial-system-prompt" in prompt_param.description
-
-
-# ---------------------------------------------------------------------------
-# Scenario identity
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.usefixtures("patch_central_database")
-class TestAdversarialBenchmarkIdentity:
-    """Tests for the custom prompt's behavioral identity."""
-
-    @staticmethod
-    def _build_identifier(*, adversarial_system_prompt: str | None) -> ScenarioIdentifier:
-        scorer = MagicMock(spec=TrueFalseScorer)
-        scorer.get_identifier.return_value = None
-        bench = AdversarialBenchmark(objective_scorer=scorer)
-        bench.params = {
-            "adversarial_targets": ["adv_a"],
-            "adversarial_system_prompt": adversarial_system_prompt,
-        }
-        return bench._build_scenario_identifier()
-
-    def test_custom_prompt_is_included_in_scenario_identity(self):
-        identifier = self._build_identifier(adversarial_system_prompt="custom {{ objective }}")
-
-        assert identifier.params["adversarial_system_prompt"] == "custom {{ objective }}"
-
-    def test_omitted_custom_prompt_preserves_previous_identity_shape(self):
-        identifier = self._build_identifier(adversarial_system_prompt=None)
-
-        assert "adversarial_system_prompt" not in identifier.params
+    def test_does_not_declare_user_supplied_system_prompt(self):
+        names = {p.name for p in AdversarialBenchmark.supported_parameters()}
+        assert "adversarial_system_prompt" not in names
 
 
 # ---------------------------------------------------------------------------
@@ -300,6 +273,26 @@ class TestAdversarialBenchmarkTechnique:
         technique_cls = _build_benchmark_technique()
         resolved_values = {child.value for child in technique_cls.expand({technique_cls.default()})}
         assert resolved_values == _DEFAULT_BENCHMARK_TECHNIQUE_NAMES
+
+    def test_default_techniques_have_benchmark_owned_factory_overrides(self):
+        overrides = _build_benchmark_technique_overrides()
+        assert set(overrides) == _DEFAULT_BENCHMARK_TECHNIQUE_NAMES
+
+    @pytest.mark.parametrize("technique_name", ["role_play_video_game", "crescendo_simulated"])
+    def test_simulated_default_uses_benchmark_prompt(self, technique_name):
+        factory = _build_benchmark_technique_overrides()[technique_name]
+        assert factory.seed_technique is not None
+        simulated_seed = factory.seed_technique.seeds[0]
+        assert isinstance(simulated_seed, SeedSimulatedConversation)
+        prompt_path = EXECUTOR_SEED_PROMPT_PATH / "benchmark" / f"{technique_name}.yaml"
+
+        assert simulated_seed.adversarial_chat_system_prompt_path == prompt_path
+        prompt = SeedPrompt.from_yaml_file(prompt_path)
+        assert "PyRIT's AdversarialBenchmark" in prompt.value
+        assert set(prompt.parameters) == {"objective", "max_turns"}
+        rendered = prompt.render_template_value(objective="test objective", max_turns=3)
+        assert "test objective" in rendered
+        assert "{{" not in rendered
 
     def test_light_aggregate_excludes_non_light_techniques(self):
         """Techniques without the ``light`` tag must not appear in the ``light`` aggregate."""
@@ -398,7 +391,7 @@ class TestAdversarialBenchmarkInit:
 
     def test_tap_constructs_with_benchmark_scorer_policy(self, caplog):
         """The benchmark's generic scorer is skipped under TAP's WARN policy so TAP can use its own scorer."""
-        factory = AttackTechniqueRegistry.get_registry_singleton().get_factories_or_raise()["tap"]
+        factory = _build_benchmark_technique_overrides()["tap"]
 
         objective_target = MagicMock(spec=PromptTarget)
         objective_target.configuration.capabilities.output_modalities = [{"text"}]
@@ -413,6 +406,20 @@ class TestAdversarialBenchmarkInit:
             )
 
         assert isinstance(technique.attack, TreeOfAttacksWithPruningAttack)
+        assert "PyRIT's AdversarialBenchmark" in technique.attack._adversarial_chat_system_seed_prompt.value
+        assert set(technique.attack._adversarial_chat_system_seed_prompt.parameters) == {
+            "objective",
+            "desired_prefix",
+            "conversation_context",
+        }
+        rendered = technique.attack._adversarial_chat_system_seed_prompt.render_template_value(
+            objective="test objective",
+            desired_prefix="Expected prefix",
+            conversation_context="",
+        )
+        assert "test objective" in rendered
+        assert "Expected prefix" in rendered
+        assert "{{" not in rendered
         assert any("incompatible" in record.message for record in caplog.records)
 
 
@@ -532,7 +539,10 @@ class TestGetAtomicAttacksCrossProduct:
     """Tests for the (technique × target × dataset) cross-product produced by ``_build_atomic_attacks_async``."""
 
     def _make_bench_with_targets(
-        self, *, target_names: list[str], adversarial_system_prompt: str | None = None
+        self,
+        *,
+        target_names: list[str],
+        technique_name: str = "red_teaming",
     ) -> AdversarialBenchmark:
         for name in target_names:
             _register_adversarial_target(name=name)
@@ -540,17 +550,14 @@ class TestGetAtomicAttacksCrossProduct:
         # whose create() return value we can inspect.
         AttackTechniqueRegistry.reset_registry_singleton()
         _build_benchmark_technique.cache_clear()
-        _register_mock_factory(name="red_teaming", tags=["core", "light"])
+        _register_mock_factory(name=technique_name, tags=["core", "light"])
         bench = AdversarialBenchmark(objective_scorer=MagicMock(spec=TrueFalseScorer))
         bench._objective_target = MagicMock(spec=PromptTarget)
-        bench.params = {
-            "adversarial_targets": target_names,
-            "adversarial_system_prompt": adversarial_system_prompt,
-        }
+        bench.params = {"adversarial_targets": target_names}
 
-        red_teaming_technique = MagicMock()
-        red_teaming_technique.value = "red_teaming"
-        bench._scenario_techniques = [red_teaming_technique]
+        selected_technique = MagicMock()
+        selected_technique.value = technique_name
+        bench._scenario_techniques = [selected_technique]
 
         # Dataset config: one dataset with one real seed group (AtomicAttack hashes objectives).
         seed_group = AttackSeedGroup(seeds=[SeedObjective(value="benchmark_objective_1")])
@@ -627,20 +634,32 @@ class TestGetAtomicAttacksCrossProduct:
         injected_targets = {call.kwargs["adversarial_chat"] for call in factory.create.call_args_list}
         assert injected_targets == {target_a, target_b}
 
-    async def test_factory_create_called_per_target_with_custom_system_prompt(self):
-        """The run-level custom prompt is forwarded to every target cell."""
+    async def test_explicit_default_name_uses_benchmark_factory_override(self):
         bench = self._make_bench_with_targets(
-            target_names=["adv_a", "adv_b"],
-            adversarial_system_prompt="custom {{ objective }}",
+            target_names=["adv_a"],
+            technique_name="role_play_video_game",
         )
-        factory = AttackTechniqueRegistry.get_registry_singleton().get_factories_or_raise()["red_teaming"]
+        registered_factory = AttackTechniqueRegistry.get_registry_singleton().get_factories_or_raise()[
+            "role_play_video_game"
+        ]
+        benchmark_factory = MagicMock(spec=AttackTechniqueFactory)
+        benchmark_factory.seed_technique = None
+        benchmark_technique = MagicMock()
+        benchmark_technique.get_identifier.return_value = ComponentIdentifier(
+            class_name="BenchmarkRolePlay",
+            class_module="pyrit.test",
+        )
+        benchmark_factory.create.return_value = benchmark_technique
 
-        await _build_atomic_attacks(bench)
+        with patch(
+            "pyrit.scenario.scenarios.benchmark.adversarial._build_benchmark_technique_overrides",
+            return_value={"role_play_video_game": benchmark_factory},
+        ):
+            result = await _build_atomic_attacks(bench)
 
-        assert factory.create.call_count == 2
-        assert {call.kwargs["adversarial_system_prompt"] for call in factory.create.call_args_list} == {
-            "custom {{ objective }}"
-        }
+        assert len(result) == 1
+        benchmark_factory.create.assert_called_once()
+        registered_factory.create.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

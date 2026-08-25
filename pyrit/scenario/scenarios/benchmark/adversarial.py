@@ -11,9 +11,12 @@ from typing import TYPE_CHECKING, ClassVar
 
 from pyrit.analytics import get_cached_results_for_technique
 from pyrit.common import apply_defaults
-from pyrit.models import AttackOutcome, AttackResult, ObjectiveTargetEvaluationIdentifier, ScenarioResult
+from pyrit.common.path import EXECUTOR_SEED_PROMPT_PATH, EXECUTOR_SIMULATED_TARGET_PATH
+from pyrit.executor.attack import TreeOfAttacksWithPruningAttack
+from pyrit.models import AttackOutcome, AttackResult, ObjectiveTargetEvaluationIdentifier, ScenarioResult, SeedPrompt
 from pyrit.models.parameter import Parameter
 from pyrit.registry import AttackTechniqueRegistry, TargetRegistry
+from pyrit.scenario.core.attack_technique_factory import AttackTechniqueFactory
 from pyrit.scenario.core.dataset_configuration import DatasetAttackConfiguration
 from pyrit.scenario.core.matrix_atomic_attack_builder import MatrixAtomicAttackBuilder, resolve_technique_factories
 from pyrit.scenario.core.scenario import BaselineAttackPolicy, Scenario
@@ -27,6 +30,45 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
+
+
+@cache
+def _build_benchmark_technique_overrides() -> dict[str, AttackTechniqueFactory]:
+    """
+    Build scenario-owned factories for the benchmark's default techniques.
+
+    These overrides keep benchmark prompt behavior stable without changing the
+    globally registered versions of the same techniques. Each prompt preserves
+    the source technique's required template variables and response schema.
+
+    Returns:
+        dict[str, AttackTechniqueFactory]: Factories keyed by the technique names
+            they override within this scenario.
+    """
+    benchmark_prompt_path = EXECUTOR_SEED_PROMPT_PATH / "benchmark"
+    return {
+        "role_play_video_game": AttackTechniqueFactory.with_simulated_conversation(
+            name="role_play_video_game",
+            description="Uses the benchmark-owned video-game role-play prompt.",
+            adversarial_chat_system_prompt_path=benchmark_prompt_path / "role_play_video_game.yaml",
+            next_message_system_prompt_path=EXECUTOR_SIMULATED_TARGET_PATH / "role_play_next_message.yaml",
+            technique_tags=["single_turn", "light"],
+            num_turns=2,
+        ),
+        "crescendo_simulated": AttackTechniqueFactory.with_simulated_conversation(
+            name="crescendo_simulated",
+            description="Uses the benchmark-owned simulated Crescendo prompt.",
+            adversarial_chat_system_prompt_path=benchmark_prompt_path / "crescendo_simulated.yaml",
+            technique_tags=["single_turn"],
+        ),
+        "tap": AttackTechniqueFactory(
+            name="tap",
+            attack_class=TreeOfAttacksWithPruningAttack,
+            description="Uses the benchmark-owned TAP prompt.",
+            technique_tags=["multi_turn"],
+            adversarial_system_prompt=SeedPrompt.from_yaml_file(benchmark_prompt_path / "tap.yaml"),
+        ),
+    }
 
 
 @cache
@@ -76,16 +118,17 @@ class AdversarialBenchmark(Scenario):
     already be registered in ``TargetRegistry`` — typically by
     ``TargetInitializer`` from ``ADVERSARIAL_CHAT_*`` env vars, or
     programmatically via ``TargetRegistry.get_registry_singleton().instances.register``.
-    The optional ``adversarial_system_prompt`` parameter supplies one create-time
-    system prompt to the selected techniques. Techniques that define their own prompt
-    or do not accept an adversarial configuration reject the override.
+    The default ``role_play_video_game``, ``crescendo_simulated``, and ``tap``
+    techniques use benchmark-owned adversarial system prompts. These scenario-local
+    overrides keep benchmark behavior stable without changing the globally registered
+    versions of the techniques.
 
     At run time, ``_build_atomic_attacks_async`` performs the
     ``(technique × adversarial_target × dataset)`` cross-product: for each
     selected adversarial-capable factory in the
     ``AttackTechniqueRegistry`` and each requested target, it calls
-    ``factory.create(adversarial_chat=..., adversarial_system_prompt=...)`` with the
-    resolved target and optional prompt — no global registry mutation. The resulting
+    ``factory.create(adversarial_chat=...)`` with the resolved target — no global
+    registry mutation. The resulting
     ``AtomicAttack`` is named ``f"{technique}__{target}_{dataset}"`` with
     ``display_group`` set to the target's registry name so per-model ASR
     rolls up naturally in result displays.
@@ -100,10 +143,11 @@ class AdversarialBenchmark(Scenario):
     #: initializer registered rather than only core-tagged factories.
     #: Bumped from 3 → 4 when the no-selection default changed from the ``light``
     #: aggregate to ``role_play_video_game``, ``crescendo_simulated``, and ``tap``.
-    #: ``VERSION`` participates in resume identity, so v3 results cannot be resumed
-    #: as v4. The separate ``use_cached`` behavioral cache intentionally remains
+    #: Bumped from 4 → 5 when those three defaults received benchmark-owned prompts.
+    #: ``VERSION`` participates in resume identity, so older results cannot be resumed
+    #: as v5. The separate ``use_cached`` behavioral cache intentionally remains
     #: keyed by technique and objective-target identity across scenario versions.
-    VERSION: int = 4
+    VERSION: int = 5
 
     #: AdversarialBenchmark compares attack-success rates across adversarial models; a baseline
     #: attack would be model-independent and contribute no signal to the comparison.
@@ -112,7 +156,7 @@ class AdversarialBenchmark(Scenario):
     @classmethod
     def additional_parameters(cls) -> list[Parameter]:
         """
-        Declare the adversarial target and optional system prompt parameters.
+        Declare the ``adversarial_targets`` parameter.
 
         The target list is treated as required at run time:
         ``_build_atomic_attacks_async`` raises ``ValueError`` if
@@ -122,8 +166,8 @@ class AdversarialBenchmark(Scenario):
         the ``.pyrit_conf`` key, and ``pyrit_scan list-targets``.
 
         Returns:
-            list[Parameter]: Parameters declaring ``adversarial_targets: list[str]``
-            and ``adversarial_system_prompt: str | None``.
+            list[Parameter]: Single parameter declaring
+            ``adversarial_targets: list[str]``.
         """
         return [
             Parameter(
@@ -137,19 +181,6 @@ class AdversarialBenchmark(Scenario):
                     "or scenario.args.adversarial_targets in .pyrit_conf."
                 ),
                 param_type=list[str],
-                default=None,
-            ),
-            Parameter(
-                name="adversarial_system_prompt",
-                description=(
-                    "Optional system prompt for selected adversarial attack techniques. "
-                    "The prompt may use the '{{ objective }}' template variable. Techniques "
-                    "that define their own adversarial prompt or do not accept an adversarial "
-                    "configuration cannot use this override. Settable via "
-                    "--adversarial-system-prompt on the CLI, or "
-                    "scenario.args.adversarial_system_prompt in .pyrit_conf."
-                ),
-                param_type=str,
                 default=None,
             ),
         ]
@@ -215,9 +246,10 @@ class AdversarialBenchmark(Scenario):
         ``PromptTarget`` via ``TargetRegistry``, and delegates the
         ``(technique × target × dataset)`` cross-product to ``MatrixAtomicAttackBuilder``
         with the resolved targets as its adversarial-target axis. Each pair calls
-        ``factory.create(adversarial_chat=..., adversarial_system_prompt=...)`` with
-        the resolved target and optional run-level prompt — no global registry state is
-        touched. When ``self._use_cached`` is set, the resulting candidate
+        ``factory.create(adversarial_chat=...)`` with the resolved target — no global
+        registry state is touched. The benchmark's three default techniques resolve to
+        scenario-owned factory variants with benchmark-specific prompts. When
+        ``self._use_cached`` is set, the resulting candidate
         list is filtered against the live behavioral cache via
         ``_collect_cached_completion_pairs``, which delegates to
         ``pyrit.analytics.get_cached_results_for_technique`` for each unique
@@ -243,7 +275,10 @@ class AdversarialBenchmark(Scenario):
             )
 
         resolved_targets = self._resolve_adversarial_targets(target_names=target_names)
-        technique_factories = resolve_technique_factories(context=context)
+        technique_factories = resolve_technique_factories(
+            context=context,
+            extra_factories=_build_benchmark_technique_overrides(),
+        )
 
         builder = MatrixAtomicAttackBuilder(
             objective_target=context.objective_target,
@@ -259,7 +294,6 @@ class AdversarialBenchmark(Scenario):
             dataset_groups=context.seed_groups_by_dataset,
             adversarial_targets=resolved_targets,
             display_group_fn=lambda combo: combo.target_name or "",
-            adversarial_system_prompt=self.params.get("adversarial_system_prompt"),
             include_baseline=context.include_baseline,
         )
 
