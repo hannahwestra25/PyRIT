@@ -12,6 +12,7 @@ from build_scripts.gen_api_md import (
     _build_symbol_index,
     _class_anchor,
     _example_link_path,
+    _expand_module,
     _format_bases,
     _format_reexport_alias,
     _format_reexport_target,
@@ -43,6 +44,34 @@ def _fake_function(name: str) -> dict:
 
 def _fake_module(name: str, members: list[dict]) -> dict:
     return {"name": name, "kind": "module", "members": members}
+
+
+def test_expand_module_preserves_mixed_direct_api_and_public_frontier() -> None:
+    module = _fake_module(
+        "pyrit",
+        [
+            _fake_function("show_versions"),
+            _fake_module(
+                "pyrit.common",
+                [
+                    _fake_function("resolve_lazy_export"),
+                    _fake_class("CommonConfig"),
+                    _fake_module("pyrit.common.internal", [_fake_class("InternalHelper")]),
+                ],
+            ),
+            _fake_function("resolve_lazy_export"),
+            _fake_module(
+                "pyrit.executor",
+                [_fake_module("pyrit.executor.attack", [_fake_class("AttackStrategy")])],
+            ),
+        ],
+    )
+
+    expanded = _expand_module(module)
+
+    assert [item["name"] for item in expanded] == ["pyrit", "pyrit.common", "pyrit.executor.attack"]
+    assert expanded[0]["members"] == [_fake_function("show_versions")]
+    assert len({item["name"] for item in expanded}) == len(expanded)
 
 
 def test_anchor_helpers_produce_unique_labels() -> None:

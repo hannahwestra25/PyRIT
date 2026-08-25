@@ -68,6 +68,37 @@ def test_build_outputs_shape(module, tmp_path):
     assert len(payload["versions"]) == 3
 
 
+def test_build_outputs_uses_merge_sha_only_for_latest_pull_request(module, tmp_path):
+    cfg = module.load_config(_write_yaml(tmp_path, _VALID_YAML))
+
+    outputs = module.build_outputs(cfg, event_name="pull_request", github_sha="abc123")
+
+    assert json.loads(outputs["matrix"]) == {
+        "include": [
+            {"slug": "latest", "ref": "abc123"},
+            {"slug": "0.13.0", "ref": "releases/v0.13.0"},
+            {"slug": "0.12.1", "ref": "releases/v0.12.1"},
+        ]
+    }
+
+
+@pytest.mark.parametrize("event_name", ["push", "workflow_dispatch"])
+def test_build_outputs_uses_configured_refs_outside_pull_requests(module, tmp_path, event_name):
+    cfg = module.load_config(_write_yaml(tmp_path, _VALID_YAML))
+
+    outputs = module.build_outputs(cfg, event_name=event_name, github_sha="abc123")
+
+    matrix = json.loads(outputs["matrix"])
+    assert matrix["include"][0] == {"slug": "latest", "ref": "main"}
+
+
+def test_build_outputs_requires_sha_for_latest_pull_request(module, tmp_path):
+    cfg = module.load_config(_write_yaml(tmp_path, _VALID_YAML))
+
+    with pytest.raises(ValueError, match="github_sha is required"):
+        module.build_outputs(cfg, event_name="pull_request")
+
+
 def test_outputs_are_single_line(module, tmp_path):
     """GH Actions step outputs are key=value lines; no embedded newlines."""
     cfg = module.load_config(_write_yaml(tmp_path, _VALID_YAML))

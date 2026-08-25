@@ -54,10 +54,32 @@ def load_config(config_path: Path) -> dict[str, Any]:
     return cfg
 
 
-def build_outputs(cfg: dict[str, Any]) -> dict[str, str]:
+def _resolve_build_ref(*, version: dict[str, Any], event_name: str | None, github_sha: str | None) -> str:
+    """Resolve the source revision for one docs matrix entry."""
+    if event_name != "pull_request" or version["slug"] != "latest":
+        return version["ref"]
+    if not github_sha:
+        raise ValueError("github_sha is required when resolving the latest pull request docs build")
+    return github_sha
+
+
+def build_outputs(
+    cfg: dict[str, Any],
+    *,
+    event_name: str | None = None,
+    github_sha: str | None = None,
+) -> dict[str, str]:
     """Return the four GitHub Actions step outputs (all values are strings)."""
     versions = cfg["versions"]
-    matrix = {"include": [{"slug": v["slug"], "ref": v["ref"]} for v in versions]}
+    matrix = {
+        "include": [
+            {
+                "slug": version["slug"],
+                "ref": _resolve_build_ref(version=version, event_name=event_name, github_sha=github_sha),
+            }
+            for version in versions
+        ]
+    }
     versions_json = {
         "default": cfg["default"],
         "stable": cfg["stable"],
@@ -95,15 +117,16 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         help="Path to the $GITHUB_OUTPUT file. If omitted, outputs are written to stdout.",
     )
+    parser.add_argument("--event-name", help="GitHub event name used to resolve event-specific build refs.")
+    parser.add_argument("--github-sha", help="GitHub event commit SHA used for the latest pull request build.")
     args = parser.parse_args(argv)
 
     try:
         cfg = load_config(args.config.resolve())
+        outputs = build_outputs(cfg, event_name=args.event_name, github_sha=args.github_sha)
     except (FileNotFoundError, ValueError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
-
-    outputs = build_outputs(cfg)
 
     if args.github_output is not None:
         with args.github_output.open("a", encoding="utf-8") as f:

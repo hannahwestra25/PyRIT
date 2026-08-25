@@ -75,6 +75,8 @@ jobs:
         run: |
           python -m build_scripts.resolve_docs_matrix \
             --config .github/docs-versions.yml \
+            --event-name "${{ github.event_name }}" \
+            --github-sha "${{ github.sha }}" \
             --github-output "$GITHUB_OUTPUT"
 
   # ------------------------------------------------------------------
@@ -96,11 +98,9 @@ jobs:
           ref: ${{ matrix.ref }}
 
       - name: Resolve commit SHA
-        # matrix.ref is a branch name (e.g. "releases/v0.13.0") that can move,
-        # so resolve to the actual commit SHA we just checked out. This is the
-        # primary cache key component: frozen release branches that don't move
-        # produce identical SHAs and hit the cache forever; main produces a
-        # new SHA on every push so it always rebuilds.
+        # matrix.ref is usually a branch name (e.g. "releases/v0.13.0") that can
+        # move; latest pull request builds use the event's merge SHA instead.
+        # Resolve either form to the actual checked-out SHA for the cache key.
         id: sha
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 

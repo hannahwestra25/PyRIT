@@ -654,24 +654,56 @@ def _resolve_aliases(modules: list[dict], definition_index: dict, name_to_module
 
 
 def _expand_module(module: dict) -> list[dict]:
-    """Recursively expand pure-aggregate modules into their children.
+    """Expand an aggregate module to the public API page frontier.
 
-    A pure-aggregate module has only submodule members and no direct public API
-    (classes, functions, aliases).  Its children are returned instead, recursing
-    further if a child is also a pure aggregate.
+    A module with unique direct API keeps its own page. If that module also
+    contains submodules, each submodule branch is expanded until it reaches the
+    first module with direct API. Direct members already represented on that
+    frontier are omitted, and submodule objects are removed from the retained
+    parent so each module and symbol is represented only once.
     """
     members = module.get("members", [])
-    has_api = any(m.get("kind") in ("class", "function", "alias") for m in members)
-    submodules = [m for m in members if m.get("kind") == "module"]
+    direct_members = [member for member in members if member.get("kind") != "module"]
+    submodules = [member for member in members if member.get("kind") == "module"]
 
-    if has_api or not submodules:
-        # Module has its own API, or is a leaf – keep it (filter empty later)
+    if not submodules:
+        has_api = any(member.get("kind") in ("class", "function", "alias") for member in direct_members)
+        return [module] if has_api else []
+
+    frontier: list[dict] = []
+    for submodule in submodules:
+        frontier.extend(_expand_module_frontier(submodule))
+
+    descendant_api = {
+        (member.get("kind"), member.get("name"))
+        for descendant in frontier
+        for member in descendant.get("members", [])
+        if member.get("kind") in ("class", "function", "alias")
+    }
+    unique_direct_members = [
+        member
+        for member in direct_members
+        if member.get("kind") not in ("class", "function", "alias")
+        or (member.get("kind"), member.get("name")) not in descendant_api
+    ]
+    has_unique_api = any(member.get("kind") in ("class", "function", "alias") for member in unique_direct_members)
+    if has_unique_api:
+        return [{**module, "members": unique_direct_members}, *frontier]
+    return frontier
+
+
+def _expand_module_frontier(module: dict) -> list[dict]:
+    """Expand pure aggregates, stopping at the first module with direct API."""
+    members = module.get("members", [])
+    has_api = any(member.get("kind") in ("class", "function", "alias") for member in members)
+    submodules = [member for member in members if member.get("kind") == "module"]
+
+    if has_api:
         return [module]
 
-    # Pure aggregate – recurse into children
     result: list[dict] = []
-    for sub in submodules:
-        result.extend(_expand_module(sub))
+    for submodule in submodules:
+        result.extend(_expand_module_frontier(submodule))
     return result
 
 
@@ -683,8 +715,8 @@ def collect_top_level_modules(api_json_dir: Path) -> list[dict]:
     for the public packages users import from, not for deeply nested internal
     submodules whose content is re-exported by the parent.
 
-    Pure-aggregate modules (those with only submodule members) are recursively
-    expanded so their children with real API surface get their own pages.
+    Aggregate modules are expanded to the first public API package on each
+    submodule branch. A mixed aggregate also keeps a page for its direct API.
     """
     modules: list[dict] = []
     for jf in sorted(api_json_dir.glob("*.json")):
