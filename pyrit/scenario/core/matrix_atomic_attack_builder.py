@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from pyrit.executor.attack import AttackScoringConfig
 from pyrit.executor.attack.single_turn.prompt_sending import PromptSendingAttack
@@ -230,8 +230,8 @@ class MatrixAtomicAttackBuilder:
     ``build`` with the per-run grid. The builder owns:
 
     - seed-technique compatibility filtering (``AttackSeedGroup.filter_compatible``),
-    - the ``factory.create(...)`` call, forwarding an adversarial target when the
-      adversarial-target axis is active,
+    - the ``factory.create(...)`` call, forwarding an adversarial target and optional
+      adversarial system prompt,
     - ``AtomicAttack`` construction with naming and display-group stamping, and
     - optional baseline emission using the same resolved seed groups.
 
@@ -278,6 +278,7 @@ class MatrixAtomicAttackBuilder:
         name_fn: Callable[[MatrixCombo], str] | None = None,
         display_group_fn: Callable[[MatrixCombo], str] | None = None,
         technique_converters: dict[str, list[Converter]] | None = None,
+        adversarial_system_prompt: str | None = None,
         include_baseline: bool = False,
     ) -> list[AtomicAttack]:
         """
@@ -308,6 +309,10 @@ class MatrixAtomicAttackBuilder:
                 from technique name to request converters appended on top of that technique's
                 built-in converters (via ``factory.create(extra_request_converters=...)``).
                 Techniques absent from the mapping are built unchanged.
+            adversarial_system_prompt (str | None): Optional create-time system prompt
+                forwarded to every selected attack technique. A factory rejects this value
+                if its attack does not accept an adversarial config or the technique already
+                defines its own adversarial prompt.
             include_baseline (bool): When ``True``, prepend a baseline atomic attack built
                 from the flattened seed groups across all datasets.
 
@@ -341,12 +346,16 @@ class MatrixAtomicAttackBuilder:
                     if compatible_groups is None:
                         continue
 
-                    create_adversarial = {"adversarial_chat": target_instance} if target_instance is not None else {}
+                    create_kwargs: dict[str, Any] = {}
+                    if target_instance is not None:
+                        create_kwargs["adversarial_chat"] = target_instance
+                    if adversarial_system_prompt is not None:
+                        create_kwargs["adversarial_system_prompt"] = adversarial_system_prompt
                     attack_technique = factory.create(
                         objective_target=self._objective_target,
                         attack_scoring_config=scoring_config,
                         extra_request_converters=extra_request_converters,
-                        **create_adversarial,
+                        **create_kwargs,
                     )
 
                     combo = MatrixCombo(

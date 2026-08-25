@@ -896,6 +896,17 @@ class TestCustomAdversarialPrompt:
                 adversarial_system_prompt="create-time {{ objective }}",
             )
 
+    def test_create_custom_prompt_requires_attack_adversarial_config(self):
+        """A create-time adversarial prompt must not be silently ignored."""
+        factory = AttackTechniqueFactory(name="prompt_sending", attack_class=_StubAttack)
+
+        with pytest.raises(ValueError, match="does not accept 'attack_adversarial_config'"):
+            factory.create(
+                objective_target=MagicMock(spec=PromptTarget),
+                attack_scoring_config=self._scoring(),
+                adversarial_system_prompt="custom {{ objective }}",
+            )
+
 
 class TestResolveAdversarialChat:
     class _AdversarialAttack:

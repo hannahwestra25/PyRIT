@@ -76,13 +76,16 @@ class AdversarialBenchmark(Scenario):
     already be registered in ``TargetRegistry`` — typically by
     ``TargetInitializer`` from ``ADVERSARIAL_CHAT_*`` env vars, or
     programmatically via ``TargetRegistry.get_registry_singleton().instances.register``.
+    The optional ``adversarial_system_prompt`` parameter supplies one create-time
+    system prompt to the selected techniques. Techniques that define their own prompt
+    or do not accept an adversarial configuration reject the override.
 
     At run time, ``_build_atomic_attacks_async`` performs the
     ``(technique × adversarial_target × dataset)`` cross-product: for each
     selected adversarial-capable factory in the
     ``AttackTechniqueRegistry`` and each requested target, it calls
-    ``factory.create(adversarial_chat=...)`` with the
-    resolved target — no global registry mutation. The resulting
+    ``factory.create(adversarial_chat=..., adversarial_system_prompt=...)`` with the
+    resolved target and optional prompt — no global registry mutation. The resulting
     ``AtomicAttack`` is named ``f"{technique}__{target}_{dataset}"`` with
     ``display_group`` set to the target's registry name so per-model ASR
     rolls up naturally in result displays.
@@ -109,9 +112,9 @@ class AdversarialBenchmark(Scenario):
     @classmethod
     def additional_parameters(cls) -> list[Parameter]:
         """
-        Declare the ``adversarial_targets`` parameter.
+        Declare the adversarial target and optional system prompt parameters.
 
-        The list is treated as required at run time:
+        The target list is treated as required at run time:
         ``_build_atomic_attacks_async`` raises ``ValueError`` if
         ``self.params["adversarial_targets"]`` is empty or missing. The
         scenario-side error (rather than a declaration-side default) lets
@@ -119,8 +122,8 @@ class AdversarialBenchmark(Scenario):
         the ``.pyrit_conf`` key, and ``pyrit_scan list-targets``.
 
         Returns:
-            list[Parameter]: Single parameter declaring
-            ``adversarial_targets: list[str]``.
+            list[Parameter]: Parameters declaring ``adversarial_targets: list[str]``
+            and ``adversarial_system_prompt: str | None``.
         """
         return [
             Parameter(
@@ -134,6 +137,19 @@ class AdversarialBenchmark(Scenario):
                     "or scenario.args.adversarial_targets in .pyrit_conf."
                 ),
                 param_type=list[str],
+                default=None,
+            ),
+            Parameter(
+                name="adversarial_system_prompt",
+                description=(
+                    "Optional system prompt for selected adversarial attack techniques. "
+                    "The prompt may use the '{{ objective }}' template variable. Techniques "
+                    "that define their own adversarial prompt or do not accept an adversarial "
+                    "configuration cannot use this override. Settable via "
+                    "--adversarial-system-prompt on the CLI, or "
+                    "scenario.args.adversarial_system_prompt in .pyrit_conf."
+                ),
+                param_type=str,
                 default=None,
             ),
         ]
@@ -199,8 +215,9 @@ class AdversarialBenchmark(Scenario):
         ``PromptTarget`` via ``TargetRegistry``, and delegates the
         ``(technique × target × dataset)`` cross-product to ``MatrixAtomicAttackBuilder``
         with the resolved targets as its adversarial-target axis. Each pair calls
-        ``factory.create(adversarial_chat=...)`` with the resolved target — no global
-        registry state is touched. When ``self._use_cached`` is set, the resulting candidate
+        ``factory.create(adversarial_chat=..., adversarial_system_prompt=...)`` with
+        the resolved target and optional run-level prompt — no global registry state is
+        touched. When ``self._use_cached`` is set, the resulting candidate
         list is filtered against the live behavioral cache via
         ``_collect_cached_completion_pairs``, which delegates to
         ``pyrit.analytics.get_cached_results_for_technique`` for each unique
@@ -242,6 +259,7 @@ class AdversarialBenchmark(Scenario):
             dataset_groups=context.seed_groups_by_dataset,
             adversarial_targets=resolved_targets,
             display_group_fn=lambda combo: combo.target_name or "",
+            adversarial_system_prompt=self.params.get("adversarial_system_prompt"),
             include_baseline=context.include_baseline,
         )
 

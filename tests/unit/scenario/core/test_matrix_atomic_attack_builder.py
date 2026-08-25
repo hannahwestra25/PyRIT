@@ -9,8 +9,8 @@ cross-product for scenarios whose attacks form such a grid. These tests pin the 
 * cross-product cardinality across techniques, datasets, and the optional
   adversarial-target axis,
 * default and custom ``atomic_attack_name`` / ``display_group`` derivation,
-* ``factory.create`` adversarial-chat forwarding (and the ``AtomicAttack``
-  ``adversarial_chat`` it stamps),
+* ``factory.create`` adversarial-chat and system-prompt forwarding (and the
+  ``AtomicAttack`` ``adversarial_chat`` it stamps),
 * seed-technique compatibility filtering (skip vs. subset), and
 * optional baseline emission from the flattened seed groups.
 """
@@ -151,6 +151,35 @@ class TestMatrixAdversarialForwarding:
         assert factory.create.call_count == 2
         injected = {call.kwargs["adversarial_chat"] for call in factory.create.call_args_list}
         assert injected == {target_a, target_b}
+
+    def test_create_called_with_adversarial_system_prompt_per_target(self):
+        builder = _builder()
+        factory = _mock_factory(name="tech")
+        builder.build(
+            technique_factories={"tech": factory},
+            dataset_groups={"ds": [_seed_group(objective="o1")]},
+            adversarial_targets=[
+                ("advA", MagicMock(spec=PromptTarget)),
+                ("advB", MagicMock(spec=PromptTarget)),
+            ],
+            adversarial_system_prompt="custom {{ objective }}",
+        )
+
+        assert factory.create.call_count == 2
+        assert {call.kwargs["adversarial_system_prompt"] for call in factory.create.call_args_list} == {
+            "custom {{ objective }}"
+        }
+
+    def test_create_omits_adversarial_system_prompt_by_default(self):
+        builder = _builder()
+        factory = _mock_factory(name="tech")
+        builder.build(
+            technique_factories={"tech": factory},
+            dataset_groups={"ds": [_seed_group(objective="o1")]},
+            adversarial_targets=[("advA", MagicMock(spec=PromptTarget))],
+        )
+
+        assert "adversarial_system_prompt" not in factory.create.call_args.kwargs
 
     def test_atomic_attack_adversarial_chat_is_resolved_target(self):
         builder = _builder()

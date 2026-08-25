@@ -17,7 +17,8 @@ These tests cover the new contract:
 * Technique enum is built from registered factories with ``uses_adversarial=True``
   that do not bake their own ``adversarial_chat``; the default expands to the exact
   benchmark set while the ``light`` aggregate remains selectable.
-* ``supported_parameters`` declares ``adversarial_targets: list[str]``.
+* ``supported_parameters`` declares ``adversarial_targets: list[str]`` and the
+  optional ``adversarial_system_prompt: str`` override.
 * ``_resolve_adversarial_targets`` raises with available names on typos.
 * ``_build_atomic_attacks_async`` produces ``N × M × D`` atomic attacks
   with the expected ``atomic_attack_name`` and ``display_group``.
@@ -46,6 +47,7 @@ from pyrit.models import (
     AttackSeedGroup,
     ComponentIdentifier,
     ObjectiveTargetEvaluationIdentifier,
+    ScenarioIdentifier,
     SeedObjective,
 )
 from pyrit.prompt_target import PromptTarget
@@ -174,7 +176,7 @@ class TestAdversarialBenchmarkMetadata:
 
 
 class TestAdversarialBenchmarkSupportedParameters:
-    """Tests for the ``adversarial_targets`` parameter declaration."""
+    """Tests for the adversarial target and system prompt parameter declarations."""
 
     def test_declares_adversarial_targets_param(self):
         params = AdversarialBenchmark.supported_parameters()
@@ -196,6 +198,45 @@ class TestAdversarialBenchmarkSupportedParameters:
         params = {p.name: p for p in AdversarialBenchmark.supported_parameters()}
         description = params["adversarial_targets"].description
         assert "--adversarial-targets" in description
+
+    def test_declares_optional_adversarial_system_prompt_param(self):
+        params = {p.name: p for p in AdversarialBenchmark.supported_parameters()}
+        prompt_param = params["adversarial_system_prompt"]
+
+        assert prompt_param.param_type is str
+        assert prompt_param.default is None
+        assert "--adversarial-system-prompt" in prompt_param.description
+
+
+# ---------------------------------------------------------------------------
+# Scenario identity
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.usefixtures("patch_central_database")
+class TestAdversarialBenchmarkIdentity:
+    """Tests for the custom prompt's behavioral identity."""
+
+    @staticmethod
+    def _build_identifier(*, adversarial_system_prompt: str | None) -> ScenarioIdentifier:
+        scorer = MagicMock(spec=TrueFalseScorer)
+        scorer.get_identifier.return_value = None
+        bench = AdversarialBenchmark(objective_scorer=scorer)
+        bench.params = {
+            "adversarial_targets": ["adv_a"],
+            "adversarial_system_prompt": adversarial_system_prompt,
+        }
+        return bench._build_scenario_identifier()
+
+    def test_custom_prompt_is_included_in_scenario_identity(self):
+        identifier = self._build_identifier(adversarial_system_prompt="custom {{ objective }}")
+
+        assert identifier.params["adversarial_system_prompt"] == "custom {{ objective }}"
+
+    def test_omitted_custom_prompt_preserves_previous_identity_shape(self):
+        identifier = self._build_identifier(adversarial_system_prompt=None)
+
+        assert "adversarial_system_prompt" not in identifier.params
 
 
 # ---------------------------------------------------------------------------
@@ -490,7 +531,9 @@ class TestGetAtomicAttacksValidation:
 class TestGetAtomicAttacksCrossProduct:
     """Tests for the (technique × target × dataset) cross-product produced by ``_build_atomic_attacks_async``."""
 
-    def _make_bench_with_targets(self, *, target_names: list[str]) -> AdversarialBenchmark:
+    def _make_bench_with_targets(
+        self, *, target_names: list[str], adversarial_system_prompt: str | None = None
+    ) -> AdversarialBenchmark:
         for name in target_names:
             _register_adversarial_target(name=name)
         # Reset the technique registry so we can register a controllable mock factory
@@ -500,7 +543,10 @@ class TestGetAtomicAttacksCrossProduct:
         _register_mock_factory(name="red_teaming", tags=["core", "light"])
         bench = AdversarialBenchmark(objective_scorer=MagicMock(spec=TrueFalseScorer))
         bench._objective_target = MagicMock(spec=PromptTarget)
-        bench.params = {"adversarial_targets": target_names}
+        bench.params = {
+            "adversarial_targets": target_names,
+            "adversarial_system_prompt": adversarial_system_prompt,
+        }
 
         red_teaming_technique = MagicMock()
         red_teaming_technique.value = "red_teaming"
@@ -580,6 +626,21 @@ class TestGetAtomicAttacksCrossProduct:
         target_b = TargetRegistry.get_registry_singleton().instances.get("adv_b")
         injected_targets = {call.kwargs["adversarial_chat"] for call in factory.create.call_args_list}
         assert injected_targets == {target_a, target_b}
+
+    async def test_factory_create_called_per_target_with_custom_system_prompt(self):
+        """The run-level custom prompt is forwarded to every target cell."""
+        bench = self._make_bench_with_targets(
+            target_names=["adv_a", "adv_b"],
+            adversarial_system_prompt="custom {{ objective }}",
+        )
+        factory = AttackTechniqueRegistry.get_registry_singleton().get_factories_or_raise()["red_teaming"]
+
+        await _build_atomic_attacks(bench)
+
+        assert factory.create.call_count == 2
+        assert {call.kwargs["adversarial_system_prompt"] for call in factory.create.call_args_list} == {
+            "custom {{ objective }}"
+        }
 
 
 # ---------------------------------------------------------------------------

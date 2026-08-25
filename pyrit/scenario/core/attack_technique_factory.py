@@ -553,7 +553,9 @@ class AttackTechniqueFactory(Identifiable):
 
         Raises:
             ValueError: If a create-time adversarial chat is supplied while the
-                factory already baked one, or if ``scorer_override_policy`` is RAISE
+                factory already baked one; a create-time adversarial prompt conflicts
+                with a baked prompt or an attack that does not accept
+                ``attack_adversarial_config``; or ``scorer_override_policy`` is RAISE
                 and the scenario scorer is incompatible with the attack's type annotation.
         """
         create_time_target: PromptTarget | None = adversarial_chat
@@ -572,10 +574,19 @@ class AttackTechniqueFactory(Identifiable):
                 f"so create() cannot supply 'adversarial_system_prompt' or 'adversarial_seed_prompt'."
             )
 
+        accepted_params = self._get_accepted_params()
+        if (
+            adversarial_system_prompt is not None or adversarial_seed_prompt is not None
+        ) and "attack_adversarial_config" not in accepted_params:
+            raise ValueError(
+                f"Factory '{self._name}': attack class '{self._attack_class.__name__}' does not accept "
+                "'attack_adversarial_config', so create() cannot supply "
+                "'adversarial_system_prompt' or 'adversarial_seed_prompt'."
+            )
+
         kwargs = dict(self._attack_kwargs)
         kwargs["objective_target"] = objective_target
 
-        accepted_params = self._get_accepted_params()
         if self._should_apply_scoring_config(
             attack_scoring_config=attack_scoring_config,
             accepted_params=accepted_params,

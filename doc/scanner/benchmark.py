@@ -33,10 +33,15 @@
 #   --initializers target \
 #   --target openai_chat \
 #   --adversarial-targets adversarial_chat_singleturn adversarial_chat_multiturn \
+#   --technique red_teaming \
+#   --adversarial-system-prompt "Generate an attack for: {{ objective }}" \
 #   --max-dataset-size 4
 # ```
 #
 # Pass multiple `--adversarial-targets` values to compare across models in a single run.
+# `--adversarial-system-prompt` optionally replaces the selected attack technique's default
+# adversarial prompt. Select a technique such as `red_teaming` that accepts an adversarial
+# configuration; techniques with their own prompt reject the override.
 #
 # **Default techniques:** `role_play_video_game`, `crescendo_simulated`, and `tap`. TAP's
 # branching search makes this default slower and more expensive than the former `light` default.
@@ -61,6 +66,8 @@ await initialize_pyrit_async(  # type: ignore
     initializers=[TargetInitializer(), ScorerInitializer(), TechniqueInitializer()],
 )
 
+from pyrit.scenario.benchmark import AdversarialBenchmarkTechnique
+
 objective_target = OpenAIChatTarget()
 
 # %%
@@ -70,6 +77,8 @@ scenario = AdversarialBenchmark()
 scenario.set_params_from_args(
     args={
         "adversarial_targets": ["adversarial_chat_singleturn", "adversarial_chat_multiturn"],
+        "adversarial_system_prompt": "Generate an attack for: {{ objective }}",
+        "scenario_techniques": [AdversarialBenchmarkTechnique.red_teaming],
         "objective_target": objective_target,
         "dataset_config": dataset_config,
     }
