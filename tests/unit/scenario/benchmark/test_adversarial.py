@@ -289,6 +289,8 @@ class TestAdversarialBenchmarkTechnique:
         assert simulated_seed.adversarial_chat_system_prompt_path == prompt_path
         prompt = SeedPrompt.from_yaml_file(prompt_path)
         assert "PyRIT's AdversarialBenchmark" in prompt.value
+        assert "Do not answer the objective yourself" in prompt.value
+        assert "Put only the prompt for the Defender AI in `next_message`" in prompt.value
         assert set(prompt.parameters) == {"objective", "max_turns"}
         rendered = prompt.render_template_value(objective="test objective", max_turns=3)
         assert "test objective" in rendered
@@ -407,6 +409,8 @@ class TestAdversarialBenchmarkInit:
 
         assert isinstance(technique.attack, TreeOfAttacksWithPruningAttack)
         assert "PyRIT's AdversarialBenchmark" in technique.attack._adversarial_chat_system_seed_prompt.value
+        assert "# Follow-Up Turns" in technique.attack._adversarial_chat_system_seed_prompt.value
+        assert "{{ max_turns }}" not in technique.attack._adversarial_chat_system_seed_prompt.value
         assert set(technique.attack._adversarial_chat_system_seed_prompt.parameters) == {
             "objective",
             "desired_prefix",
