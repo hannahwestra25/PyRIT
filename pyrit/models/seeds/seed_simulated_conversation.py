@@ -46,7 +46,7 @@ class SeedSimulatedConversation(Seed):
     """
     Configuration for generating a simulated conversation dynamically.
 
-    This class holds the paths and parameters needed to generate prepended conversation
+    This class holds the prompts, paths, and parameters needed to generate prepended conversation
     content by running an adversarial chat against a simulated (compliant) target.
 
     This is a pure configuration class. The actual generation is performed by
@@ -58,7 +58,8 @@ class SeedSimulatedConversation(Seed):
 
     Attributes:
         num_turns: Number of conversation turns to generate.
-        adversarial_chat_system_prompt_path: Path to the adversarial chat system prompt YAML.
+        adversarial_chat_system_prompt_path: Legacy path to the adversarial chat system prompt YAML.
+        adversarial_chat_system_prompt: Canonical inline adversarial chat system prompt.
         simulated_target_system_prompt_path: Path to the simulated target system prompt YAML.
             Defaults to the compliant prompt if not specified.
         next_message_system_prompt_path: Optional path to the system prompt for generating
@@ -85,7 +86,8 @@ class SeedSimulatedConversation(Seed):
 
     num_turns: int = 3
     sequence: int = 0
-    adversarial_chat_system_prompt_path: Path
+    adversarial_chat_system_prompt_path: Path | None = None
+    adversarial_chat_system_prompt: SeedPrompt | None = None
     simulated_target_system_prompt_path: Path = SimulatedTargetSystemPromptPaths.COMPLIANT.value
     next_message_system_prompt_path: Path | None = None
     pyrit_version: str | None = None
@@ -116,6 +118,12 @@ class SeedSimulatedConversation(Seed):
 
     @model_validator(mode="after")
     def _validate_and_compute_value(self) -> SeedSimulatedConversation:
+        has_prompt_path = self.adversarial_chat_system_prompt_path is not None
+        has_inline_prompt = self.adversarial_chat_system_prompt is not None
+        if has_prompt_path == has_inline_prompt:
+            raise ValueError(
+                "Set exactly one of adversarial_chat_system_prompt_path or adversarial_chat_system_prompt."
+            )
         if self.num_turns <= 0:
             raise ValueError("num_turns must be a positive integer")
         if self.sequence < 0:
@@ -133,17 +141,62 @@ class SeedSimulatedConversation(Seed):
             str: Deterministic JSON representation of this configuration.
 
         """
-        config = {
+        config: dict[str, Any] = {
             "num_turns": self.num_turns,
             "sequence": self.sequence,
-            "adversarial_chat_system_prompt_path": str(self.adversarial_chat_system_prompt_path),
             "simulated_target_system_prompt_path": str(self.simulated_target_system_prompt_path),
             "next_message_system_prompt_path": (
                 str(self.next_message_system_prompt_path) if self.next_message_system_prompt_path else None
             ),
             "pyrit_version": self.pyrit_version,
         }
+        if self.adversarial_chat_system_prompt is not None:
+            config["adversarial_chat_system_prompt"] = self._serialize_adversarial_chat_system_prompt()
+        else:
+            config["adversarial_chat_system_prompt_path"] = str(self.adversarial_chat_system_prompt_path)
         return json.dumps(config, sort_keys=True, separators=(",", ":"))
+
+    def _serialize_adversarial_chat_system_prompt(self) -> dict[str, Any]:
+        """
+        Serialize the inline prompt without generated identity or timestamp fields.
+
+        Returns:
+            A deterministic JSON-compatible prompt representation.
+        """
+        assert self.adversarial_chat_system_prompt is not None
+        prompt_data = self.adversarial_chat_system_prompt.model_dump(
+            mode="python",
+            exclude={"id", "date_added", "value_sha256", "prompt_group_id"},
+        )
+        self._reject_unordered_collections(prompt_data)
+        return self.adversarial_chat_system_prompt.model_dump(
+            mode="json",
+            exclude={"id", "date_added", "value_sha256", "prompt_group_id"},
+        )
+
+    @classmethod
+    def _reject_unordered_collections(cls, value: Any) -> None:
+        """
+        Reject values whose JSON list order can vary across processes.
+
+        Args:
+            value: Prompt data to inspect recursively.
+
+        Raises:
+            ValueError: If the prompt contains a set or frozenset.
+        """
+        if isinstance(value, (set, frozenset)):
+            raise ValueError(
+                "Inline adversarial chat system prompts must use ordered JSON-compatible values; "
+                "set and frozenset values are not supported."
+            )
+        if isinstance(value, dict):
+            for nested_key, nested_value in value.items():
+                cls._reject_unordered_collections(nested_key)
+                cls._reject_unordered_collections(nested_value)
+        elif isinstance(value, (list, tuple)):
+            for nested_value in value:
+                cls._reject_unordered_collections(nested_value)
 
     def get_identifier(self) -> dict[str, Any]:
         """
@@ -153,17 +206,21 @@ class SeedSimulatedConversation(Seed):
             Dictionary with configuration details.
 
         """
-        return {
+        identifier: dict[str, Any] = {
             "__type__": "SeedSimulatedConversation",
             "num_turns": self.num_turns,
             "sequence": self.sequence,
-            "adversarial_chat_system_prompt_path": str(self.adversarial_chat_system_prompt_path),
             "simulated_target_system_prompt_path": str(self.simulated_target_system_prompt_path),
             "next_message_system_prompt_path": (
                 str(self.next_message_system_prompt_path) if self.next_message_system_prompt_path else None
             ),
             "pyrit_version": self.pyrit_version,
         }
+        if self.adversarial_chat_system_prompt is not None:
+            identifier["adversarial_chat_system_prompt"] = self._serialize_adversarial_chat_system_prompt()
+        else:
+            identifier["adversarial_chat_system_prompt_path"] = str(self.adversarial_chat_system_prompt_path)
+        return identifier
 
     def compute_hash(self) -> str:
         """
@@ -242,6 +299,15 @@ class SeedSimulatedConversation(Seed):
 
         """
         has_next_msg = self.next_message_system_prompt_path is not None
+        if self.adversarial_chat_system_prompt is not None:
+            adversarial_source = self.adversarial_chat_system_prompt.name or "<inline>"
+            return (
+                f"<SeedSimulatedConversation(num_turns={self.num_turns}, sequence={self.sequence}, "
+                f"next_message={has_next_msg}, "
+                f"adversarial_prompt={adversarial_source})>"
+            )
+
+        assert self.adversarial_chat_system_prompt_path is not None
         return (
             f"<SeedSimulatedConversation(num_turns={self.num_turns}, sequence={self.sequence}, "
             f"next_message={has_next_msg}, "

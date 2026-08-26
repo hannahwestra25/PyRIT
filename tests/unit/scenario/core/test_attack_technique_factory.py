@@ -11,7 +11,13 @@ import pytest
 from pyrit.converter import Base64Converter, QRCodeConverter, ROT13Converter, TranslationConverter
 from pyrit.executor.attack.core.attack_config import AttackConverterConfig, AttackScoringConfig
 from pyrit.executor.attack.single_turn.prompt_sending import PromptSendingAttack
-from pyrit.models import AttackTechniqueSeedGroup, ComponentIdentifier, Identifiable, SeedPrompt
+from pyrit.models import (
+    AttackTechniqueSeedGroup,
+    ComponentIdentifier,
+    Identifiable,
+    SeedPrompt,
+    SeedSimulatedConversation,
+)
 from pyrit.prompt_normalizer import ConverterConfiguration
 from pyrit.prompt_target import PromptTarget
 from pyrit.scenario.core.attack_technique import AttackTechnique
@@ -92,6 +98,88 @@ class TestFactoryInit:
         )
 
         assert factory.description == "Staged as a journalist interview."
+        assert factory.seed_technique is not None
+        config = factory.seed_technique.simulated_conversation_config
+        assert isinstance(config, SeedSimulatedConversation)
+        assert config.adversarial_chat_system_prompt is not None
+        assert config.adversarial_chat_system_prompt_path is None
+
+    def test_with_simulated_conversation_normalizes_path_to_inline_prompt(self, tmp_path):
+        prompt_path = tmp_path / "prompt.yaml"
+        prompt_path.write_text(
+            "value: Use {{ objective }}\n"
+            "data_type: text\n"
+            "parameters:\n"
+            "  - objective\n"
+            "response_json_schema:\n"
+            "  type: object\n"
+            "  properties:\n"
+            "    next_message:\n"
+            "      type: string\n",
+            encoding="utf-8",
+        )
+
+        factory = AttackTechniqueFactory.with_simulated_conversation(
+            name="test",
+            adversarial_chat_system_prompt_path=prompt_path,
+        )
+
+        assert factory.seed_technique is not None
+        config = factory.seed_technique.simulated_conversation_config
+        assert isinstance(config, SeedSimulatedConversation)
+        assert config.adversarial_chat_system_prompt_path is None
+        assert config.adversarial_chat_system_prompt is not None
+        assert config.adversarial_chat_system_prompt.parameters == ["objective"]
+        assert config.adversarial_chat_system_prompt.response_json_schema == {
+            "type": "object",
+            "properties": {"next_message": {"type": "string"}},
+        }
+
+    def test_with_simulated_conversation_accepts_inline_prompt(self):
+        prompt = SeedPrompt(
+            value="Use {{ objective }}",
+            data_type="text",
+            parameters=["objective"],
+            metadata={"source_kind": "inline"},
+        )
+
+        factory = AttackTechniqueFactory.with_simulated_conversation(
+            name="test",
+            adversarial_chat_system_prompt=prompt,
+        )
+
+        assert factory.seed_technique is not None
+        config = factory.seed_technique.simulated_conversation_config
+        assert isinstance(config, SeedSimulatedConversation)
+        assert config.adversarial_chat_system_prompt is prompt
+        assert config.adversarial_chat_system_prompt_path is None
+
+    def test_with_simulated_conversation_rejects_both_prompt_sources(self, tmp_path):
+        with pytest.raises(ValueError, match="only one"):
+            AttackTechniqueFactory.with_simulated_conversation(
+                name="test",
+                adversarial_chat_system_prompt_path=tmp_path / "prompt.yaml",
+                adversarial_chat_system_prompt=SeedPrompt(value="inline"),
+            )
+
+    def test_with_simulated_conversation_identifier_is_deterministic_for_inline_prompt(self):
+        prompt_kwargs = {
+            "value": "Use {{ objective }}",
+            "data_type": "text",
+            "parameters": ["objective"],
+            "metadata": {"source_kind": "inline"},
+        }
+
+        first = AttackTechniqueFactory.with_simulated_conversation(
+            name="test",
+            adversarial_chat_system_prompt=SeedPrompt(**prompt_kwargs),
+        )
+        second = AttackTechniqueFactory.with_simulated_conversation(
+            name="test",
+            adversarial_chat_system_prompt=SeedPrompt(**prompt_kwargs),
+        )
+
+        assert first.get_identifier().hash == second.get_identifier().hash
 
     def test_description_does_not_affect_identifier(self):
         """Description is decorative metadata and must not change the behavioral identity hash."""

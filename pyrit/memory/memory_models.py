@@ -1491,8 +1491,10 @@ class SeedEntry(Base):
                 num_turns=config.get("num_turns", 3),
                 sequence=config.get("sequence", 0),
                 adversarial_chat_system_prompt_path=config.get("adversarial_chat_system_prompt_path"),
+                adversarial_chat_system_prompt=config.get("adversarial_chat_system_prompt"),
                 simulated_target_system_prompt_path=config.get("simulated_target_system_prompt_path"),
                 next_message_system_prompt_path=config.get("next_message_system_prompt_path"),
+                pyrit_version=config.get("pyrit_version"),
             )
         return SeedPrompt(
             id=self.id,

@@ -43,6 +43,13 @@
 # The objective is *not* part of the technique — it stays separate and is supplied by the dataset at
 # run time. You rarely build a technique by hand; instead you register a **factory** and let scenarios
 # construct techniques on demand with the scenario's own objective target and scorer.
+#
+# Simulated-conversation factories accept their adversarial system prompt from exactly one source:
+# `adversarial_chat_system_prompt_path` for YAML-backed prompts, or
+# `adversarial_chat_system_prompt` for an inline `SeedPrompt`. The factory resolves either source to a
+# `SeedPrompt` immediately, so created techniques carry portable prompt content rather than a runtime
+# file dependency. If neither source is supplied, the existing
+# `red_teaming/{technique_name}.yaml` convention remains the default.
 
 # %% [markdown]
 # ## Where techniques come from: initializers

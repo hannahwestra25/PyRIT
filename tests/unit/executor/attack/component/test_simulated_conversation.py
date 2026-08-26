@@ -12,6 +12,7 @@ from pyrit.exceptions import InvalidJsonException
 from pyrit.executor.attack import AttackConverterConfig, RTASystemPromptPaths
 from pyrit.executor.attack.multi_turn.simulated_conversation import (
     _generate_next_message_async,
+    _resolve_adversarial_chat_system_prompt_async,
     generate_simulated_conversation_async,
 )
 from pyrit.models import (
@@ -148,6 +149,97 @@ class TestGenerateSimulatedConversationAsync:
                 objective_scorer=mock_objective_scorer,
                 adversarial_chat_system_prompt_path=adversarial_system_prompt_path,
                 num_turns=-1,
+            )
+
+    async def test_inline_adversarial_prompt_is_forwarded_without_file_loading(
+        self,
+        mock_adversarial_chat: MagicMock,
+        mock_objective_scorer: MagicMock,
+        sample_conversation: list[Message],
+    ):
+        prompt = SeedPrompt(
+            value="Use {{ objective }}",
+            parameters=["objective"],
+            response_json_schema={
+                "type": "object",
+                "properties": {"next_message": {"type": "string"}},
+            },
+        )
+        with (
+            patch("pyrit.executor.attack.multi_turn.simulated_conversation.RedTeamingAttack") as mock_attack_class,
+            patch("pyrit.executor.attack.multi_turn.simulated_conversation.CentralMemory") as mock_memory_class,
+        ):
+            mock_attack = MagicMock()
+            mock_attack.execute_async = AsyncMock(
+                return_value=AttackResult(
+                    atomic_attack_identifier=ComponentIdentifier(
+                        class_name="RedTeamingAttack",
+                        class_module="pyrit.executor.attack",
+                    ),
+                    conversation_id=str(uuid.uuid4()),
+                    objective="Test objective",
+                    outcome=AttackOutcome.SUCCESS,
+                    executed_turns=3,
+                )
+            )
+            mock_attack_class.return_value = mock_attack
+            mock_memory_class.get_memory_instance.return_value.get_conversation_messages.return_value = iter(
+                sample_conversation
+            )
+
+            await generate_simulated_conversation_async(
+                objective="Test objective",
+                adversarial_chat=mock_adversarial_chat,
+                objective_scorer=mock_objective_scorer,
+                adversarial_chat_system_prompt=prompt,
+            )
+
+        adversarial_config = mock_attack_class.call_args.kwargs["attack_adversarial_config"]
+        assert adversarial_config.system_prompt is prompt
+
+    async def test_returns_inline_prompt(self):
+        prompt = SeedPrompt(value="inline")
+
+        resolved = await _resolve_adversarial_chat_system_prompt_async(
+            adversarial_chat_system_prompt_path=None,
+            adversarial_chat_system_prompt=prompt,
+        )
+
+        assert resolved is prompt
+
+    async def test_loads_legacy_path_off_event_loop(self, tmp_path):
+        prompt_path = tmp_path / "prompt.yaml"
+        resolved_prompt = SeedPrompt(value="resolved")
+
+        with patch(
+            "pyrit.executor.attack.multi_turn.simulated_conversation.asyncio.to_thread",
+            new_callable=AsyncMock,
+            return_value=resolved_prompt,
+        ) as mock_to_thread:
+            resolved = await _resolve_adversarial_chat_system_prompt_async(
+                adversarial_chat_system_prompt_path=prompt_path,
+                adversarial_chat_system_prompt=None,
+            )
+
+        assert resolved is resolved_prompt
+        mock_to_thread.assert_awaited_once_with(SeedPrompt.from_yaml_file, prompt_path)
+
+    @pytest.mark.parametrize(
+        ("path", "prompt"),
+        [
+            (None, None),
+            ("prompt.yaml", SeedPrompt(value="inline")),
+        ],
+    )
+    async def test_rejects_ambiguous_or_missing_adversarial_prompt_source(
+        self,
+        path: str | None,
+        prompt: SeedPrompt | None,
+    ) -> None:
+        with pytest.raises(ValueError, match="exactly one"):
+            await _resolve_adversarial_chat_system_prompt_async(
+                adversarial_chat_system_prompt_path=path,
+                adversarial_chat_system_prompt=prompt,
             )
 
     async def test_uses_adversarial_chat_as_simulated_target(

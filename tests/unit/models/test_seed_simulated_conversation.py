@@ -9,6 +9,7 @@ import uuid
 import pytest
 
 from pyrit.models.seeds import (
+    SeedPrompt,
     SeedSimulatedConversation,
     SimulatedTargetSystemPromptPaths,
 )
@@ -49,6 +50,25 @@ class TestSeedSimulatedConversationInit:
         assert conv.adversarial_chat_system_prompt_path == adv_path
         # Default simulated_target_system_prompt_path is the compliant prompt
         assert conv.simulated_target_system_prompt_path == SimulatedTargetSystemPromptPaths.COMPLIANT.value
+
+    def test_init_with_inline_adversarial_prompt(self):
+        prompt = SeedPrompt(value="Use {{ objective }}", parameters=["objective"], data_type="text")
+
+        conv = SeedSimulatedConversation(adversarial_chat_system_prompt=prompt)
+
+        assert conv.adversarial_chat_system_prompt is prompt
+        assert conv.adversarial_chat_system_prompt_path is None
+
+    def test_init_rejects_both_adversarial_prompt_sources(self, tmp_path):
+        with pytest.raises(ValueError, match="exactly one"):
+            SeedSimulatedConversation(
+                adversarial_chat_system_prompt_path=tmp_path / "prompt.yaml",
+                adversarial_chat_system_prompt=SeedPrompt(value="inline"),
+            )
+
+    def test_init_rejects_missing_adversarial_prompt_source(self):
+        with pytest.raises(ValueError, match="exactly one"):
+            SeedSimulatedConversation()
 
     def test_init_default_num_turns(self, tmp_path):
         """Test that default num_turns is 3."""
@@ -124,6 +144,57 @@ class TestSeedSimulatedConversationInit:
         )
 
         assert conv1.value == conv2.value
+
+    def test_inline_prompt_value_preserves_template_contract_and_is_deterministic(self):
+        prompt_kwargs = {
+            "value": "Use {{ objective }}",
+            "data_type": "text",
+            "parameters": ["objective"],
+            "response_json_schema": {
+                "type": "object",
+                "properties": {"next_message": {"type": "string"}},
+            },
+            "metadata": {"source_kind": "inline"},
+            "is_jinja_template": True,
+        }
+
+        conv1 = SeedSimulatedConversation(adversarial_chat_system_prompt=SeedPrompt(**prompt_kwargs))
+        conv2 = SeedSimulatedConversation(adversarial_chat_system_prompt=SeedPrompt(**prompt_kwargs))
+
+        assert conv1.value == conv2.value
+        assert conv1.compute_hash() == conv2.compute_hash()
+        serialized_prompt = json.loads(conv1.value)["adversarial_chat_system_prompt"]
+        assert serialized_prompt["parameters"] == ["objective"]
+        assert serialized_prompt["response_json_schema"] == prompt_kwargs["response_json_schema"]
+        assert serialized_prompt["metadata"] == {"source_kind": "inline"}
+        assert serialized_prompt["is_jinja_template"] is True
+        assert "id" not in serialized_prompt
+        assert "date_added" not in serialized_prompt
+
+    def test_inline_prompt_value_preserves_explicit_null_fields(self):
+        conv = SeedSimulatedConversation(
+            adversarial_chat_system_prompt=SeedPrompt(
+                value="inline",
+                parameters=None,
+                metadata=None,
+            )
+        )
+
+        reconstructed = SeedSimulatedConversation(**json.loads(conv.value))
+        prompt = reconstructed.adversarial_chat_system_prompt
+        assert prompt is not None
+        assert prompt.parameters is None
+        assert prompt.metadata is None
+        assert reconstructed.value == conv.value
+
+    def test_inline_prompt_rejects_unordered_metadata(self):
+        with pytest.raises(ValueError, match="ordered JSON-compatible values"):
+            SeedSimulatedConversation(
+                adversarial_chat_system_prompt=SeedPrompt(
+                    value="inline",
+                    metadata={"tags": {"alpha", "beta"}},
+                )
+            )
 
     def test_init_default_sequence_is_zero(self, tmp_path):
         """Test that default sequence is 0."""
@@ -217,11 +288,11 @@ class TestSeedSimulatedConversationFromMapping:
 
         assert conv.num_turns == 3
 
-    def test_from_dict_missing_adversarial_path_raises_error(self):
-        """Test that construction raises when adversarial path is missing (required field)."""
+    def test_from_dict_missing_adversarial_source_raises_error(self):
+        """Test that construction raises when both adversarial prompt sources are missing."""
         data = {"num_turns": 3}
 
-        with pytest.raises(ValueError, match="adversarial_chat_system_prompt_path"):
+        with pytest.raises(ValueError, match="exactly one"):
             SeedSimulatedConversation.model_validate(data)
 
 

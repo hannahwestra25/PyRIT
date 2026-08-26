@@ -26,6 +26,9 @@ if TYPE_CHECKING:
     from pyrit.scenario.core.scenario import BaselineAttackPolicy, Scenario
     from pyrit.scenario.core.scenario_target_defaults import get_default_adversarial_target, get_default_scorer_target
     from pyrit.scenario.core.scenario_technique import ScenarioTechnique
+    from pyrit.scenario.core.simulated_conversation_prompt import (
+        resolve_simulated_conversation_adversarial_prompt,
+    )
 
 _LAZY_EXPORTS: dict[str, str | tuple[str, str | None]] = {
     "AtomicAttack": "pyrit.scenario.core.atomic_attack",
@@ -46,6 +49,7 @@ _LAZY_EXPORTS: dict[str, str | tuple[str, str | None]] = {
     "ScorerOverridePolicy": "pyrit.scenario.core.attack_technique_factory",
     "get_default_scorer_target": "pyrit.scenario.core.scenario_target_defaults",
     "get_default_adversarial_target": "pyrit.scenario.core.scenario_target_defaults",
+    "resolve_simulated_conversation_adversarial_prompt": "pyrit.scenario.core.simulated_conversation_prompt",
 }
 
 __all__ = list(_LAZY_EXPORTS)

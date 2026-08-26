@@ -240,11 +240,15 @@ class TestPersonaCrescendoFactories:
             assert sim is not None
             assert sim.num_turns == 3
 
-    def test_seed_technique_yaml_path_resolves_to_existing_file(self):
+    def test_seed_technique_contains_resolved_inline_prompt(self):
         for f in self._persona_factories():
             sim = f.seed_technique.simulated_conversation_config
             assert sim is not None
-            assert sim.adversarial_chat_system_prompt_path.exists()
+            assert sim.adversarial_chat_system_prompt_path is None
+            prompt = sim.adversarial_chat_system_prompt
+            assert prompt is not None
+            assert prompt.name == f.name
+            assert prompt.parameters == ["objective", "max_turns"]
 
 
 class TestPersonaCrescendoYamls:
@@ -323,12 +327,15 @@ class TestContextComplianceTechnique:
         assert yes_prompt.role == "user"
         assert yes_prompt.sequence == 2
 
-    def test_adversarial_yaml_resolves_to_existing_file(self):
+    def test_adversarial_prompt_is_resolved_inline(self):
         factory = self._context_compliance_factory()
         sim = factory.seed_technique.simulated_conversation_config
         assert sim is not None
-        assert sim.adversarial_chat_system_prompt_path.name == "context_compliance.yaml"
-        assert sim.adversarial_chat_system_prompt_path.exists()
+        assert sim.adversarial_chat_system_prompt_path is None
+        prompt = sim.adversarial_chat_system_prompt
+        assert prompt is not None
+        assert prompt.name == "context_compliance"
+        assert prompt.parameters == ["objective", "max_turns"]
 
     def test_tagged_core_single_turn_light(self):
         factory = self._context_compliance_factory()
@@ -397,11 +404,15 @@ class TestRolePlayFactories:
             assert sim is not None
             assert sim.num_turns == 2
 
-    def test_seed_technique_yaml_path_resolves_to_existing_file(self):
+    def test_seed_technique_contains_resolved_inline_prompt(self):
         for f in self._role_play_factories():
             sim = f.seed_technique.simulated_conversation_config
             assert sim is not None
-            assert sim.adversarial_chat_system_prompt_path.exists()
+            assert sim.adversarial_chat_system_prompt_path is None
+            prompt = sim.adversarial_chat_system_prompt
+            assert prompt is not None
+            assert prompt.name == f.name
+            assert prompt.parameters == ["objective", "max_turns"]
 
     def test_all_use_role_play_next_message_prompt(self):
         for f in self._role_play_factories():

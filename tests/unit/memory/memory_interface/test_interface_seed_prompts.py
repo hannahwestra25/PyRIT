@@ -11,7 +11,7 @@ import pytest
 from sqlalchemy.exc import SQLAlchemyError
 
 from pyrit.memory import MemoryInterface
-from pyrit.models import MessagePiece, SeedDataset, SeedGroup, SeedObjective, SeedPrompt
+from pyrit.models import MessagePiece, SeedDataset, SeedGroup, SeedObjective, SeedPrompt, SeedSimulatedConversation
 
 
 def assert_original_value_in_list(original_value: str, message_pieces: Sequence[MessagePiece]):
@@ -128,6 +128,59 @@ async def test_get_seeds_with_dataset_name_filter(sqlite_instance: MemoryInterfa
     result = sqlite_instance.get_seeds(dataset_name="dataset1")
     assert len(result) == 1
     assert result[0].dataset_name == "dataset1"
+
+
+async def test_legacy_path_backed_simulated_conversation_persistence_round_trip(
+    sqlite_instance: MemoryInterface,
+) -> None:
+    seed = SeedSimulatedConversation(
+        adversarial_chat_system_prompt_path="/legacy/adversarial.yaml",
+        dataset_name="legacy_simulated",
+    )
+
+    await sqlite_instance.add_seeds_to_memory_async(seeds=[seed], added_by="test")
+
+    recovered = sqlite_instance.get_seeds(seed_type="simulated_conversation")
+    assert len(recovered) == 1
+    assert isinstance(recovered[0], SeedSimulatedConversation)
+    assert recovered[0].adversarial_chat_system_prompt_path == seed.adversarial_chat_system_prompt_path
+    assert recovered[0].adversarial_chat_system_prompt is None
+    assert recovered[0].value == seed.value
+
+
+async def test_inline_prompt_simulated_conversation_persistence_round_trip(
+    sqlite_instance: MemoryInterface,
+) -> None:
+    response_schema = {
+        "type": "object",
+        "properties": {"next_message": {"type": "string"}},
+    }
+    seed = SeedSimulatedConversation(
+        adversarial_chat_system_prompt=SeedPrompt(
+            value="Use {{ objective }}",
+            data_type="text",
+            parameters=["objective"],
+            response_json_schema=response_schema,
+            metadata={"source_kind": "inline"},
+            is_jinja_template=True,
+        ),
+        dataset_name="inline_simulated",
+    )
+
+    await sqlite_instance.add_seeds_to_memory_async(seeds=[seed], added_by="test")
+
+    recovered = sqlite_instance.get_seeds(seed_type="simulated_conversation")
+    assert len(recovered) == 1
+    assert isinstance(recovered[0], SeedSimulatedConversation)
+    assert recovered[0].adversarial_chat_system_prompt_path is None
+    recovered_prompt = recovered[0].adversarial_chat_system_prompt
+    assert recovered_prompt is not None
+    assert recovered_prompt.value == "Use {{ objective }}"
+    assert recovered_prompt.parameters == ["objective"]
+    assert recovered_prompt.response_json_schema == response_schema
+    assert recovered_prompt.metadata == {"source_kind": "inline"}
+    assert recovered_prompt.is_jinja_template is True
+    assert recovered[0].value == seed.value
 
 
 async def test_get_seeds_with_dataset_name_pattern_startswith(sqlite_instance: MemoryInterface):
