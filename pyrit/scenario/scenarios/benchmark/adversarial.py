@@ -89,8 +89,8 @@ def _extra_default_factories() -> dict[str, AttackTechniqueFactory]:
             they override within this scenario.
     """
     benchmark_prompt_path = EXECUTOR_SEED_PROMPT_PATH / "benchmark"
-    single_turn_preamble_path = benchmark_prompt_path / "text_generation_single_turn_v3.yaml"
-    multi_turn_preamble_path = benchmark_prompt_path / "text_generation_multi_turn_v4.yaml"
+    single_turn_preamble_path = benchmark_prompt_path / "single_turn.yaml"
+    multi_turn_preamble_path = benchmark_prompt_path / "multi_turn.yaml"
     return {
         "role_play_video_game": AttackTechniqueFactory.with_simulated_conversation(
             name="role_play_video_game",
