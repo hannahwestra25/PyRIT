@@ -44,12 +44,11 @@
 # run time. You rarely build a technique by hand; instead you register a **factory** and let scenarios
 # construct techniques on demand with the scenario's own objective target and scorer.
 #
-# Simulated-conversation factories accept their adversarial system prompt from exactly one source:
-# `adversarial_chat_system_prompt_path` for YAML-backed prompts, or
-# `adversarial_chat_system_prompt` for an inline `SeedPrompt`. The factory resolves either source to a
-# `SeedPrompt` immediately, so created techniques carry portable prompt content rather than a runtime
-# file dependency. If neither source is supplied, the existing
-# `red_teaming/{technique_name}.yaml` convention remains the default.
+# `adversarial_chat_system_prompt` accepts either an inline `SeedPrompt` or a YAML path. The factory
+# resolves either representation to a `SeedPrompt` immediately, so created techniques carry portable
+# prompt content rather than a runtime file dependency. The legacy
+# `adversarial_chat_system_prompt_path` name remains a compatibility alias, and if neither parameter
+# is supplied, the existing `red_teaming/{technique_name}.yaml` convention remains the default.
 
 # %% [markdown]
 # ## Where techniques come from: initializers

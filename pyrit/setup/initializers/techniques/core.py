@@ -112,7 +112,7 @@ def get_technique_factories() -> list[AttackTechniqueFactory]:
         AttackTechniqueFactory.with_simulated_conversation(
             name="role_play_movie_script",
             description="Frames the objective as a movie beat by casting the adversarial chat as a screenwriter.",
-            adversarial_chat_system_prompt_path=(
+            adversarial_chat_system_prompt=(
                 EXECUTOR_SEED_PROMPT_PATH / "red_teaming" / "role_play" / "role_play_movie_script.yaml"
             ),
             next_message_system_prompt_path=EXECUTOR_SIMULATED_TARGET_PATH / "role_play_next_message.yaml",
@@ -122,7 +122,7 @@ def get_technique_factories() -> list[AttackTechniqueFactory]:
         AttackTechniqueFactory.with_simulated_conversation(
             name="role_play_video_game",
             description="Frames the objective as an in-game mechanic by casting the adversarial chat as a designer.",
-            adversarial_chat_system_prompt_path=(
+            adversarial_chat_system_prompt=(
                 EXECUTOR_SEED_PROMPT_PATH / "red_teaming" / "role_play" / "role_play_video_game.yaml"
             ),
             next_message_system_prompt_path=EXECUTOR_SIMULATED_TARGET_PATH / "role_play_next_message.yaml",
@@ -132,7 +132,7 @@ def get_technique_factories() -> list[AttackTechniqueFactory]:
         AttackTechniqueFactory.with_simulated_conversation(
             name="role_play_trivia_game",
             description="Frames the objective as a quiz answer by casting the adversarial chat as a trivia host.",
-            adversarial_chat_system_prompt_path=(
+            adversarial_chat_system_prompt=(
                 EXECUTOR_SEED_PROMPT_PATH / "red_teaming" / "role_play" / "role_play_trivia_game.yaml"
             ),
             next_message_system_prompt_path=EXECUTOR_SIMULATED_TARGET_PATH / "role_play_next_message.yaml",
@@ -142,7 +142,7 @@ def get_technique_factories() -> list[AttackTechniqueFactory]:
         AttackTechniqueFactory.with_simulated_conversation(
             name="role_play_persuasion",
             description="Frames a persuasion-resistance test so the target drafts a persuasive spoken script.",
-            adversarial_chat_system_prompt_path=(
+            adversarial_chat_system_prompt=(
                 EXECUTOR_SEED_PROMPT_PATH / "red_teaming" / "role_play" / "role_play_persuasion.yaml"
             ),
             next_message_system_prompt_path=EXECUTOR_SIMULATED_TARGET_PATH / "role_play_next_message.yaml",
@@ -152,7 +152,7 @@ def get_technique_factories() -> list[AttackTechniqueFactory]:
         AttackTechniqueFactory.with_simulated_conversation(
             name="role_play_persuasion_written",
             description="Frames a persuasion-resistance test so the target drafts written persuasive material.",
-            adversarial_chat_system_prompt_path=(
+            adversarial_chat_system_prompt=(
                 EXECUTOR_SEED_PROMPT_PATH / "red_teaming" / "role_play" / "role_play_persuasion_written.yaml"
             ),
             next_message_system_prompt_path=EXECUTOR_SIMULATED_TARGET_PATH / "role_play_next_message.yaml",
@@ -200,9 +200,7 @@ def get_technique_factories() -> list[AttackTechniqueFactory]:
         AttackTechniqueFactory.with_simulated_conversation(
             name="context_compliance",
             description="Injects a fabricated prior exchange so the target continues as if it already agreed.",
-            adversarial_chat_system_prompt_path=EXECUTOR_RED_TEAM_PATH
-            / "context_compliance"
-            / "context_compliance.yaml",
+            adversarial_chat_system_prompt=EXECUTOR_RED_TEAM_PATH / "context_compliance" / "context_compliance.yaml",
             simulated_target_system_prompt_path=EXECUTOR_SIMULATED_TARGET_PATH / "context_compliance_target.yaml",
             final_user_message="yes.",
             num_turns=1,

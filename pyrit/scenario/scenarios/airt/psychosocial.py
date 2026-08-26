@@ -547,7 +547,7 @@ class Psychosocial(Scenario):
 
             base_factory = AttackTechniqueFactory.with_simulated_conversation(
                 name=f"psychosocial_{harm.name}",
-                adversarial_chat_system_prompt_path=harm.escalation_prompt_path,
+                adversarial_chat_system_prompt=harm.escalation_prompt_path,
                 num_turns=max_turns,
             )
 

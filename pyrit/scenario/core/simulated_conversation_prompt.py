@@ -10,20 +10,21 @@ from pyrit.models import SeedPrompt
 
 def resolve_simulated_conversation_adversarial_prompt(
     *,
+    adversarial_chat_system_prompt: SeedPrompt | str | Path | None = None,
     adversarial_chat_system_prompt_path: str | Path | None = None,
-    adversarial_chat_system_prompt: SeedPrompt | None = None,
     default_system_prompt_path: str | Path | None = None,
 ) -> SeedPrompt:
     """
     Resolve one simulated-conversation adversarial prompt source to a ``SeedPrompt``.
 
-    An explicit path and inline prompt are mutually exclusive. When neither is
-    explicit, ``default_system_prompt_path`` supplies the factory's conventional
-    name-based YAML fallback.
+    The preferred source accepts either an inline prompt or a YAML path. The
+    ``adversarial_chat_system_prompt_path`` parameter remains as a compatibility
+    alias. When neither is explicit, ``default_system_prompt_path`` supplies the
+    factory's conventional name-based YAML fallback.
 
     Args:
-        adversarial_chat_system_prompt_path: Explicit YAML prompt path.
-        adversarial_chat_system_prompt: Explicit inline prompt.
+        adversarial_chat_system_prompt: Inline prompt or YAML prompt path.
+        adversarial_chat_system_prompt_path: Legacy YAML prompt path alias.
         default_system_prompt_path: YAML fallback used when no explicit source is provided.
 
     Returns:
@@ -35,18 +36,21 @@ def resolve_simulated_conversation_adversarial_prompt(
     if adversarial_chat_system_prompt_path is not None and adversarial_chat_system_prompt is not None:
         raise ValueError("Set only one of adversarial_chat_system_prompt_path or adversarial_chat_system_prompt.")
 
-    if adversarial_chat_system_prompt is not None:
-        return adversarial_chat_system_prompt
-
-    prompt_path = (
-        adversarial_chat_system_prompt_path
-        if adversarial_chat_system_prompt_path is not None
-        else default_system_prompt_path
+    prompt_source = (
+        adversarial_chat_system_prompt
+        if adversarial_chat_system_prompt is not None
+        else adversarial_chat_system_prompt_path
     )
-    if prompt_path is None:
+    if prompt_source is None:
+        prompt_source = default_system_prompt_path
+
+    if isinstance(prompt_source, SeedPrompt):
+        return prompt_source
+
+    if prompt_source is None:
         raise ValueError(
-            "Set one of adversarial_chat_system_prompt_path or adversarial_chat_system_prompt, "
+            "Set one of adversarial_chat_system_prompt or adversarial_chat_system_prompt_path, "
             "or provide default_system_prompt_path."
         )
 
-    return SeedPrompt.from_yaml_file(prompt_path)
+    return SeedPrompt.from_yaml_file(prompt_source)

@@ -195,7 +195,7 @@ class Scam(Scenario):
             # objective is delivered to the target.
             role_play_technique = AttackTechniqueFactory.with_simulated_conversation(
                 name="role_play_persuasion_written",
-                adversarial_chat_system_prompt_path=EXECUTOR_RED_TEAM_PATH
+                adversarial_chat_system_prompt=EXECUTOR_RED_TEAM_PATH
                 / "role_play"
                 / "role_play_persuasion_written.yaml",
                 next_message_system_prompt_path=EXECUTOR_SIMULATED_TARGET_PATH / "role_play_next_message.yaml",
@@ -219,7 +219,7 @@ class Scam(Scenario):
             # further, then a fixed "yes." is delivered to the target as the final user turn.
             context_compliance_technique = AttackTechniqueFactory.with_simulated_conversation(
                 name="context_compliance",
-                adversarial_chat_system_prompt_path=EXECUTOR_RED_TEAM_PATH
+                adversarial_chat_system_prompt=EXECUTOR_RED_TEAM_PATH
                 / "context_compliance"
                 / "context_compliance.yaml",
                 simulated_target_system_prompt_path=EXECUTOR_SIMULATED_TARGET_PATH / "context_compliance_target.yaml",

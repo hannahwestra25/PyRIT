@@ -29,13 +29,24 @@ def test_resolve_simulated_conversation_adversarial_prompt_loads_path(tmp_path: 
     )
 
     resolved = resolve_simulated_conversation_adversarial_prompt(
-        adversarial_chat_system_prompt_path=prompt_path,
+        adversarial_chat_system_prompt=prompt_path,
     )
 
     assert resolved.value == "Use {{ objective }}"
     assert resolved.parameters == ["objective"]
     assert resolved.metadata == {"source_kind": "fixture"}
     assert resolved.is_jinja_template is True
+
+
+def test_resolve_simulated_conversation_adversarial_prompt_accepts_legacy_path_alias(tmp_path: Path) -> None:
+    prompt_path = tmp_path / "prompt.yaml"
+    prompt_path.write_text("value: Legacy prompt\ndata_type: text\n", encoding="utf-8")
+
+    resolved = resolve_simulated_conversation_adversarial_prompt(
+        adversarial_chat_system_prompt_path=prompt_path,
+    )
+
+    assert resolved.value == "Legacy prompt"
 
 
 def test_resolve_simulated_conversation_adversarial_prompt_uses_default_path(tmp_path: Path) -> None:
