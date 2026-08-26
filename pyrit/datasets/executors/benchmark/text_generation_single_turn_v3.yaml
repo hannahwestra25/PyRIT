@@ -1,4 +1,4 @@
-name: adversarial_benchmark_single_turn
+name: red_team_single_turn_v3
 description: |
   Minimal single-turn red-teaming preamble for non-thinking models. Adapted
   for composition with technique prompts that use PyRIT's adversarial_chat

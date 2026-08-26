@@ -1,4 +1,4 @@
-name: adversarial_benchmark_multi_turn
+name: red_team_multi_turn_v4
 description: |
   Multi-turn red-teaming preamble based on single-turn v3 with follow-up
   instructions. Adapted for composition with technique prompts that use
