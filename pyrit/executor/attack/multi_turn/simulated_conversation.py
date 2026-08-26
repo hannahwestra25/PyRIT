@@ -10,6 +10,7 @@ against a simulated (compliant) target before executing the actual attack.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING
 
@@ -43,7 +44,8 @@ async def generate_simulated_conversation_async(
     objective_scorer: TrueFalseScorer,
     num_turns: int = 3,
     starting_sequence: int = 0,
-    adversarial_chat_system_prompt_path: str | Path,
+    adversarial_chat_system_prompt_path: str | Path | None = None,
+    adversarial_chat_system_prompt: SeedPrompt | None = None,
     simulated_target_system_prompt_path: str | Path | None = None,
     next_message_system_prompt_path: str | Path | None = None,
     attack_converter_config: AttackConverterConfig | None = None,
@@ -71,6 +73,9 @@ async def generate_simulated_conversation_async(
         starting_sequence: The starting sequence number for the generated SeedPrompts.
             Each message gets an incrementing sequence number. Defaults to 0.
         adversarial_chat_system_prompt_path: Path to the system prompt for the adversarial chat.
+            Mutually exclusive with ``adversarial_chat_system_prompt``.
+        adversarial_chat_system_prompt: Inline system prompt for the adversarial chat.
+            Mutually exclusive with ``adversarial_chat_system_prompt_path``.
         simulated_target_system_prompt_path: Path to the system prompt for the simulated target.
             If None, no system prompt is used for the simulated target.
         next_message_system_prompt_path: Optional path to a system prompt for generating
@@ -89,7 +94,8 @@ async def generate_simulated_conversation_async(
         generated to elicit the objective fulfillment.
 
     Raises:
-        ValueError: If num_turns is not a positive integer.
+        ValueError: If num_turns is not a positive integer, or if exactly one
+            adversarial system prompt source is not supplied.
     """
     # Use the same LLM for both adversarial chat and simulated target
     # They get different system prompts to play different roles
@@ -105,14 +111,23 @@ async def generate_simulated_conversation_async(
         simulated_target_system_prompt_path=simulated_target_system_prompt_path,
     )
 
-    # Create adversarial config for the simulation. Load the optional path into a SeedPrompt so the
-    # resolved prompt is stored directly on the configuration.
-    adversarial_system_prompt = (
-        SeedPrompt.from_yaml_file(adversarial_chat_system_prompt_path) if adversarial_chat_system_prompt_path else None
-    )
+    if (adversarial_chat_system_prompt_path is None) == (adversarial_chat_system_prompt is None):
+        raise ValueError(
+            "Exactly one of adversarial_chat_system_prompt_path or adversarial_chat_system_prompt must be set"
+        )
+
+    # Resolve the path once before constructing the attack. Inline prompts avoid file I/O
+    # when the attack technique composed its system prompt at factory construction time.
+    resolved_adversarial_system_prompt = adversarial_chat_system_prompt
+    if adversarial_chat_system_prompt_path is not None:
+        resolved_adversarial_system_prompt = await asyncio.to_thread(
+            SeedPrompt.from_yaml_file,
+            adversarial_chat_system_prompt_path,
+        )
+    assert resolved_adversarial_system_prompt is not None
     adversarial_config = AttackAdversarialConfig(
         target=adversarial_chat,
-        system_prompt=adversarial_system_prompt,
+        system_prompt=resolved_adversarial_system_prompt,
     )
 
     # Create scoring config

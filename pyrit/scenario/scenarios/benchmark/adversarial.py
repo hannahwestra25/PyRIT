@@ -22,6 +22,8 @@ from pyrit.scenario.core.matrix_atomic_attack_builder import MatrixAtomicAttackB
 from pyrit.scenario.core.scenario import BaselineAttackPolicy, Scenario
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from pyrit.prompt_target import PromptTarget
     from pyrit.scenario.core.atomic_attack import AtomicAttack
     from pyrit.scenario.core.scenario_context import ScenarioContext
@@ -30,6 +32,47 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
+
+
+def _prepend_benchmark_prompt(
+    *,
+    preamble_path: Path,
+    technique_prompt_path: Path,
+) -> SeedPrompt:
+    """
+    Prepend benchmark guidance to a technique-specific system prompt.
+
+    Args:
+        preamble_path: Path to the reusable benchmark preamble YAML.
+        technique_prompt_path: Path to the technique-specific system prompt YAML.
+
+    Returns:
+        SeedPrompt: A composed prompt retaining the technique prompt's response
+            schema and the union of both templates' parameters.
+
+    Raises:
+        ValueError: If either prompt is not text.
+    """
+    preamble = SeedPrompt.from_yaml_file(preamble_path)
+    technique_prompt = SeedPrompt.from_yaml_file(technique_prompt_path)
+    if preamble.data_type != "text" or technique_prompt.data_type != "text":
+        raise ValueError("Benchmark prompt composition only supports text prompts")
+
+    parameters = list(dict.fromkeys([*(preamble.parameters or []), *(technique_prompt.parameters or [])]))
+    authors = list(dict.fromkeys([*(preamble.authors or []), *(technique_prompt.authors or [])]))
+    groups = list(dict.fromkeys([*(preamble.groups or []), *(technique_prompt.groups or [])]))
+    return SeedPrompt(
+        name=f"adversarial_benchmark_{technique_prompt.name or 'system_prompt'}",
+        description=f"{preamble.description or ''}\n\n{technique_prompt.description or ''}".strip(),
+        authors=authors,
+        groups=groups,
+        source=technique_prompt.source,
+        parameters=parameters,
+        response_json_schema=technique_prompt.response_json_schema,
+        data_type="text",
+        value=f"{preamble.value.rstrip()}\n\n# Technique-Specific Instructions\n\n{technique_prompt.value.lstrip()}",
+        is_jinja_template=True,
+    )
 
 
 @cache
@@ -46,27 +89,42 @@ def _extra_default_factories() -> dict[str, AttackTechniqueFactory]:
             they override within this scenario.
     """
     benchmark_prompt_path = EXECUTOR_SEED_PROMPT_PATH / "benchmark"
+    single_turn_preamble_path = benchmark_prompt_path / "text_generation_single_turn_v3.yaml"
+    multi_turn_preamble_path = benchmark_prompt_path / "text_generation_multi_turn_v4.yaml"
     return {
         "role_play_video_game": AttackTechniqueFactory.with_simulated_conversation(
             name="role_play_video_game",
-            description="Uses the benchmark-owned video-game role-play prompt.",
-            adversarial_chat_system_prompt_path=benchmark_prompt_path / "role_play_video_game.yaml",
+            description="Prepends benchmark guidance to the video-game role-play prompt.",
+            adversarial_chat_system_prompt=_prepend_benchmark_prompt(
+                preamble_path=single_turn_preamble_path,
+                technique_prompt_path=(
+                    EXECUTOR_SEED_PROMPT_PATH / "red_teaming" / "role_play" / "role_play_video_game.yaml"
+                ),
+            ),
             next_message_system_prompt_path=EXECUTOR_SIMULATED_TARGET_PATH / "role_play_next_message.yaml",
             technique_tags=["single_turn", "light"],
             num_turns=2,
         ),
         "crescendo_simulated": AttackTechniqueFactory.with_simulated_conversation(
             name="crescendo_simulated",
-            description="Uses the benchmark-owned simulated Crescendo prompt.",
-            adversarial_chat_system_prompt_path=benchmark_prompt_path / "crescendo_simulated.yaml",
+            description="Prepends benchmark guidance to the simulated Crescendo prompt.",
+            adversarial_chat_system_prompt=_prepend_benchmark_prompt(
+                preamble_path=single_turn_preamble_path,
+                technique_prompt_path=EXECUTOR_SEED_PROMPT_PATH / "red_teaming" / "crescendo_simulated.yaml",
+            ),
             technique_tags=["single_turn"],
         ),
         "tap": AttackTechniqueFactory(
             name="tap",
             attack_class=TreeOfAttacksWithPruningAttack,
-            description="Uses the benchmark-owned TAP prompt.",
+            description="Prepends benchmark guidance to the TAP prompt.",
             technique_tags=["multi_turn"],
-            adversarial_system_prompt=SeedPrompt.from_yaml_file(benchmark_prompt_path / "tap.yaml"),
+            adversarial_system_prompt=_prepend_benchmark_prompt(
+                preamble_path=multi_turn_preamble_path,
+                technique_prompt_path=(
+                    EXECUTOR_SEED_PROMPT_PATH / "tree_of_attacks" / "adversarial_system_prompt.yaml"
+                ),
+            ),
         ),
     }
 
@@ -119,9 +177,9 @@ class AdversarialBenchmark(Scenario):
     ``TargetInitializer`` from ``ADVERSARIAL_CHAT_*`` env vars, or
     programmatically via ``TargetRegistry.get_registry_singleton().instances.register``.
     The default ``role_play_video_game``, ``crescendo_simulated``, and ``tap``
-    techniques use benchmark-owned adversarial system prompts. These scenario-local
-    overrides keep benchmark behavior stable without changing the globally registered
-    versions of the techniques.
+    techniques prepend benchmark-owned guidance to their registered adversarial system
+    prompts. These scenario-local overrides keep benchmark behavior stable without
+    changing the globally registered versions of the techniques.
 
     At run time, ``_build_atomic_attacks_async`` performs the
     ``(technique × adversarial_target × dataset)`` cross-product: for each
@@ -143,7 +201,7 @@ class AdversarialBenchmark(Scenario):
     #: initializer registered rather than only core-tagged factories.
     #: Bumped from 3 → 4 when the no-selection default changed from the ``light``
     #: aggregate to ``role_play_video_game``, ``crescendo_simulated``, and ``tap``.
-    #: Bumped from 4 → 5 when those three defaults received benchmark-owned prompts.
+    #: Bumped from 4 → 5 when those three defaults received benchmark-owned prompt guidance.
     #: ``VERSION`` participates in resume identity, so older results cannot be resumed
     #: as v5. The separate ``use_cached`` behavioral cache intentionally remains
     #: keyed by technique and objective-target identity across scenario versions.
