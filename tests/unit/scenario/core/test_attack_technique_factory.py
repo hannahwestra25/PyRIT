@@ -141,7 +141,7 @@ class TestFactoryInit:
 
         factory = AttackTechniqueFactory.with_simulated_conversation(
             name="test",
-            adversarial_chat_system_prompt_path=prompt_path,
+            adversarial_chat_system_prompt_path=str(prompt_path),
         )
 
         assert factory.seed_technique is not None
@@ -151,6 +151,13 @@ class TestFactoryInit:
         assert config.adversarial_chat_system_prompt is not None
         assert config.adversarial_chat_system_prompt.value == "Legacy prompt"
         assert not [warning for warning in recwarn if issubclass(warning.category, DeprecationWarning)]
+
+    def test_with_simulated_conversation_rejects_string_on_preferred_prompt_source(self):
+        with pytest.raises(TypeError, match="pathlib.Path"):
+            AttackTechniqueFactory.with_simulated_conversation(
+                name="test",
+                adversarial_chat_system_prompt="prompt.yaml",  # type: ignore[arg-type]
+            )
 
     def test_with_simulated_conversation_accepts_inline_prompt(self):
         prompt = SeedPrompt(

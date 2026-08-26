@@ -43,10 +43,17 @@ def test_resolve_simulated_conversation_adversarial_prompt_accepts_legacy_path_a
     prompt_path.write_text("value: Legacy prompt\ndata_type: text\n", encoding="utf-8")
 
     resolved = resolve_simulated_conversation_adversarial_prompt(
-        adversarial_chat_system_prompt_path=prompt_path,
+        adversarial_chat_system_prompt_path=str(prompt_path),
     )
 
     assert resolved.value == "Legacy prompt"
+
+
+def test_resolve_simulated_conversation_adversarial_prompt_rejects_string_on_preferred_source() -> None:
+    with pytest.raises(TypeError, match="pathlib.Path"):
+        resolve_simulated_conversation_adversarial_prompt(
+            adversarial_chat_system_prompt="prompt.yaml",  # type: ignore[arg-type]
+        )
 
 
 def test_resolve_simulated_conversation_adversarial_prompt_uses_default_path(tmp_path: Path) -> None:

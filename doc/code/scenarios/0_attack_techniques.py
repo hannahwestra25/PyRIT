@@ -44,7 +44,7 @@
 # run time. You rarely build a technique by hand; instead you register a **factory** and let scenarios
 # construct techniques on demand with the scenario's own objective target and scorer.
 #
-# `adversarial_chat_system_prompt` accepts either an inline `SeedPrompt` or a YAML path. The factory
+# `adversarial_chat_system_prompt` accepts either an inline `SeedPrompt` or a YAML `Path`. The factory
 # resolves either representation to a `SeedPrompt` immediately, so created techniques carry portable
 # prompt content rather than a runtime file dependency. The legacy
 # `adversarial_chat_system_prompt_path` name remains a compatibility alias, and if neither parameter

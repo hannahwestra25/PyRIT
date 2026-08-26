@@ -162,7 +162,7 @@ class AttackTechniqueFactory(Identifiable):
         name: str,
         attack_class: type[AttackStrategy[Any, Any]] | None = None,
         description: str | None = None,
-        adversarial_chat_system_prompt: SeedPrompt | str | Path | None = None,
+        adversarial_chat_system_prompt: SeedPrompt | Path | None = None,
         adversarial_chat_system_prompt_path: str | Path | None = None,
         simulated_target_system_prompt_path: str | Path | None = None,
         next_message_system_prompt_path: str | Path | None = None,
@@ -190,7 +190,7 @@ class AttackTechniqueFactory(Identifiable):
             description: Short human-readable summary of what the technique does.
                 Forwarded to the factory constructor as descriptive metadata.
             adversarial_chat_system_prompt: Inline adversarial chat system prompt
-                or path to its YAML file.
+                or ``Path`` to its YAML file.
                 Defaults to ``EXECUTOR_SEED_PROMPT_PATH/red_teaming/{name}.yaml``.
             adversarial_chat_system_prompt_path: Legacy YAML path alias for
                 ``adversarial_chat_system_prompt``. The two parameters are mutually exclusive.
