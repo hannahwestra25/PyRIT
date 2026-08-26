@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 
 @cache
-def _build_benchmark_technique_overrides() -> dict[str, AttackTechniqueFactory]:
+def _extra_default_factories() -> dict[str, AttackTechniqueFactory]:
     """
     Build scenario-owned factories for the benchmark's default techniques.
 
@@ -277,7 +277,7 @@ class AdversarialBenchmark(Scenario):
         resolved_targets = self._resolve_adversarial_targets(target_names=target_names)
         technique_factories = resolve_technique_factories(
             context=context,
-            extra_factories=_build_benchmark_technique_overrides(),
+            extra_factories=_extra_default_factories(),
         )
 
         builder = MatrixAtomicAttackBuilder(

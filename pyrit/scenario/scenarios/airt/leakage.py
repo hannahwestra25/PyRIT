@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 
 @cache
-def _leakage_factories() -> list[AttackTechniqueFactory]:
+def _extra_default_factories() -> dict[str, AttackTechniqueFactory]:
     """
     Return the AIRT source-owned leakage techniques (``first_letter``, ``image``).
 
@@ -42,11 +42,11 @@ def _leakage_factories() -> list[AttackTechniqueFactory]:
     them explicitly, so the shared technique pool for other scenarios is unchanged.
 
     Returns:
-        list[AttackTechniqueFactory]: The leakage-owned technique factories.
+        dict[str, AttackTechniqueFactory]: The leakage-owned technique factories keyed by name.
     """
     from pyrit.setup.initializers.techniques.airt import get_technique_factories
 
-    return get_technique_factories()
+    return {factory.name: factory for factory in get_technique_factories()}
 
 
 @cache
@@ -62,7 +62,7 @@ def _build_leakage_technique() -> type[ScenarioTechnique]:
     """
     registry = AttackTechniqueRegistry.get_registry_singleton()
     core_factories = list(registry.get_factories_or_raise().values())
-    all_factories = core_factories + _leakage_factories()
+    all_factories = core_factories + list(_extra_default_factories().values())
     return AttackTechniqueRegistry.build_technique_class_from_factories(  # type: ignore[return-value, ty:invalid-return-type]
         class_name="LeakageTechnique",
         factories=all_factories,
@@ -144,5 +144,5 @@ class Leakage(Scenario):
             context=context,
             objective_scorer=self._objective_scorer,
             technique_converters=self._technique_converters,
-            extra_factories={factory.name: factory for factory in _leakage_factories()},
+            extra_factories=_extra_default_factories(),
         )

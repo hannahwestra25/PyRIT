@@ -61,7 +61,7 @@ from pyrit.scenario.core.scenario import Scenario
 from pyrit.scenario.scenarios.benchmark.adversarial import (
     AdversarialBenchmark,
     _build_benchmark_technique,
-    _build_benchmark_technique_overrides,
+    _extra_default_factories,
 )
 from pyrit.score import TrueFalseScorer
 from pyrit.setup.initializers.techniques import build_technique_factories
@@ -113,7 +113,7 @@ def reset_technique_registry():
     AttackTechniqueRegistry.reset_registry_singleton()
     TargetRegistry.reset_registry_singleton()
     _build_benchmark_technique.cache_clear()
-    _build_benchmark_technique_overrides.cache_clear()
+    _extra_default_factories.cache_clear()
 
     adv_target = MagicMock(spec=PromptTarget)
     adv_target.capabilities.includes.return_value = True
@@ -124,7 +124,7 @@ def reset_technique_registry():
     AttackTechniqueRegistry.reset_registry_singleton()
     TargetRegistry.reset_registry_singleton()
     _build_benchmark_technique.cache_clear()
-    _build_benchmark_technique_overrides.cache_clear()
+    _extra_default_factories.cache_clear()
 
 
 def _register_adversarial_target(*, name: str) -> PromptTarget:
@@ -275,12 +275,12 @@ class TestAdversarialBenchmarkTechnique:
         assert resolved_values == _DEFAULT_BENCHMARK_TECHNIQUE_NAMES
 
     def test_default_techniques_have_benchmark_owned_factory_overrides(self):
-        overrides = _build_benchmark_technique_overrides()
+        overrides = _extra_default_factories()
         assert set(overrides) == _DEFAULT_BENCHMARK_TECHNIQUE_NAMES
 
     @pytest.mark.parametrize("technique_name", ["role_play_video_game", "crescendo_simulated"])
     def test_simulated_default_uses_benchmark_prompt(self, technique_name):
-        factory = _build_benchmark_technique_overrides()[technique_name]
+        factory = _extra_default_factories()[technique_name]
         assert factory.seed_technique is not None
         simulated_seed = factory.seed_technique.seeds[0]
         assert isinstance(simulated_seed, SeedSimulatedConversation)
@@ -393,7 +393,7 @@ class TestAdversarialBenchmarkInit:
 
     def test_tap_constructs_with_benchmark_scorer_policy(self, caplog):
         """The benchmark's generic scorer is skipped under TAP's WARN policy so TAP can use its own scorer."""
-        factory = _build_benchmark_technique_overrides()["tap"]
+        factory = _extra_default_factories()["tap"]
 
         objective_target = MagicMock(spec=PromptTarget)
         objective_target.configuration.capabilities.output_modalities = [{"text"}]
@@ -656,7 +656,7 @@ class TestGetAtomicAttacksCrossProduct:
         benchmark_factory.create.return_value = benchmark_technique
 
         with patch(
-            "pyrit.scenario.scenarios.benchmark.adversarial._build_benchmark_technique_overrides",
+            "pyrit.scenario.scenarios.benchmark.adversarial._extra_default_factories",
             return_value={"role_play_video_game": benchmark_factory},
         ):
             result = await _build_atomic_attacks(bench)
