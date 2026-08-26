@@ -123,7 +123,7 @@ class TestGenerateSimulatedConversationAsync:
         mock_adversarial_chat: MagicMock,
         mock_objective_scorer: MagicMock,
         adversarial_system_prompt_path: Path,
-    ) -> None:
+    ):
         """Test that zero num_turns raises ValueError."""
         with pytest.raises(ValueError, match="num_turns must be a positive integer"):
             await generate_simulated_conversation_async(
@@ -149,69 +149,6 @@ class TestGenerateSimulatedConversationAsync:
                 adversarial_chat_system_prompt_path=adversarial_system_prompt_path,
                 num_turns=-1,
             )
-
-    async def test_raises_error_when_both_adversarial_prompt_sources_are_set(
-        self,
-        mock_adversarial_chat: MagicMock,
-        mock_objective_scorer: MagicMock,
-        adversarial_system_prompt_path: Path,
-    ) -> None:
-        with pytest.raises(ValueError, match="Exactly one of adversarial_chat_system_prompt_path"):
-            await generate_simulated_conversation_async(
-                objective="Test objective",
-                adversarial_chat=mock_adversarial_chat,
-                objective_scorer=mock_objective_scorer,
-                adversarial_chat_system_prompt_path=adversarial_system_prompt_path,
-                adversarial_chat_system_prompt=SeedPrompt(value="Inline"),
-            )
-
-    async def test_raises_error_without_adversarial_prompt_source(
-        self,
-        mock_adversarial_chat: MagicMock,
-        mock_objective_scorer: MagicMock,
-    ) -> None:
-        with pytest.raises(ValueError, match="Exactly one of adversarial_chat_system_prompt_path"):
-            await generate_simulated_conversation_async(
-                objective="Test objective",
-                adversarial_chat=mock_adversarial_chat,
-                objective_scorer=mock_objective_scorer,
-            )
-
-    async def test_uses_inline_adversarial_system_prompt(
-        self,
-        mock_adversarial_chat: MagicMock,
-        mock_objective_scorer: MagicMock,
-        sample_conversation: list[Message],
-    ) -> None:
-        inline_prompt = SeedPrompt(value="Inline {{ objective }}", parameters=["objective"])
-        with (
-            patch("pyrit.executor.attack.multi_turn.simulated_conversation.RedTeamingAttack") as mock_attack_class,
-            patch("pyrit.executor.attack.multi_turn.simulated_conversation.CentralMemory") as mock_memory_class,
-        ):
-            mock_attack = MagicMock()
-            mock_attack.execute_async = AsyncMock(
-                return_value=AttackResult(
-                    atomic_attack_identifier=_mock_target_id("RedTeamingAttack"),
-                    conversation_id=str(uuid.uuid4()),
-                    objective="Test objective",
-                    outcome=AttackOutcome.SUCCESS,
-                    executed_turns=3,
-                )
-            )
-            mock_attack_class.return_value = mock_attack
-            mock_memory_class.get_memory_instance.return_value.get_conversation_messages.return_value = iter(
-                sample_conversation
-            )
-
-            await generate_simulated_conversation_async(
-                objective="Test objective",
-                adversarial_chat=mock_adversarial_chat,
-                objective_scorer=mock_objective_scorer,
-                adversarial_chat_system_prompt=inline_prompt,
-            )
-
-        adversarial_config = mock_attack_class.call_args.kwargs["attack_adversarial_config"]
-        assert adversarial_config.system_prompt is inline_prompt
 
     async def test_uses_adversarial_chat_as_simulated_target(
         self,

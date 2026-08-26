@@ -9,7 +9,6 @@ import uuid
 import pytest
 
 from pyrit.models.seeds import (
-    SeedPrompt,
     SeedSimulatedConversation,
     SimulatedTargetSystemPromptPaths,
 )
@@ -50,27 +49,6 @@ class TestSeedSimulatedConversationInit:
         assert conv.adversarial_chat_system_prompt_path == adv_path
         # Default simulated_target_system_prompt_path is the compliant prompt
         assert conv.simulated_target_system_prompt_path == SimulatedTargetSystemPromptPaths.COMPLIANT.value
-
-    def test_init_with_inline_adversarial_prompt(self):
-        prompt = SeedPrompt(value="Inline {{ objective }}", parameters=["objective"], is_jinja_template=True)
-
-        conv = SeedSimulatedConversation(adversarial_chat_system_prompt=prompt)
-
-        assert conv.adversarial_chat_system_prompt is prompt
-        assert conv.adversarial_chat_system_prompt_path is None
-
-    def test_init_without_adversarial_prompt_source_raises_error(self):
-        with pytest.raises(ValueError, match="Exactly one of adversarial_chat_system_prompt_path"):
-            SeedSimulatedConversation()
-
-    def test_init_with_both_adversarial_prompt_sources_raises_error(self, tmp_path):
-        prompt = SeedPrompt(value="Inline prompt")
-
-        with pytest.raises(ValueError, match="Exactly one of adversarial_chat_system_prompt_path"):
-            SeedSimulatedConversation(
-                adversarial_chat_system_prompt_path=tmp_path / "adversarial.yaml",
-                adversarial_chat_system_prompt=prompt,
-            )
 
     def test_init_default_num_turns(self, tmp_path):
         """Test that default num_turns is 3."""
@@ -143,16 +121,6 @@ class TestSeedSimulatedConversationInit:
         conv2 = SeedSimulatedConversation(
             adversarial_chat_system_prompt_path=adv_path,
             num_turns=3,
-        )
-
-        assert conv1.value == conv2.value
-
-    def test_init_value_is_deterministic_for_equivalent_inline_prompts(self):
-        conv1 = SeedSimulatedConversation(
-            adversarial_chat_system_prompt=SeedPrompt(value="Inline {{ objective }}", parameters=["objective"])
-        )
-        conv2 = SeedSimulatedConversation(
-            adversarial_chat_system_prompt=SeedPrompt(value="Inline {{ objective }}", parameters=["objective"])
         )
 
         assert conv1.value == conv2.value
@@ -276,16 +244,6 @@ class TestSeedSimulatedConversationGetIdentifier:
         assert "adversarial_chat_system_prompt_path" in identifier
         assert "pyrit_version" in identifier
 
-    def test_get_identifier_includes_inline_prompt(self):
-        conv = SeedSimulatedConversation(
-            adversarial_chat_system_prompt=SeedPrompt(value="Inline {{ objective }}", parameters=["objective"])
-        )
-
-        identifier = conv.get_identifier()
-
-        assert identifier["adversarial_chat_system_prompt_path"] is None
-        assert identifier["adversarial_chat_system_prompt"]["value"] == "Inline {{ objective }}"
-
 
 class TestSeedSimulatedConversationComputeHash:
     """Tests for SeedSimulatedConversation.compute_hash method."""
@@ -354,13 +312,6 @@ class TestSeedSimulatedConversationRepr:
         assert "SeedSimulatedConversation" in repr_str
         assert "num_turns=5" in repr_str
         assert "adversarial.yaml" in repr_str
-
-    def test_repr_shows_inline_prompt_name(self):
-        conv = SeedSimulatedConversation(
-            adversarial_chat_system_prompt=SeedPrompt(value="Inline", name="merged_benchmark_prompt")
-        )
-
-        assert "merged_benchmark_prompt" in repr(conv)
 
 
 class TestSeedSimulatedConversationLoadSimulatedTargetSystemPrompt:
