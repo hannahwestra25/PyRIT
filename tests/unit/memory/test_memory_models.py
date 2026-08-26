@@ -58,7 +58,6 @@ from pyrit.models import (
     SeedPrompt,
     SeedSimulatedConversation,
     TargetIdentifier,
-    get_common_json_schema,
 )
 from unit.mocks import make_scenario_result
 
@@ -639,29 +638,6 @@ class TestSeedEntry:
         assert isinstance(recovered, SeedSimulatedConversation)
         assert SEED_RESPONSE_JSON_SCHEMA_METADATA_KEY not in (recovered.metadata or {})
         assert (recovered.metadata or {}).get("owned") == "by-caller"
-
-    def test_roundtrip_seed_simulated_conversation_preserves_inline_prompt(self):
-        prompt = SeedPrompt(
-            value="Preamble\n\nTechnique: {{ objective }}",
-            parameters=["objective"],
-            is_jinja_template=True,
-            response_json_schema=get_common_json_schema("adversarial_chat"),
-        )
-        config = SeedSimulatedConversation(
-            num_turns=3,
-            adversarial_chat_system_prompt=prompt,
-            simulated_target_system_prompt_path="/path/to/target.yaml",
-        )
-
-        recovered = SeedEntry(entry=config).get_seed()
-
-        assert isinstance(recovered, SeedSimulatedConversation)
-        assert recovered.adversarial_chat_system_prompt_path is None
-        assert recovered.adversarial_chat_system_prompt is not None
-        assert recovered.adversarial_chat_system_prompt.value == prompt.value
-        assert recovered.adversarial_chat_system_prompt.parameters == ["objective"]
-        assert recovered.adversarial_chat_system_prompt.is_jinja_template is True
-        assert recovered.adversarial_chat_system_prompt.response_json_schema == prompt.response_json_schema
 
     def test_corrupt_reserved_key_unpack_returns_no_schema(self):
         """A malformed JSON-encoded schema in the DB must round-trip as no schema, with clean metadata."""

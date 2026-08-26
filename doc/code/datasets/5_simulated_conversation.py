@@ -5,7 +5,7 @@
 #       extension: .py
 #       format_name: percent
 #       format_version: '1.3'
-#       jupytext_version: 1.19.3
+#       jupytext_version: 1.19.1
 # ---
 
 # %% [markdown]
@@ -28,9 +28,9 @@
 #
 # ## Generating a Simulated Conversation
 #
-# The function takes an objective, an adversarial chat model, a scorer, and a system prompt supplied
-# inline or by path. It runs a `RedTeamingAttack` internally with the adversarial LLM playing both
-# attacker and target roles.
+# The function takes an objective, an adversarial chat model, a scorer, and a system prompt path.
+# It runs a `RedTeamingAttack` internally with the adversarial LLM playing both attacker and target
+# roles.
 
 # %%
 from pathlib import Path
@@ -126,8 +126,7 @@ await output_attack_async(new_result)
 # | `adversarial_chat` | `PromptTarget` | The LLM that generates attack prompts (also plays the simulated target). Must declare `supports_multi_turn=True` and `supports_editable_history=True`. |
 # | `objective_scorer` | `TrueFalseScorer` | Evaluates whether the final turn achieved the objective |
 # | `num_turns` | `int` | Number of conversation turns to generate (default: 3) |
-# | `adversarial_chat_system_prompt_path` | `str \| Path \| None` | YAML system prompt for the adversarial chat role; mutually exclusive with the inline prompt |
-# | `adversarial_chat_system_prompt` | `SeedPrompt \| None` | Inline system prompt for the adversarial chat role; mutually exclusive with the path |
+# | `adversarial_chat_system_prompt_path` | `str \| Path` | System prompt for the adversarial chat role |
 # | `simulated_target_system_prompt_path` | `str \| Path \| None` | Optional system prompt for the simulated target role |
 # | `next_message_system_prompt_path` | `str \| Path \| None` | Optional path to generate a final user message that elicits objective fulfillment |
 # | `attack_converter_config` | `AttackConverterConfig \| None` | Optional converter configuration for the attack |

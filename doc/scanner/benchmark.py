@@ -40,9 +40,9 @@
 #
 # **Default techniques:** `role_play_video_game`, `crescendo_simulated`, and `tap`. TAP's
 # branching search makes this default slower and more expensive than the former `light` default.
-# At factory construction time, these defaults prepend reusable benchmark-owned single-turn or
-# multi-turn red-team guidance to their registered technique prompts. Explicitly selected
-# non-default techniques continue to use their registered prompts.
+# These defaults prepend benchmark-owned single-turn or multi-turn red-team guidance to their
+# technique-specific prompts. Explicitly selected non-default techniques continue to use their
+# registered prompts.
 # For a cheaper run, explicitly pass `--techniques light`.
 #
 # **Other available selections:** `light`, `single_turn`, `multi_turn`, plus one member per

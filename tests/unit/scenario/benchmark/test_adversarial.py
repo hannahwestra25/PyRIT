@@ -18,7 +18,7 @@ These tests cover the new contract:
   that do not bake their own ``adversarial_chat``; the default expands to the exact
   benchmark set while the ``light`` aggregate remains selectable.
 * ``supported_parameters`` declares ``adversarial_targets: list[str]``.
-* The three default techniques resolve to benchmark-composed prompt variants.
+* The three default techniques resolve to benchmark-owned prompt variants.
 * ``_resolve_adversarial_targets`` raises with available names on typos.
 * ``_build_atomic_attacks_async`` produces ``N × M × D`` atomic attacks
   with the expected ``atomic_attack_name`` and ``display_group``.
@@ -38,6 +38,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from pyrit.common.path import EXECUTOR_SEED_PROMPT_PATH
 from pyrit.executor.attack import AttackScoringConfig, TreeOfAttacksWithPruningAttack
 from pyrit.memory.memory_interface import MemoryInterface
 from pyrit.models import (
@@ -48,8 +49,8 @@ from pyrit.models import (
     ComponentIdentifier,
     ObjectiveTargetEvaluationIdentifier,
     SeedObjective,
+    SeedPrompt,
     SeedSimulatedConversation,
-    get_common_json_schema,
 )
 from pyrit.prompt_target import PromptTarget
 from pyrit.registry import TargetRegistry
@@ -277,28 +278,20 @@ class TestAdversarialBenchmarkTechnique:
         overrides = _extra_default_factories()
         assert set(overrides) == _DEFAULT_BENCHMARK_TECHNIQUE_NAMES
 
-    @pytest.mark.parametrize(
-        ("technique_name", "technique_marker"),
-        [
-            ("role_play_video_game", "You are a game designer"),
-            ("crescendo_simulated", "Precision Initiation"),
-        ],
-    )
-    def test_simulated_default_uses_composed_benchmark_prompt(self, technique_name, technique_marker):
+    @pytest.mark.parametrize("technique_name", ["role_play_video_game", "crescendo_simulated"])
+    def test_simulated_default_uses_benchmark_prompt(self, technique_name):
         factory = _extra_default_factories()[technique_name]
         assert factory.seed_technique is not None
         simulated_seed = factory.seed_technique.seeds[0]
         assert isinstance(simulated_seed, SeedSimulatedConversation)
+        prompt_path = EXECUTOR_SEED_PROMPT_PATH / "benchmark" / f"{technique_name}.yaml"
 
-        assert simulated_seed.adversarial_chat_system_prompt_path is None
-        prompt = simulated_seed.adversarial_chat_system_prompt
-        assert prompt is not None
+        assert simulated_seed.adversarial_chat_system_prompt_path == prompt_path
+        prompt = SeedPrompt.from_yaml_file(prompt_path)
+        assert "PyRIT's AdversarialBenchmark" in prompt.value
         assert "Do not answer the objective yourself" in prompt.value
         assert "Put only the prompt for the Defender AI in `next_message`" in prompt.value
-        assert "# Technique-Specific Instructions" in prompt.value
-        assert technique_marker in prompt.value
         assert set(prompt.parameters) == {"objective", "max_turns"}
-        assert prompt.response_json_schema == get_common_json_schema("adversarial_chat")
         rendered = prompt.render_template_value(objective="test objective", max_turns=3)
         assert "test objective" in rendered
         assert "{{" not in rendered
@@ -415,12 +408,9 @@ class TestAdversarialBenchmarkInit:
             )
 
         assert isinstance(technique.attack, TreeOfAttacksWithPruningAttack)
-        assert "# Technique-Specific Instructions" in technique.attack._adversarial_chat_system_seed_prompt.value
+        assert "PyRIT's AdversarialBenchmark" in technique.attack._adversarial_chat_system_seed_prompt.value
         assert "# Follow-Up Turns" in technique.attack._adversarial_chat_system_seed_prompt.value
         assert "{{ max_turns }}" not in technique.attack._adversarial_chat_system_seed_prompt.value
-        assert technique.attack._adversarial_chat_system_seed_prompt.response_json_schema == get_common_json_schema(
-            "adversarial_chat"
-        )
         assert set(technique.attack._adversarial_chat_system_seed_prompt.parameters) == {
             "objective",
             "desired_prefix",
