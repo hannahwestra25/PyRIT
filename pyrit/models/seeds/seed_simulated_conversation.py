@@ -86,6 +86,7 @@ class SeedSimulatedConversation(Seed):
 
     num_turns: int = 3
     sequence: int = 0
+    # Retained for direct legacy construction and persisted path-backed records.
     adversarial_chat_system_prompt_path: Path | None = None
     adversarial_chat_system_prompt: SeedPrompt | None = None
     simulated_target_system_prompt_path: Path = SimulatedTargetSystemPromptPaths.COMPLIANT.value

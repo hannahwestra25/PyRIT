@@ -21,21 +21,11 @@ def test_resolve_simulated_conversation_adversarial_prompt_returns_inline_prompt
     assert resolved is prompt
 
 
-def test_resolve_simulated_conversation_adversarial_prompt_loads_path(tmp_path: Path) -> None:
-    prompt_path = tmp_path / "prompt.yaml"
-    prompt_path.write_text(
-        "value: Use {{ objective }}\ndata_type: text\nparameters:\n  - objective\nmetadata:\n  source_kind: fixture\n",
-        encoding="utf-8",
-    )
-
-    resolved = resolve_simulated_conversation_adversarial_prompt(
-        adversarial_chat_system_prompt=prompt_path,
-    )
-
-    assert resolved.value == "Use {{ objective }}"
-    assert resolved.parameters == ["objective"]
-    assert resolved.metadata == {"source_kind": "fixture"}
-    assert resolved.is_jinja_template is True
+def test_resolve_simulated_conversation_adversarial_prompt_rejects_path_on_preferred_source() -> None:
+    with pytest.raises(TypeError, match="must be a SeedPrompt"):
+        resolve_simulated_conversation_adversarial_prompt(
+            adversarial_chat_system_prompt=Path("prompt.yaml"),  # type: ignore[arg-type]
+        )
 
 
 def test_resolve_simulated_conversation_adversarial_prompt_accepts_legacy_path_alias(tmp_path: Path) -> None:
@@ -50,7 +40,7 @@ def test_resolve_simulated_conversation_adversarial_prompt_accepts_legacy_path_a
 
 
 def test_resolve_simulated_conversation_adversarial_prompt_rejects_string_on_preferred_source() -> None:
-    with pytest.raises(TypeError, match="pathlib.Path"):
+    with pytest.raises(TypeError, match="must be a SeedPrompt"):
         resolve_simulated_conversation_adversarial_prompt(
             adversarial_chat_system_prompt="prompt.yaml",  # type: ignore[arg-type]
         )

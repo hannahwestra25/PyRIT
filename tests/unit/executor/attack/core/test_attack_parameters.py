@@ -2,6 +2,7 @@
 # Licensed under the MIT license.
 
 import dataclasses
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -129,7 +130,7 @@ class TestFromSeedGroupAsyncWithSimulatedConversation:
         """Create a SeedSimulatedConversation config."""
         return SeedSimulatedConversation(
             num_turns=3,
-            adversarial_chat_system_prompt_path="/path/to/adversarial.yaml",
+            adversarial_chat_system_prompt=SeedPrompt(value="Adversarial system prompt"),
             simulated_target_system_prompt_path="/path/to/target.yaml",
         )
 
@@ -208,19 +209,28 @@ class TestFromSeedGroupAsyncWithSimulatedConversation:
             AttackSeedGroup(seeds=[seed_objective, prompt, simulated_conversation_config])
 
     @patch("pyrit.executor.attack.multi_turn.simulated_conversation.generate_simulated_conversation_async")
-    async def test_generates_simulated_conversation(
+    async def test_resolves_legacy_path_before_generating_simulated_conversation(
         self,
         mock_generate: AsyncMock,
-        seed_group_with_simulated_conv: AttackSeedGroup,
+        seed_objective: SeedObjective,
         mock_adversarial_chat: MagicMock,
         mock_objective_scorer: MagicMock,
         mock_simulated_result: MagicMock,
+        tmp_path: Path,
     ) -> None:
-        """Test that simulated conversation is generated when config is present."""
+        """Test that a legacy path is resolved before the generator is called."""
+        prompt_path = tmp_path / "adversarial.yaml"
+        prompt_path.write_text("value: Resolved legacy prompt\ndata_type: text\n", encoding="utf-8")
+        config = SeedSimulatedConversation(
+            num_turns=3,
+            adversarial_chat_system_prompt_path=prompt_path,
+            simulated_target_system_prompt_path="/path/to/target.yaml",
+        )
+        seed_group = AttackSeedGroup(seeds=[seed_objective, config])
         mock_generate.return_value = mock_simulated_result
 
         await AttackParameters.from_seed_group_async(
-            seed_group=seed_group_with_simulated_conv,
+            seed_group=seed_group,
             adversarial_chat=mock_adversarial_chat,
             objective_scorer=mock_objective_scorer,
         )
@@ -231,10 +241,8 @@ class TestFromSeedGroupAsyncWithSimulatedConversation:
         assert call_kwargs["adversarial_chat"] == mock_adversarial_chat
         assert call_kwargs["objective_scorer"] == mock_objective_scorer
         assert call_kwargs["num_turns"] == 3
-        config = seed_group_with_simulated_conv.simulated_conversation_config
-        assert config is not None
-        assert call_kwargs["adversarial_chat_system_prompt_path"] == config.adversarial_chat_system_prompt_path
-        assert call_kwargs["adversarial_chat_system_prompt"] is None
+        assert call_kwargs["adversarial_chat_system_prompt"].value == "Resolved legacy prompt"
+        assert "adversarial_chat_system_prompt_path" not in call_kwargs
 
     @patch("pyrit.executor.attack.multi_turn.simulated_conversation.generate_simulated_conversation_async")
     async def test_forwards_inline_adversarial_prompt(
@@ -262,7 +270,7 @@ class TestFromSeedGroupAsyncWithSimulatedConversation:
 
         call_kwargs = mock_generate.call_args.kwargs
         assert call_kwargs["adversarial_chat_system_prompt"] is prompt
-        assert call_kwargs["adversarial_chat_system_prompt_path"] is None
+        assert "adversarial_chat_system_prompt_path" not in call_kwargs
 
     @patch("pyrit.executor.attack.multi_turn.simulated_conversation.generate_simulated_conversation_async")
     async def test_uses_generated_prepended_messages(

@@ -1,6 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -156,7 +157,9 @@ class Scam(Scenario):
             scenario_result_id=scenario_result_id,
         )
 
-    def _get_atomic_attack_from_technique(self, *, technique: str, seed_groups: list[AttackSeedGroup]) -> AtomicAttack:
+    async def _get_atomic_attack_from_technique_async(
+        self, *, technique: str, seed_groups: list[AttackSeedGroup]
+    ) -> AtomicAttack:
         """
         Translate the techniques into actual AtomicAttacks.
 
@@ -179,8 +182,9 @@ class Scam(Scenario):
 
         if technique == "persuasive_rta":
             # Set system prompt to generic persuasion persona
-            self._adversarial_config.system_prompt = SeedPrompt.from_yaml_file(
-                Path(PERSUASION_DECEPTION_PATH, "persuasion_persona_generic.yaml").resolve()
+            self._adversarial_config.system_prompt = await asyncio.to_thread(
+                SeedPrompt.from_yaml_file,
+                Path(PERSUASION_DECEPTION_PATH, "persuasion_persona_generic.yaml").resolve(),
             )
 
             attack_strategy = RedTeamingAttack(
@@ -195,9 +199,10 @@ class Scam(Scenario):
             # objective is delivered to the target.
             role_play_technique = AttackTechniqueFactory.with_simulated_conversation(
                 name="role_play_persuasion_written",
-                adversarial_chat_system_prompt=EXECUTOR_RED_TEAM_PATH
-                / "role_play"
-                / "role_play_persuasion_written.yaml",
+                adversarial_chat_system_prompt=await asyncio.to_thread(
+                    SeedPrompt.from_yaml_file,
+                    EXECUTOR_RED_TEAM_PATH / "role_play" / "role_play_persuasion_written.yaml",
+                ),
                 next_message_system_prompt_path=EXECUTOR_SIMULATED_TARGET_PATH / "role_play_next_message.yaml",
                 num_turns=2,
             ).create(
@@ -219,9 +224,10 @@ class Scam(Scenario):
             # further, then a fixed "yes." is delivered to the target as the final user turn.
             context_compliance_technique = AttackTechniqueFactory.with_simulated_conversation(
                 name="context_compliance",
-                adversarial_chat_system_prompt=EXECUTOR_RED_TEAM_PATH
-                / "context_compliance"
-                / "context_compliance.yaml",
+                adversarial_chat_system_prompt=await asyncio.to_thread(
+                    SeedPrompt.from_yaml_file,
+                    EXECUTOR_RED_TEAM_PATH / "context_compliance" / "context_compliance.yaml",
+                ),
                 simulated_target_system_prompt_path=EXECUTOR_SIMULATED_TARGET_PATH / "context_compliance_target.yaml",
                 final_user_message="yes.",
                 num_turns=1,
@@ -272,7 +278,12 @@ class Scam(Scenario):
                 )
             )
         atomic_attacks.extend(
-            self._get_atomic_attack_from_technique(technique=technique, seed_groups=seed_groups)
-            for technique in techniques
+            [
+                await self._get_atomic_attack_from_technique_async(
+                    technique=technique,
+                    seed_groups=seed_groups,
+                )
+                for technique in techniques
+            ]
         )
         return atomic_attacks

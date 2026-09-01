@@ -102,7 +102,7 @@ seed_group = AttackSeedGroup(
             role="system",
         ),
         SeedSimulatedConversation(
-            adversarial_chat_system_prompt_path=EXECUTOR_RED_TEAM_PATH / "naive_crescendo.yaml",
+            adversarial_chat_system_prompt=SeedPrompt.from_yaml_file(EXECUTOR_RED_TEAM_PATH / "naive_crescendo.yaml"),
             sequence=1,
             num_turns=4,
             next_message_system_prompt_path=EXECUTOR_SIMULATED_TARGET_PATH / "direct_next_message.yaml",

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import pathlib
 from dataclasses import dataclass
@@ -532,6 +533,10 @@ class Psychosocial(Scenario):
 
             scorer = self._scorers_by_harm[harm.name]
             scoring_config = AttackScoringConfig(objective_scorer=scorer)
+            adversarial_system_prompt = await asyncio.to_thread(
+                SeedPrompt.from_yaml_file,
+                harm.escalation_prompt_path,
+            )
 
             if context.include_baseline:
                 baselines.append(
@@ -547,14 +552,14 @@ class Psychosocial(Scenario):
 
             base_factory = AttackTechniqueFactory.with_simulated_conversation(
                 name=f"psychosocial_{harm.name}",
-                adversarial_chat_system_prompt=harm.escalation_prompt_path,
+                adversarial_chat_system_prompt=adversarial_system_prompt,
                 num_turns=max_turns,
             )
 
             for technique in techniques:
                 if technique is PsychosocialTechnique.Crescendo:
                     attack_technique = self._build_crescendo_technique(
-                        harm=harm,
+                        adversarial_system_prompt=adversarial_system_prompt,
                         objective_target=context.objective_target,
                         adversarial_chat=adversarial_chat,
                         scoring_config=scoring_config,
@@ -589,7 +594,7 @@ class Psychosocial(Scenario):
     @staticmethod
     def _build_crescendo_technique(
         *,
-        harm: _SubHarm,
+        adversarial_system_prompt: SeedPrompt,
         objective_target: PromptTarget,
         adversarial_chat: PromptTarget,
         scoring_config: AttackScoringConfig,
@@ -603,7 +608,7 @@ class Psychosocial(Scenario):
         harm-specific framing as the simulated base.
 
         Args:
-            harm: The sub-harm being attacked.
+            adversarial_system_prompt: The sub-harm-specific escalation prompt.
             objective_target: The target under test.
             adversarial_chat: The adversarial chat driving Crescendo.
             scoring_config: The sub-harm's scoring config.
@@ -616,7 +621,7 @@ class Psychosocial(Scenario):
             objective_target=objective_target,
             attack_adversarial_config=AttackAdversarialConfig(
                 target=adversarial_chat,
-                system_prompt=SeedPrompt.from_yaml_file(harm.escalation_prompt_path),
+                system_prompt=adversarial_system_prompt,
             ),
             attack_scoring_config=scoring_config,
             attack_converter_config=AttackConverterConfig(),

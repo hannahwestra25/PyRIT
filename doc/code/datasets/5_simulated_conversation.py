@@ -28,16 +28,14 @@
 #
 # ## Generating a Simulated Conversation
 #
-# The function takes an objective, an adversarial chat model, a scorer, and a system prompt path.
+# The function takes an objective, an adversarial chat model, a scorer, and a system `SeedPrompt`.
 # It runs a `RedTeamingAttack` internally with the adversarial LLM playing both attacker and target
 # roles.
 
 # %%
-from pathlib import Path
-
 from pyrit.common.path import EXECUTOR_SEED_PROMPT_PATH
 from pyrit.executor.attack import generate_simulated_conversation_async
-from pyrit.models import SeedGroup
+from pyrit.models import SeedGroup, SeedPrompt
 from pyrit.output import output_attack_async
 from pyrit.prompt_target import OpenAIChatTarget
 from pyrit.score import SelfAskRefusalScorer
@@ -56,7 +54,9 @@ simulated_conversation_prompts = await generate_simulated_conversation_async(  #
     adversarial_chat=adversarial_chat,
     objective_scorer=objective_scorer,
     num_turns=3,
-    adversarial_chat_system_prompt_path=Path(EXECUTOR_SEED_PROMPT_PATH) / "red_teaming" / "naive_crescendo.yaml",
+    adversarial_chat_system_prompt=SeedPrompt.from_yaml_file(
+        EXECUTOR_SEED_PROMPT_PATH / "red_teaming" / "naive_crescendo.yaml"
+    ),
 )
 
 print(f"Generated {len(simulated_conversation_prompts)} messages")
@@ -126,7 +126,8 @@ await output_attack_async(new_result)
 # | `adversarial_chat` | `PromptTarget` | The LLM that generates attack prompts (also plays the simulated target). Must declare `supports_multi_turn=True` and `supports_editable_history=True`. |
 # | `objective_scorer` | `TrueFalseScorer` | Evaluates whether the final turn achieved the objective |
 # | `num_turns` | `int` | Number of conversation turns to generate (default: 3) |
-# | `adversarial_chat_system_prompt_path` | `str \| Path` | System prompt for the adversarial chat role |
+# | `adversarial_chat_system_prompt` | `SeedPrompt` | System prompt for the adversarial chat role |
+# | `adversarial_chat_system_prompt_path` | `str \| Path \| None` | Compatibility adapter for legacy path-based callers |
 # | `simulated_target_system_prompt_path` | `str \| Path \| None` | Optional system prompt for the simulated target role |
 # | `next_message_system_prompt_path` | `str \| Path \| None` | Optional path to generate a final user message that elicits objective fulfillment |
 # | `attack_converter_config` | `AttackConverterConfig \| None` | Optional converter configuration for the attack |

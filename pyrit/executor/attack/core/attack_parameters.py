@@ -112,6 +112,7 @@ class AttackParameters:
         """
         # Import here to avoid circular imports
         from pyrit.executor.attack.multi_turn.simulated_conversation import (
+            _resolve_adversarial_chat_system_prompt_async,
             generate_simulated_conversation_async,
         )
 
@@ -159,6 +160,11 @@ class AttackParameters:
             if objective_scorer is None:
                 raise ValueError("objective_scorer is required when seed_group has a simulated conversation config")
 
+            adversarial_chat_system_prompt = await _resolve_adversarial_chat_system_prompt_async(
+                adversarial_chat_system_prompt_path=simulated_conversation_config.adversarial_chat_system_prompt_path,
+                adversarial_chat_system_prompt=simulated_conversation_config.adversarial_chat_system_prompt,
+            )
+
             # Generate the simulated conversation - returns list[SeedPrompt]
             simulated_prompts = await generate_simulated_conversation_async(
                 objective=seed_group.objective.value,
@@ -166,8 +172,7 @@ class AttackParameters:
                 objective_scorer=objective_scorer,
                 num_turns=simulated_conversation_config.num_turns,
                 starting_sequence=simulated_conversation_config.sequence,
-                adversarial_chat_system_prompt_path=simulated_conversation_config.adversarial_chat_system_prompt_path,
-                adversarial_chat_system_prompt=simulated_conversation_config.adversarial_chat_system_prompt,
+                adversarial_chat_system_prompt=adversarial_chat_system_prompt,
                 simulated_target_system_prompt_path=simulated_conversation_config.simulated_target_system_prompt_path,
                 next_message_system_prompt_path=simulated_conversation_config.next_message_system_prompt_path,
             )

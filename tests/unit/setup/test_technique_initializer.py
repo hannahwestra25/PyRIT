@@ -4,7 +4,7 @@
 """Tests for TechniqueInitializer and the technique group catalogs."""
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -463,6 +463,18 @@ class TestRolePlayYamls:
 
 class TestTechniqueInitializerRegistration:
     """Tests that initialize_async wires factories into the registry per the tags param."""
+
+    async def test_builds_factories_off_event_loop(self):
+        init = TechniqueInitializer()
+
+        with patch(
+            "pyrit.setup.initializers.techniques.technique_initializer.asyncio.to_thread",
+            new_callable=AsyncMock,
+            return_value=[],
+        ) as mock_to_thread:
+            await init.initialize_async()
+
+        mock_to_thread.assert_awaited_once_with(build_technique_factories, groups=["core"])
 
     async def test_default_registers_only_core(self, mock_adversarial_target):
         init = TechniqueInitializer()

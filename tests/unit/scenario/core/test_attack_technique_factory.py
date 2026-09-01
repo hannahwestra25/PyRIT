@@ -4,6 +4,7 @@
 """Tests for the AttackTechniqueFactory class."""
 
 import typing
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -104,36 +105,12 @@ class TestFactoryInit:
         assert config.adversarial_chat_system_prompt is not None
         assert config.adversarial_chat_system_prompt_path is None
 
-    def test_with_simulated_conversation_normalizes_path_to_inline_prompt(self, tmp_path):
-        prompt_path = tmp_path / "prompt.yaml"
-        prompt_path.write_text(
-            "value: Use {{ objective }}\n"
-            "data_type: text\n"
-            "parameters:\n"
-            "  - objective\n"
-            "response_json_schema:\n"
-            "  type: object\n"
-            "  properties:\n"
-            "    next_message:\n"
-            "      type: string\n",
-            encoding="utf-8",
-        )
-
-        factory = AttackTechniqueFactory.with_simulated_conversation(
-            name="test",
-            adversarial_chat_system_prompt=prompt_path,
-        )
-
-        assert factory.seed_technique is not None
-        config = factory.seed_technique.simulated_conversation_config
-        assert isinstance(config, SeedSimulatedConversation)
-        assert config.adversarial_chat_system_prompt_path is None
-        assert config.adversarial_chat_system_prompt is not None
-        assert config.adversarial_chat_system_prompt.parameters == ["objective"]
-        assert config.adversarial_chat_system_prompt.response_json_schema == {
-            "type": "object",
-            "properties": {"next_message": {"type": "string"}},
-        }
+    def test_with_simulated_conversation_rejects_path_on_preferred_prompt_source(self):
+        with pytest.raises(TypeError, match="must be a SeedPrompt"):
+            AttackTechniqueFactory.with_simulated_conversation(
+                name="test",
+                adversarial_chat_system_prompt=Path("prompt.yaml"),  # type: ignore[arg-type]
+            )
 
     def test_with_simulated_conversation_accepts_legacy_path_alias_without_warning(self, tmp_path, recwarn):
         prompt_path = tmp_path / "prompt.yaml"
@@ -153,7 +130,7 @@ class TestFactoryInit:
         assert not [warning for warning in recwarn if issubclass(warning.category, DeprecationWarning)]
 
     def test_with_simulated_conversation_rejects_string_on_preferred_prompt_source(self):
-        with pytest.raises(TypeError, match="pathlib.Path"):
+        with pytest.raises(TypeError, match="must be a SeedPrompt"):
             AttackTechniqueFactory.with_simulated_conversation(
                 name="test",
                 adversarial_chat_system_prompt="prompt.yaml",  # type: ignore[arg-type]

@@ -72,7 +72,9 @@ async def generate_simulated_conversation_async(
         num_turns: Number of conversation turns to generate. Defaults to 3.
         starting_sequence: The starting sequence number for the generated SeedPrompts.
             Each message gets an incrementing sequence number. Defaults to 0.
-        adversarial_chat_system_prompt_path: Legacy path to the system prompt for the adversarial chat.
+        adversarial_chat_system_prompt_path: Compatibility-only path adapter for the adversarial chat
+            system prompt. New callers should load the YAML at their composition boundary and pass
+            ``adversarial_chat_system_prompt``.
         adversarial_chat_system_prompt: Canonical inline system prompt for the adversarial chat.
         simulated_target_system_prompt_path: Path to the system prompt for the simulated target.
             If None, no system prompt is used for the simulated target.
@@ -184,7 +186,7 @@ async def _resolve_adversarial_chat_system_prompt_async(
     adversarial_chat_system_prompt: SeedPrompt | None,
 ) -> SeedPrompt:
     """
-    Adapt a legacy path-backed prompt or canonical inline prompt for execution.
+    Adapt a legacy path-backed prompt to the canonical inline execution input.
 
     Args:
         adversarial_chat_system_prompt_path: Legacy YAML prompt path.
