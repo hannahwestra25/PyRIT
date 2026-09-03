@@ -8,6 +8,7 @@ import pytest
 from pyrit.executor.attack.core import AttackScoringConfig
 from pyrit.executor.attack.core.attack_config import (
     AttackAdversarialConfig,
+    prepend_adversarial_system_prompt_prefixes,
     resolve_adversarial_json_schema,
     resolve_adversarial_system_prompt,
 )
@@ -98,6 +99,44 @@ class TestResolveAdversarialSystemPrompt:
         )
         assert seed.value == "persona {{ objective }}"
         assert "objective" in (seed.parameters or [])
+
+    def test_static_prefix_preserves_native_prompt_contract(self):
+        schema = {"type": "object"}
+        native = SeedPrompt(
+            value="Native {{ objective }}",
+            data_type="text",
+            parameters=["objective"],
+            response_json_schema=schema,
+            is_jinja_template=True,
+        )
+        prefix = SeedPrompt(value="Static guidance", data_type="text")
+
+        composed = prepend_adversarial_system_prompt_prefixes(
+            system_prompt=native,
+            prefixes=[prefix],
+        )
+
+        assert composed.render_template_value(objective="goal").startswith("Static guidance")
+        assert "Native goal" in composed.render_template_value(objective="goal")
+        assert composed.parameters == native.parameters
+        assert composed.response_json_schema == schema
+        assert composed.data_type == native.data_type
+        assert composed.value.endswith(native.value)
+
+    @pytest.mark.parametrize(
+        "prefix",
+        [
+            SeedPrompt(value="{{ objective }}", data_type="text", parameters=["objective"]),
+            SeedPrompt(value="{{ objective }}", data_type="text", is_jinja_template=True),
+            SeedPrompt(value="schema", data_type="text", response_json_schema={"type": "object"}),
+        ],
+    )
+    def test_prefix_rejects_native_prompt_contract_metadata(self, prefix: SeedPrompt):
+        with pytest.raises(ValueError, match="must be static text"):
+            prepend_adversarial_system_prompt_prefixes(
+                system_prompt=SeedPrompt(value="native", data_type="text"),
+                prefixes=[prefix],
+            )
 
 
 _SCHEMA: dict = {"type": "object", "properties": {"next_message": {"type": "string"}}}

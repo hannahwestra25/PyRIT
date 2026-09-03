@@ -81,6 +81,9 @@ class AttackAdversarialConfig:
     # SeedPrompt.
     system_prompt: str | SeedPrompt | None = None
 
+    # Ordered static guidance layers prepended to the resolved native system prompt.
+    system_prompt_prefixes: list[SeedPrompt] = field(default_factory=list)
+
 
 def resolve_adversarial_system_prompt(
     *,
@@ -123,21 +126,77 @@ def resolve_adversarial_system_prompt(
                 raise ValueError(
                     error_message or f"Adversarial system prompt is missing required parameters: {missing}"
                 )
-            return system_prompt
+            resolved_prompt = system_prompt
+        else:
+            # Inline strings are trusted — declare all required params so Jinja rendering works.
+            resolved_prompt = SeedPrompt(
+                value=system_prompt,
+                is_jinja_template=True,
+                parameters=list(required_parameters),
+            )
 
-        # Inline strings are trusted — declare all required params so Jinja rendering works.
-        return SeedPrompt(
-            value=system_prompt,
-            is_jinja_template=True,
-            parameters=list(required_parameters),
+        return prepend_adversarial_system_prompt_prefixes(
+            system_prompt=resolved_prompt,
+            prefixes=config.system_prompt_prefixes,
         )
 
     template_path = default_system_prompt_path
-    return SeedPrompt.from_yaml_with_required_parameters(
+    resolved_prompt = SeedPrompt.from_yaml_with_required_parameters(
         template_path=template_path,
         required_parameters=required_parameters,
         error_message=error_message,
     )
+    return prepend_adversarial_system_prompt_prefixes(
+        system_prompt=resolved_prompt,
+        prefixes=config.system_prompt_prefixes,
+    )
+
+
+def prepend_adversarial_system_prompt_prefixes(
+    *,
+    system_prompt: SeedPrompt,
+    prefixes: list[SeedPrompt],
+) -> SeedPrompt:
+    """
+    Prepend static guidance layers while preserving the native prompt contract.
+
+    Args:
+        system_prompt: The native adversarial system prompt.
+        prefixes: Ordered static text prompts to prepend.
+
+    Returns:
+        SeedPrompt: A copy of ``system_prompt`` with the prefixes prepended.
+
+    Raises:
+        ValueError: If a prefix is not static text or declares a response schema.
+    """
+    if not prefixes:
+        return system_prompt
+
+    values: list[str] = []
+    for prefix in prefixes:
+        validate_adversarial_system_prompt_prefix(prefix=prefix)
+        values.append(prefix.value)
+    prefixed_value = "\n\n".join(value.rstrip() for value in values)
+    return system_prompt.model_copy(update={"value": f"{prefixed_value}\n\n{system_prompt.value}"})
+
+
+def validate_adversarial_system_prompt_prefix(*, prefix: SeedPrompt) -> None:
+    """
+    Validate that an adversarial system prompt prefix is static text.
+
+    Args:
+        prefix: The prefix to validate.
+
+    Raises:
+        ValueError: If the prefix can alter the native prompt contract or render dynamically.
+    """
+    has_jinja_syntax = any(delimiter in prefix.value for delimiter in ("{{", "{%", "{#"))
+    if prefix.data_type != "text" or prefix.parameters or prefix.response_json_schema is not None or has_jinja_syntax:
+        raise ValueError(
+            "Adversarial system prompt prefixes must be static text SeedPrompts "
+            "without Jinja syntax, template parameters, or a response schema."
+        )
 
 
 @dataclass

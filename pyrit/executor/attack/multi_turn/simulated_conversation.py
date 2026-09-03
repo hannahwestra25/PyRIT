@@ -43,8 +43,8 @@ async def generate_simulated_conversation_async(
     objective_scorer: TrueFalseScorer,
     num_turns: int = 3,
     starting_sequence: int = 0,
-    adversarial_chat_system_prompt: SeedPrompt | None = None,
-    adversarial_chat_system_prompt_path: str | Path | None = None,
+    adversarial_chat_system_prompt_path: str | Path,
+    adversarial_chat_system_prompt_prefixes: list[SeedPrompt] | None = None,
     simulated_target_system_prompt_path: str | Path | None = None,
     next_message_system_prompt_path: str | Path | None = None,
     attack_converter_config: AttackConverterConfig | None = None,
@@ -71,8 +71,9 @@ async def generate_simulated_conversation_async(
         num_turns: Number of conversation turns to generate. Defaults to 3.
         starting_sequence: The starting sequence number for the generated SeedPrompts.
             Each message gets an incrementing sequence number. Defaults to 0.
-        adversarial_chat_system_prompt: Resolved system prompt for the adversarial chat.
         adversarial_chat_system_prompt_path: Path to the system prompt for the adversarial chat.
+        adversarial_chat_system_prompt_prefixes: Static guidance layers prepended to the
+            resolved adversarial chat system prompt.
         simulated_target_system_prompt_path: Path to the system prompt for the simulated target.
             If None, no system prompt is used for the simulated target.
         next_message_system_prompt_path: Optional path to a system prompt for generating
@@ -91,19 +92,13 @@ async def generate_simulated_conversation_async(
         generated to elicit the objective fulfillment.
 
     Raises:
-        ValueError: If num_turns is not positive, or if the direct prompt and path are both set or both omitted.
+        ValueError: If num_turns is not a positive integer.
     """
     # Use the same LLM for both adversarial chat and simulated target
     # They get different system prompts to play different roles
     simulated_target = adversarial_chat
     if num_turns <= 0:
         raise ValueError("num_turns must be a positive integer")
-    if adversarial_chat_system_prompt is not None and adversarial_chat_system_prompt_path is not None:
-        raise ValueError(
-            "Set only one of adversarial_chat_system_prompt or adversarial_chat_system_prompt_path, not both."
-        )
-    if adversarial_chat_system_prompt is None and adversarial_chat_system_prompt_path is None:
-        raise ValueError("Set one of adversarial_chat_system_prompt or adversarial_chat_system_prompt_path.")
 
     # Load and configure simulated target system prompt using centralized validation
     # Returns None if no path is provided (no system prompt for simulated target)
@@ -115,13 +110,11 @@ async def generate_simulated_conversation_async(
 
     # Create adversarial config for the simulation. Load the optional path into a SeedPrompt so the
     # resolved prompt is stored directly on the configuration.
-    adversarial_system_prompt = adversarial_chat_system_prompt
-    if adversarial_system_prompt is None:
-        assert adversarial_chat_system_prompt_path is not None
-        adversarial_system_prompt = SeedPrompt.from_yaml_file(adversarial_chat_system_prompt_path)
+    adversarial_system_prompt = SeedPrompt.from_yaml_file(adversarial_chat_system_prompt_path)
     adversarial_config = AttackAdversarialConfig(
         target=adversarial_chat,
         system_prompt=adversarial_system_prompt,
+        system_prompt_prefixes=list(adversarial_chat_system_prompt_prefixes or []),
     )
 
     # Create scoring config

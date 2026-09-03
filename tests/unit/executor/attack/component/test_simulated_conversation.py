@@ -150,31 +150,13 @@ class TestGenerateSimulatedConversationAsync:
                 num_turns=-1,
             )
 
-    async def test_rejects_direct_prompt_and_path(
+    async def test_passes_system_prompt_prefixes_to_simulated_attack(
         self,
         mock_adversarial_chat: MagicMock,
         mock_objective_scorer: MagicMock,
         adversarial_system_prompt_path: Path,
     ):
-        with pytest.raises(ValueError, match="Set only one of adversarial_chat_system_prompt"):
-            await generate_simulated_conversation_async(
-                objective="Test objective",
-                adversarial_chat=mock_adversarial_chat,
-                objective_scorer=mock_objective_scorer,
-                adversarial_chat_system_prompt=SeedPrompt(value="direct", data_type="text"),
-                adversarial_chat_system_prompt_path=adversarial_system_prompt_path,
-            )
-
-    async def test_uses_direct_prompt_to_configure_simulated_attack(
-        self,
-        mock_adversarial_chat: MagicMock,
-        mock_objective_scorer: MagicMock,
-    ):
-        direct_prompt = SeedPrompt(
-            value="Direct {{ objective }}",
-            data_type="text",
-            parameters=["objective"],
-        )
+        prefix = SeedPrompt(value="Static guidance", data_type="text")
         with patch(
             "pyrit.executor.attack.multi_turn.simulated_conversation.RedTeamingAttack",
             side_effect=RuntimeError("stop after construction"),
@@ -184,11 +166,13 @@ class TestGenerateSimulatedConversationAsync:
                     objective="Test objective",
                     adversarial_chat=mock_adversarial_chat,
                     objective_scorer=mock_objective_scorer,
-                    adversarial_chat_system_prompt=direct_prompt,
+                    adversarial_chat_system_prompt_path=adversarial_system_prompt_path,
+                    adversarial_chat_system_prompt_prefixes=[prefix],
                 )
 
         adversarial_config = mock_attack_class.call_args.kwargs["attack_adversarial_config"]
-        assert adversarial_config.system_prompt is direct_prompt
+        assert adversarial_config.system_prompt.value
+        assert adversarial_config.system_prompt_prefixes == [prefix]
 
     async def test_uses_adversarial_chat_as_simulated_target(
         self,

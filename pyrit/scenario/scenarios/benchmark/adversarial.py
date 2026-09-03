@@ -11,8 +11,7 @@ from typing import TYPE_CHECKING, ClassVar
 
 from pyrit.analytics import get_cached_results_for_technique
 from pyrit.common import apply_defaults
-from pyrit.common.path import EXECUTOR_SEED_PROMPT_PATH, EXECUTOR_SIMULATED_TARGET_PATH
-from pyrit.executor.attack import TreeOfAttacksWithPruningAttack
+from pyrit.common.path import EXECUTOR_SEED_PROMPT_PATH
 from pyrit.models import (
     AttackOutcome,
     AttackResult,
@@ -24,7 +23,6 @@ from pyrit.models import (
 )
 from pyrit.models.parameter import Parameter
 from pyrit.registry import AttackTechniqueRegistry, TargetRegistry
-from pyrit.scenario.core.attack_technique_factory import AttackTechniqueFactory
 from pyrit.scenario.core.dataset_configuration import DatasetAttackConfiguration
 from pyrit.scenario.core.matrix_atomic_attack_builder import (
     MatrixAtomicAttackBuilder,
@@ -35,8 +33,6 @@ from pyrit.scenario.core.matrix_atomic_attack_builder import (
 from pyrit.scenario.core.scenario import BaselineAttackPolicy, Scenario
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from pyrit.prompt_target import PromptTarget
     from pyrit.scenario.core.atomic_attack import AtomicAttack
     from pyrit.scenario.core.scenario_context import ScenarioContext
@@ -47,67 +43,15 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _compose_benchmark_adversarial_prompt(*, canonical_prompt_path: Path) -> SeedPrompt:
-    """
-    Prepend shared benchmark guidance to a canonical technique prompt.
-
-    Args:
-        canonical_prompt_path: Path to the canonical technique system prompt.
-
-    Returns:
-        SeedPrompt: The canonical prompt with benchmark guidance prepended and all
-            canonical metadata preserved.
-    """
-    guidance = SeedPrompt.from_yaml_file(EXECUTOR_SEED_PROMPT_PATH / "benchmark" / "adversarial_guidance.yaml")
-    canonical_prompt = SeedPrompt.from_yaml_file(canonical_prompt_path)
-    return canonical_prompt.model_copy(
-        update={"value": f"{guidance.value.rstrip()}\n\n{canonical_prompt.value.lstrip()}"},
-    )
-
-
 @cache
-def _extra_default_factories() -> dict[str, AttackTechniqueFactory]:
+def _get_benchmark_adversarial_guidance() -> SeedPrompt:
     """
-    Build scenario-owned factories for the benchmark's default techniques.
-
-    These overrides prepend shared benchmark guidance to the canonical technique
-    prompts without changing the globally registered factories or prompt files.
+    Load the static guidance prepended to every selected adversarial technique.
 
     Returns:
-        dict[str, AttackTechniqueFactory]: Factories keyed by the technique names
-            they override within this scenario.
+        SeedPrompt: The benchmark-owned cross-technique guidance.
     """
-    return {
-        "role_play_video_game": AttackTechniqueFactory.with_simulated_conversation(
-            name="role_play_video_game",
-            description="Composes benchmark guidance with the canonical video-game role-play prompt.",
-            adversarial_chat_system_prompt=_compose_benchmark_adversarial_prompt(
-                canonical_prompt_path=(
-                    EXECUTOR_SEED_PROMPT_PATH / "red_teaming" / "role_play" / "role_play_video_game.yaml"
-                )
-            ),
-            next_message_system_prompt_path=EXECUTOR_SIMULATED_TARGET_PATH / "role_play_next_message.yaml",
-            technique_tags=["single_turn", "light"],
-            num_turns=2,
-        ),
-        "crescendo_simulated": AttackTechniqueFactory.with_simulated_conversation(
-            name="crescendo_simulated",
-            description="Composes benchmark guidance with the canonical simulated Crescendo prompt.",
-            adversarial_chat_system_prompt=_compose_benchmark_adversarial_prompt(
-                canonical_prompt_path=EXECUTOR_SEED_PROMPT_PATH / "red_teaming" / "crescendo_simulated.yaml"
-            ),
-            technique_tags=["single_turn"],
-        ),
-        "tap": AttackTechniqueFactory(
-            name="tap",
-            attack_class=TreeOfAttacksWithPruningAttack,
-            description="Composes benchmark guidance with the canonical TAP prompt.",
-            technique_tags=["multi_turn"],
-            adversarial_system_prompt=_compose_benchmark_adversarial_prompt(
-                canonical_prompt_path=TreeOfAttacksWithPruningAttack.DEFAULT_ADVERSARIAL_SYSTEM_PROMPT_PATH
-            ),
-        ),
-    }
+    return SeedPrompt.from_yaml_file(EXECUTOR_SEED_PROMPT_PATH / "benchmark" / "adversarial_guidance.yaml")
 
 
 @cache
@@ -157,10 +101,9 @@ class AdversarialBenchmark(Scenario):
     already be registered in ``TargetRegistry`` — typically by
     ``TargetInitializer`` from ``ADVERSARIAL_CHAT_*`` env vars, or
     programmatically via ``TargetRegistry.get_registry_singleton().instances.register``.
-    The default ``role_play_video_game``, ``crescendo_simulated``, and ``tap``
-    techniques prepend one shared benchmark guidance layer to their canonical
-    adversarial system prompts. These scenario-local overrides leave global factories
-    and canonical prompt files unchanged.
+    Every selected adversarial technique prepends one shared benchmark guidance
+    layer to its native adversarial system prompt. The scenario creates local
+    factory copies, leaving global factories and canonical prompt files unchanged.
 
     At run time, ``_build_atomic_attacks_async`` performs the
     ``(technique × adversarial_target × dataset)`` cross-product: for each
@@ -182,8 +125,8 @@ class AdversarialBenchmark(Scenario):
     #: initializer registered rather than only core-tagged factories.
     #: Bumped from 3 → 4 when the no-selection default changed from the ``light``
     #: aggregate to ``role_play_video_game``, ``crescendo_simulated``, and ``tap``.
-    #: Bumped from 4 → 5 when those three defaults began composing shared benchmark
-    #: guidance with their canonical technique prompts.
+    #: Bumped from 4 → 5 when every selected adversarial technique began prepending
+    #: shared benchmark guidance to its native system prompt.
     #: ``VERSION`` participates in resume identity, so older results cannot be resumed
     #: as v5. The separate ``use_cached`` behavioral cache intentionally remains
     #: keyed by technique and objective-target identity across scenario versions.
@@ -389,9 +332,8 @@ class AdversarialBenchmark(Scenario):
         ``(technique × target × dataset)`` cross-product to ``MatrixAtomicAttackBuilder``
         with the resolved targets as its adversarial-target axis. Each pair calls
         ``factory.create(adversarial_chat=...)`` with the resolved target — no global
-        registry state is touched. The benchmark's three default techniques resolve to
-        scenario-owned factory variants with shared guidance composed before their
-        canonical prompts. When
+        registry state is touched. Every resolved factory is copied with shared
+        benchmark guidance prepended to its native adversarial system prompt. When
         ``self._use_cached`` is set, the resulting candidate
         list is filtered against the live behavioral cache via
         ``_collect_cached_completion_pairs``, which delegates to
@@ -418,10 +360,12 @@ class AdversarialBenchmark(Scenario):
             )
 
         resolved_targets = self._resolve_adversarial_targets(target_names=target_names)
-        technique_factories = resolve_technique_factories(
-            context=context,
-            extra_factories=_extra_default_factories(),
-        )
+        registered_factories = resolve_technique_factories(context=context)
+        guidance = _get_benchmark_adversarial_guidance()
+        technique_factories = {
+            name: factory.with_adversarial_system_prompt_prefix(prefix=guidance)
+            for name, factory in registered_factories.items()
+        }
 
         builder = MatrixAtomicAttackBuilder(
             objective_target=context.objective_target,

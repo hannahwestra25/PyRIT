@@ -126,6 +126,13 @@ class TestSeedSimulatedConversationInit:
 
         assert conv1.value == conv2.value
 
+    def test_path_only_value_omits_prefix_key_for_backward_compatibility(self, tmp_path):
+        conv = SeedSimulatedConversation(
+            adversarial_chat_system_prompt_path=tmp_path / "adversarial.yaml",
+        )
+
+        assert "adversarial_chat_system_prompt_prefixes" not in json.loads(conv.value)
+
     def test_init_default_sequence_is_zero(self, tmp_path):
         """Test that default sequence is 0."""
         adv_path = tmp_path / "adversarial.yaml"
@@ -174,44 +181,20 @@ class TestSeedSimulatedConversationInit:
 
         assert conv.next_message_system_prompt_path == next_msg_path
 
-    def test_init_with_direct_adversarial_prompt(self):
-        prompt = SeedPrompt(
-            value="Direct {{ objective }}",
-            data_type="text",
-            parameters=["objective"],
-            is_jinja_template=True,
+    def test_system_prompt_prefix_json_round_trip_preserves_content(self, tmp_path):
+        adv_path = tmp_path / "adversarial.yaml"
+        prefix = SeedPrompt(value="Static guidance", data_type="text")
+        conv = SeedSimulatedConversation(
+            adversarial_chat_system_prompt_path=adv_path,
+            adversarial_chat_system_prompt_prefixes=[prefix],
         )
-
-        conv = SeedSimulatedConversation(adversarial_chat_system_prompt=prompt)
-
-        assert conv.adversarial_chat_system_prompt is prompt
-        assert conv.adversarial_chat_system_prompt_path is None
-        assert json.loads(conv.value)["adversarial_chat_system_prompt"]["value"] == prompt.value
-
-    def test_init_with_direct_prompt_and_path_raises(self, tmp_path):
-        with pytest.raises(ValueError, match="Set only one of adversarial_chat_system_prompt"):
-            SeedSimulatedConversation(
-                adversarial_chat_system_prompt=SeedPrompt(value="direct", data_type="text"),
-                adversarial_chat_system_prompt_path=tmp_path / "adversarial.yaml",
-            )
-
-    def test_direct_prompt_json_round_trip_preserves_contract(self):
-        prompt = SeedPrompt(
-            value="Direct {{ objective }}",
-            data_type="text",
-            parameters=["objective"],
-            response_json_schema={"type": "object"},
-            is_jinja_template=True,
-        )
-        conv = SeedSimulatedConversation(adversarial_chat_system_prompt=prompt)
 
         restored = SeedSimulatedConversation.model_validate_json(conv.model_dump_json())
 
         assert restored.value == conv.value
-        assert restored.adversarial_chat_system_prompt is not None
-        assert restored.adversarial_chat_system_prompt.value == prompt.value
-        assert restored.adversarial_chat_system_prompt.parameters == prompt.parameters
-        assert restored.adversarial_chat_system_prompt.response_json_schema == prompt.response_json_schema
+        assert restored.adversarial_chat_system_prompt_path == adv_path
+        assert len(restored.adversarial_chat_system_prompt_prefixes) == 1
+        assert restored.adversarial_chat_system_prompt_prefixes[0].value == prefix.value
 
 
 class TestSeedSimulatedConversationFromMapping:
@@ -334,9 +317,15 @@ class TestSeedSimulatedConversationComputeHash:
 
         assert conv1.compute_hash() != conv2.compute_hash()
 
-    def test_compute_hash_includes_direct_prompt_content(self):
-        conv1 = SeedSimulatedConversation(adversarial_chat_system_prompt=SeedPrompt(value="first", data_type="text"))
-        conv2 = SeedSimulatedConversation(adversarial_chat_system_prompt=SeedPrompt(value="second", data_type="text"))
+    def test_compute_hash_includes_system_prompt_prefix_content(self, tmp_path):
+        conv1 = SeedSimulatedConversation(
+            adversarial_chat_system_prompt_path=tmp_path / "adversarial.yaml",
+            adversarial_chat_system_prompt_prefixes=[SeedPrompt(value="first", data_type="text")],
+        )
+        conv2 = SeedSimulatedConversation(
+            adversarial_chat_system_prompt_path=tmp_path / "adversarial.yaml",
+            adversarial_chat_system_prompt_prefixes=[SeedPrompt(value="second", data_type="text")],
+        )
 
         assert conv1.compute_hash() != conv2.compute_hash()
 

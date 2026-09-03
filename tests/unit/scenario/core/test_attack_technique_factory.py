@@ -93,26 +93,17 @@ class TestFactoryInit:
 
         assert factory.description == "Staged as a journalist interview."
 
-    def test_with_simulated_conversation_accepts_direct_prompt(self):
-        prompt = SeedPrompt(value="Direct {{ objective }}", data_type="text", parameters=["objective"])
+    def test_with_simulated_conversation_accepts_system_prompt_prefix(self):
+        prefix = SeedPrompt(value="Static guidance", data_type="text")
 
         factory = AttackTechniqueFactory.with_simulated_conversation(
-            name="custom",
-            adversarial_chat_system_prompt=prompt,
+            name="crescendo_simulated",
+            adversarial_chat_system_prompt_prefixes=[prefix],
         )
 
         assert factory.seed_technique is not None
         simulated_seed = factory.seed_technique.seeds[0]
-        assert simulated_seed.adversarial_chat_system_prompt is prompt
-        assert simulated_seed.adversarial_chat_system_prompt_path is None
-
-    def test_with_simulated_conversation_rejects_direct_prompt_and_path(self):
-        with pytest.raises(ValueError, match="Set only one of adversarial_chat_system_prompt"):
-            AttackTechniqueFactory.with_simulated_conversation(
-                name="custom",
-                adversarial_chat_system_prompt=SeedPrompt(value="direct", data_type="text"),
-                adversarial_chat_system_prompt_path="prompt.yaml",
-            )
+        assert simulated_seed.adversarial_chat_system_prompt_prefixes == [prefix]
 
     def test_description_does_not_affect_identifier(self):
         """Description is decorative metadata and must not change the behavioral identity hash."""
@@ -938,6 +929,67 @@ class TestCustomAdversarialPrompt:
                 objective_target=MagicMock(spec=PromptTarget),
                 attack_scoring_config=self._scoring(),
                 adversarial_system_prompt="create-time {{ objective }}",
+            )
+
+    def test_prefix_copy_preserves_original_and_reaches_attack_config(self):
+        prefix = SeedPrompt(value="Static guidance", data_type="text")
+        factory = AttackTechniqueFactory(name="durian", attack_class=self._AdversarialAttack)
+
+        copied = factory.with_adversarial_system_prompt_prefix(prefix=prefix)
+        technique = copied.create(
+            objective_target=MagicMock(spec=PromptTarget),
+            attack_scoring_config=self._scoring(),
+            adversarial_chat=MagicMock(spec=PromptTarget),
+        )
+
+        assert factory.get_identifier().hash != copied.get_identifier().hash
+        assert factory._adversarial_system_prompt_prefixes == []
+        assert technique.attack.attack_adversarial_config.system_prompt_prefixes == [prefix]
+
+    def test_prefix_copy_updates_simulated_seed_without_mutating_original(self):
+        prefix = SeedPrompt(value="Static guidance", data_type="text")
+        factory = AttackTechniqueFactory.with_simulated_conversation(name="crescendo_simulated")
+
+        copied = factory.with_adversarial_system_prompt_prefix(prefix=prefix)
+
+        assert factory.seed_technique is not None
+        assert copied.seed_technique is not None
+        original_seed = factory.seed_technique.seeds[0]
+        copied_seed = copied.seed_technique.seeds[0]
+        assert original_seed.adversarial_chat_system_prompt_prefixes == []
+        assert copied_seed.adversarial_chat_system_prompt_prefixes == [prefix]
+        assert copied_seed.id != original_seed.id
+        assert factory.get_identifier().hash != copied.get_identifier().hash
+
+    def test_prefix_copy_rejects_unsupported_adversarial_factory(self):
+        factory = AttackTechniqueFactory(
+            name="unsupported",
+            attack_class=_StubAttack,
+            uses_adversarial=True,
+        )
+
+        with pytest.raises(ValueError, match="cannot accept an adversarial system prompt prefix"):
+            factory.with_adversarial_system_prompt_prefix(prefix=SeedPrompt(value="Static guidance", data_type="text"))
+
+    def test_prefix_copy_places_new_layer_before_existing_layers(self):
+        existing = SeedPrompt(value="Existing guidance", data_type="text")
+        newest = SeedPrompt(value="Newest guidance", data_type="text")
+        factory = AttackTechniqueFactory(
+            name="durian",
+            attack_class=self._AdversarialAttack,
+            adversarial_system_prompt_prefixes=[existing],
+        )
+
+        copied = factory.with_adversarial_system_prompt_prefix(prefix=newest)
+
+        assert copied._adversarial_system_prompt_prefixes == [newest, existing]
+
+    def test_constructor_rejects_prefix_when_attack_has_no_adversarial_config(self):
+        with pytest.raises(ValueError, match="does not accept attack_adversarial_config"):
+            AttackTechniqueFactory(
+                name="unsupported",
+                attack_class=_StubAttack,
+                adversarial_system_prompt_prefixes=[SeedPrompt(value="Static guidance", data_type="text")],
             )
 
 
