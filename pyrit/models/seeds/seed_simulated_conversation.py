@@ -127,9 +127,7 @@ class SeedSimulatedConversation(Seed):
                 "Set only one of adversarial_chat_system_prompt or adversarial_chat_system_prompt_path, not both."
             )
         if self.adversarial_chat_system_prompt is None and self.adversarial_chat_system_prompt_path is None:
-            raise ValueError(
-                "Set one of adversarial_chat_system_prompt or adversarial_chat_system_prompt_path."
-            )
+            raise ValueError("Set one of adversarial_chat_system_prompt or adversarial_chat_system_prompt_path.")
         if not self.pyrit_version:
             self.pyrit_version = importlib.metadata.version("pyrit")
         self.value = self._compute_value()

@@ -280,9 +280,7 @@ class TestAdversarialBenchmarkTechnique:
         assert set(overrides) == _DEFAULT_BENCHMARK_TECHNIQUE_NAMES
 
     def test_shared_guidance_has_no_technique_contract_metadata(self):
-        guidance = SeedPrompt.from_yaml_file(
-            EXECUTOR_SEED_PROMPT_PATH / "benchmark" / "adversarial_guidance.yaml"
-        )
+        guidance = SeedPrompt.from_yaml_file(EXECUTOR_SEED_PROMPT_PATH / "benchmark" / "adversarial_guidance.yaml")
 
         assert guidance.parameters == []
         assert guidance.response_json_schema is None
@@ -302,9 +300,7 @@ class TestAdversarialBenchmarkTechnique:
             ("tap", TreeOfAttacksWithPruningAttack.DEFAULT_ADVERSARIAL_SYSTEM_PROMPT_PATH),
         ],
     )
-    def test_default_prompt_composes_guidance_with_canonical_prompt(
-        self, technique_name: str, canonical_prompt_path
-    ):
+    def test_default_prompt_composes_guidance_with_canonical_prompt(self, technique_name: str, canonical_prompt_path):
         factory = _extra_default_factories()[technique_name]
         if technique_name == "tap":
             composed_prompt = factory._adversarial_system_prompt
@@ -316,9 +312,7 @@ class TestAdversarialBenchmarkTechnique:
             composed_prompt = simulated_seed.adversarial_chat_system_prompt
         assert isinstance(composed_prompt, SeedPrompt)
 
-        guidance = SeedPrompt.from_yaml_file(
-            EXECUTOR_SEED_PROMPT_PATH / "benchmark" / "adversarial_guidance.yaml"
-        )
+        guidance = SeedPrompt.from_yaml_file(EXECUTOR_SEED_PROMPT_PATH / "benchmark" / "adversarial_guidance.yaml")
         canonical_prompt = SeedPrompt.from_yaml_file(canonical_prompt_path)
         assert composed_prompt.value.startswith(guidance.value.rstrip())
         assert composed_prompt.value.count(guidance.value.rstrip()) == 1
@@ -511,8 +505,7 @@ class TestAdversarialBenchmarkInit:
         identifier = technique.get_identifier()
         assert identifier.attack is not None
         assert (
-            identifier.attack.adversarial_system_prompt
-            == technique.attack._adversarial_chat_system_seed_prompt.value
+            identifier.attack.adversarial_system_prompt == technique.attack._adversarial_chat_system_seed_prompt.value
         )
         assert "{{ max_turns }}" not in technique.attack._adversarial_chat_system_seed_prompt.value
         assert set(technique.attack._adversarial_chat_system_seed_prompt.parameters) == {

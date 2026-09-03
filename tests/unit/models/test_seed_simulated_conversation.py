@@ -335,12 +335,8 @@ class TestSeedSimulatedConversationComputeHash:
         assert conv1.compute_hash() != conv2.compute_hash()
 
     def test_compute_hash_includes_direct_prompt_content(self):
-        conv1 = SeedSimulatedConversation(
-            adversarial_chat_system_prompt=SeedPrompt(value="first", data_type="text")
-        )
-        conv2 = SeedSimulatedConversation(
-            adversarial_chat_system_prompt=SeedPrompt(value="second", data_type="text")
-        )
+        conv1 = SeedSimulatedConversation(adversarial_chat_system_prompt=SeedPrompt(value="first", data_type="text"))
+        conv2 = SeedSimulatedConversation(adversarial_chat_system_prompt=SeedPrompt(value="second", data_type="text"))
 
         assert conv1.compute_hash() != conv2.compute_hash()
 
