@@ -282,9 +282,7 @@ class TestAdversarialBenchmarkTechnique:
     def test_shared_guidance_has_no_technique_contract_metadata(self):
         guidance = _get_benchmark_adversarial_guidance()
 
-        assert guidance.parameters == []
-        assert guidance.response_json_schema is None
-        assert "{{" not in guidance.value
+        assert "{{" not in guidance
 
     @pytest.mark.parametrize("technique_name", ["role_play_video_game", "crescendo_simulated"])
     def test_simulated_defaults_receive_prefix_without_mutating_global_factory(self, technique_name: str):
@@ -306,8 +304,8 @@ class TestAdversarialBenchmarkTechnique:
         assert isinstance(global_seed, SeedSimulatedConversation)
         assert isinstance(local_seed, SeedSimulatedConversation)
         assert local_seed.adversarial_chat_system_prompt_path == global_seed.adversarial_chat_system_prompt_path
-        assert global_seed.adversarial_chat_system_prompt_prefixes == []
-        assert local_seed.adversarial_chat_system_prompt_prefixes == [_get_benchmark_adversarial_guidance()]
+        assert global_seed.adversarial_chat_system_prompt_prefix is None
+        assert local_seed.adversarial_chat_system_prompt_prefix == _get_benchmark_adversarial_guidance()
 
     def test_light_aggregate_excludes_non_light_techniques(self):
         """Techniques without the ``light`` tag must not appear in the ``light`` aggregate."""
@@ -480,7 +478,7 @@ class TestAdversarialBenchmarkInit:
         prompt = technique.attack._adversarial_chat_system_prompt_template
         canonical_prompt = SeedPrompt.from_yaml_file(RTASystemPromptPaths.TEXT_GENERATION.value)
         guidance = _get_benchmark_adversarial_guidance()
-        assert prompt.value.count(guidance.value.strip()) == 1
+        assert prompt.value.count(guidance.strip()) == 1
         assert canonical_prompt.value in prompt.value
         assert prompt.parameters == canonical_prompt.parameters
         assert prompt.response_json_schema == canonical_prompt.response_json_schema

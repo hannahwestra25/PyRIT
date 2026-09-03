@@ -8,7 +8,7 @@ import pytest
 from pyrit.executor.attack.core import AttackScoringConfig
 from pyrit.executor.attack.core.attack_config import (
     AttackAdversarialConfig,
-    prepend_adversarial_system_prompt_prefixes,
+    prepend_adversarial_system_prompt_prefix,
     resolve_adversarial_json_schema,
     resolve_adversarial_system_prompt,
 )
@@ -109,11 +109,11 @@ class TestResolveAdversarialSystemPrompt:
             response_json_schema=schema,
             is_jinja_template=True,
         )
-        prefix = SeedPrompt(value="Static guidance", data_type="text")
+        prefix = "Static guidance"
 
-        composed = prepend_adversarial_system_prompt_prefixes(
+        composed = prepend_adversarial_system_prompt_prefix(
             system_prompt=native,
-            prefixes=[prefix],
+            prefix=prefix,
         )
 
         assert composed.render_template_value(objective="goal").startswith("Static guidance")
@@ -123,19 +123,12 @@ class TestResolveAdversarialSystemPrompt:
         assert composed.data_type == native.data_type
         assert composed.value.endswith(native.value)
 
-    @pytest.mark.parametrize(
-        "prefix",
-        [
-            SeedPrompt(value="{{ objective }}", data_type="text", parameters=["objective"]),
-            SeedPrompt(value="{{ objective }}", data_type="text", is_jinja_template=True),
-            SeedPrompt(value="schema", data_type="text", response_json_schema={"type": "object"}),
-        ],
-    )
-    def test_prefix_rejects_native_prompt_contract_metadata(self, prefix: SeedPrompt):
+    @pytest.mark.parametrize("prefix", ["{{ objective }}", "{% if objective %}", "{# comment #}"])
+    def test_prefix_rejects_jinja_syntax(self, prefix: str):
         with pytest.raises(ValueError, match="must be static text"):
-            prepend_adversarial_system_prompt_prefixes(
+            prepend_adversarial_system_prompt_prefix(
                 system_prompt=SeedPrompt(value="native", data_type="text"),
-                prefixes=[prefix],
+                prefix=prefix,
             )
 
 

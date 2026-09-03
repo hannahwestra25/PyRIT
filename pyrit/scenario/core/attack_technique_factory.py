@@ -86,7 +86,7 @@ class AttackTechniqueFactory(Identifiable):
         attack_kwargs: dict[str, Any] | None = None,
         adversarial_chat: PromptTarget | None = None,
         adversarial_system_prompt: str | SeedPrompt | None = None,
-        adversarial_system_prompt_prefixes: list[SeedPrompt] | None = None,
+        adversarial_system_prompt_prefix: str | None = None,
         adversarial_seed_prompt: SeedPrompt | str | None = None,
         seed_technique: AttackTechniqueSeedGroup | None = None,
         uses_adversarial: bool | None = None,
@@ -118,7 +118,7 @@ class AttackTechniqueFactory(Identifiable):
             adversarial_system_prompt: Optional inline system prompt (``str`` or
                 ``SeedPrompt``) for the adversarial chat. Combined with the resolved
                 adversarial target at ``create()`` time.
-            adversarial_system_prompt_prefixes: Static guidance layers prepended to
+            adversarial_system_prompt_prefix: Static guidance prepended to
                 the resolved native adversarial system prompt.
             adversarial_seed_prompt: Optional seed prompt (``SeedPrompt`` or
                 ``str``) used to generate the adversarial chat's first message.
@@ -152,9 +152,9 @@ class AttackTechniqueFactory(Identifiable):
         self._attack_kwargs = dict(attack_kwargs) if attack_kwargs else {}
         self._adversarial_chat = adversarial_chat
         self._adversarial_system_prompt = adversarial_system_prompt
-        self._adversarial_system_prompt_prefixes = list(adversarial_system_prompt_prefixes or [])
-        for prefix in self._adversarial_system_prompt_prefixes:
-            validate_adversarial_system_prompt_prefix(prefix=prefix)
+        self._adversarial_system_prompt_prefix = adversarial_system_prompt_prefix
+        if adversarial_system_prompt_prefix is not None:
+            validate_adversarial_system_prompt_prefix(prefix=adversarial_system_prompt_prefix)
         self._adversarial_seed_prompt = adversarial_seed_prompt
         self._has_custom_adversarial_prompt = (
             adversarial_system_prompt is not None or adversarial_seed_prompt is not None
@@ -177,7 +177,7 @@ class AttackTechniqueFactory(Identifiable):
         attack_class: type[AttackStrategy[Any, Any]] | None = None,
         description: str | None = None,
         adversarial_chat_system_prompt_path: str | Path | None = None,
-        adversarial_chat_system_prompt_prefixes: list[SeedPrompt] | None = None,
+        adversarial_chat_system_prompt_prefix: str | None = None,
         simulated_target_system_prompt_path: str | Path | None = None,
         next_message_system_prompt_path: str | Path | None = None,
         final_user_message: str | None = None,
@@ -207,7 +207,7 @@ class AttackTechniqueFactory(Identifiable):
             adversarial_chat_system_prompt_path: Path to the YAML file containing
                 the adversarial chat system prompt for the simulated conversation.
                 Defaults to ``EXECUTOR_SEED_PROMPT_PATH/red_teaming/{name}.yaml``.
-            adversarial_chat_system_prompt_prefixes: Static guidance layers prepended
+            adversarial_chat_system_prompt_prefix: Static guidance prepended
                 to the resolved adversarial chat system prompt.
             simulated_target_system_prompt_path: Optional path to the YAML file
                 containing the system prompt for the simulated target (the
@@ -255,8 +255,8 @@ class AttackTechniqueFactory(Identifiable):
         """
         if attack_class is None:
             attack_class = PromptSendingAttack
-        for prefix in adversarial_chat_system_prompt_prefixes or []:
-            validate_adversarial_system_prompt_prefix(prefix=prefix)
+        if adversarial_chat_system_prompt_prefix is not None:
+            validate_adversarial_system_prompt_prefix(prefix=adversarial_chat_system_prompt_prefix)
         if adversarial_chat_system_prompt_path is None:
             adversarial_chat_system_prompt_path = Path(EXECUTOR_SEED_PROMPT_PATH) / "red_teaming" / f"{name}.yaml"
 
@@ -270,7 +270,7 @@ class AttackTechniqueFactory(Identifiable):
 
         simulated_conversation_kwargs: dict[str, Any] = {
             "adversarial_chat_system_prompt_path": Path(adversarial_chat_system_prompt_path),
-            "adversarial_chat_system_prompt_prefixes": list(adversarial_chat_system_prompt_prefixes or []),
+            "adversarial_chat_system_prompt_prefix": adversarial_chat_system_prompt_prefix,
             "num_turns": num_turns,
         }
         if simulated_target_system_prompt_path is not None:
@@ -323,7 +323,7 @@ class AttackTechniqueFactory(Identifiable):
         if (
             self._adversarial_chat is not None
             or self._has_custom_adversarial_prompt
-            or self._adversarial_system_prompt_prefixes
+            or self._adversarial_system_prompt_prefix is not None
         ):
             return True
         sig = inspect.signature(self._attack_class.__init__)
@@ -343,16 +343,19 @@ class AttackTechniqueFactory(Identifiable):
         if not self._uses_adversarial and (
             self._adversarial_chat is not None
             or self._has_custom_adversarial_prompt
-            or self._adversarial_system_prompt_prefixes
+            or self._adversarial_system_prompt_prefix is not None
         ):
             raise ValueError(
                 f"Factory '{self._name}': an adversarial chat or prompt is set but "
                 f"uses_adversarial=False. A technique that doesn't use an adversarial chat "
                 f"should not have one wired."
             )
-        if self._adversarial_system_prompt_prefixes and "attack_adversarial_config" not in self._get_accepted_params():
+        if (
+            self._adversarial_system_prompt_prefix is not None
+            and "attack_adversarial_config" not in self._get_accepted_params()
+        ):
             raise ValueError(
-                f"Factory '{self._name}' configures adversarial system prompt prefixes, but "
+                f"Factory '{self._name}' configures an adversarial system prompt prefix, but "
                 f"{self._attack_class.__name__} does not accept attack_adversarial_config."
             )
 
@@ -543,7 +546,7 @@ class AttackTechniqueFactory(Identifiable):
         """Whether this technique drives an adversarial chat during execution."""
         return self._uses_adversarial
 
-    def with_adversarial_system_prompt_prefix(self, *, prefix: SeedPrompt) -> AttackTechniqueFactory:
+    def with_adversarial_system_prompt_prefix(self, *, prefix: str) -> AttackTechniqueFactory:
         """
         Return a scenario-local factory copy with static adversarial guidance prepended.
 
@@ -572,9 +575,9 @@ class AttackTechniqueFactory(Identifiable):
                 "a SeedSimulatedConversation."
             )
 
-        direct_prefixes = list(self._adversarial_system_prompt_prefixes)
-        if supports_attack_config:
-            direct_prefixes.insert(0, prefix)
+        direct_prefix = self._prepend_prefix(prefix=prefix, existing=self._adversarial_system_prompt_prefix)
+        if not supports_attack_config:
+            direct_prefix = None
         return AttackTechniqueFactory(
             name=self._name,
             attack_class=self._attack_class,
@@ -583,7 +586,7 @@ class AttackTechniqueFactory(Identifiable):
             attack_kwargs=self._attack_kwargs,
             adversarial_chat=self._adversarial_chat,
             adversarial_system_prompt=self._adversarial_system_prompt,
-            adversarial_system_prompt_prefixes=direct_prefixes,
+            adversarial_system_prompt_prefix=direct_prefix,
             adversarial_seed_prompt=self._adversarial_seed_prompt,
             seed_technique=seed_technique,
             uses_adversarial=self._uses_adversarial,
@@ -756,7 +759,7 @@ class AttackTechniqueFactory(Identifiable):
 
         config_kwargs: dict[str, Any] = {
             "target": target,
-            "system_prompt_prefixes": list(self._adversarial_system_prompt_prefixes),
+            "system_prompt_prefix": self._adversarial_system_prompt_prefix,
         }
         if system_prompt is not None:
             config_kwargs["system_prompt"] = system_prompt
@@ -767,7 +770,7 @@ class AttackTechniqueFactory(Identifiable):
     def _copy_seed_technique_with_prefix(
         self,
         *,
-        prefix: SeedPrompt,
+        prefix: str,
     ) -> tuple[AttackTechniqueSeedGroup | None, bool]:
         """
         Copy the seed technique and prepend guidance to each simulated conversation.
@@ -787,14 +790,19 @@ class AttackTechniqueFactory(Identifiable):
                 continue
             supports_simulated = True
             seed_data = seed.model_dump(exclude={"id", "value", "value_sha256"})
-            seed_data["adversarial_chat_system_prompt_prefixes"] = [
-                prefix,
-                *seed.adversarial_chat_system_prompt_prefixes,
-            ]
+            seed_data["adversarial_chat_system_prompt_prefix"] = self._prepend_prefix(
+                prefix=prefix,
+                existing=seed.adversarial_chat_system_prompt_prefix,
+            )
             seeds.append(SeedSimulatedConversation.model_validate(seed_data))
         if not supports_simulated:
             return self._seed_technique, False
         return self._seed_technique.model_copy(update={"seeds": seeds}, deep=True), True
+
+    @staticmethod
+    def _prepend_prefix(*, prefix: str, existing: str | None) -> str:
+        """Return ``prefix`` outside any existing static guidance."""
+        return f"{prefix.rstrip()}\n\n{existing}" if existing is not None else prefix
 
     def _get_accepted_params(self) -> set[str]:
         """Return the set of keyword parameter names accepted by the attack class constructor."""
@@ -983,10 +991,8 @@ class AttackTechniqueFactory(Identifiable):
             params["adversarial_chat"] = self._serialize_value(self._adversarial_chat)
         if self._adversarial_system_prompt is not None:
             params["adversarial_system_prompt"] = self._serialize_value(self._adversarial_system_prompt)
-        if self._adversarial_system_prompt_prefixes:
-            params["adversarial_system_prompt_prefixes"] = self._serialize_value(
-                self._adversarial_system_prompt_prefixes
-            )
+        if self._adversarial_system_prompt_prefix is not None:
+            params["adversarial_system_prompt_prefix"] = self._adversarial_system_prompt_prefix
         if self._adversarial_seed_prompt is not None:
             params["adversarial_seed_prompt"] = self._serialize_value(self._adversarial_seed_prompt)
 

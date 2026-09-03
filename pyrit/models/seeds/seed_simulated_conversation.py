@@ -21,7 +21,7 @@ import logging
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import field_validator, model_validator
 
 from pyrit.common.path import EXECUTOR_SIMULATED_TARGET_PATH
 from pyrit.models.seeds.seed import Seed
@@ -59,7 +59,7 @@ class SeedSimulatedConversation(Seed):
     Attributes:
         num_turns: Number of conversation turns to generate.
         adversarial_chat_system_prompt_path: Path to the adversarial chat system prompt YAML.
-        adversarial_chat_system_prompt_prefixes: Static guidance layers prepended to the
+        adversarial_chat_system_prompt_prefix: Static guidance prepended to the
             resolved adversarial chat system prompt.
         simulated_target_system_prompt_path: Path to the simulated target system prompt YAML.
             Defaults to the compliant prompt if not specified.
@@ -88,7 +88,7 @@ class SeedSimulatedConversation(Seed):
     num_turns: int = 3
     sequence: int = 0
     adversarial_chat_system_prompt_path: Path
-    adversarial_chat_system_prompt_prefixes: list[SeedPrompt] = Field(default_factory=list)
+    adversarial_chat_system_prompt_prefix: str | None = None
     simulated_target_system_prompt_path: Path = SimulatedTargetSystemPromptPaths.COMPLIANT.value
     next_message_system_prompt_path: Path | None = None
     pyrit_version: str | None = None
@@ -128,22 +128,6 @@ class SeedSimulatedConversation(Seed):
         self.value = self._compute_value()
         return self
 
-    @staticmethod
-    def _serialize_system_prompt_prefix(prefix: SeedPrompt) -> dict[str, Any]:
-        """
-        Serialize a prefix without non-behavioral generated identifiers.
-
-        Args:
-            prefix: The prefix to serialize.
-
-        Returns:
-            dict[str, Any]: JSON-compatible prompt data.
-        """
-        return prefix.model_dump(
-            mode="json",
-            exclude={"id", "date_added", "value_sha256", "prompt_group_id"},
-        )
-
     def _compute_value(self) -> str:
         """
         Compute the value field as JSON serialization of config.
@@ -162,10 +146,8 @@ class SeedSimulatedConversation(Seed):
             ),
             "pyrit_version": self.pyrit_version,
         }
-        if self.adversarial_chat_system_prompt_prefixes:
-            config["adversarial_chat_system_prompt_prefixes"] = [
-                self._serialize_system_prompt_prefix(prefix) for prefix in self.adversarial_chat_system_prompt_prefixes
-            ]
+        if self.adversarial_chat_system_prompt_prefix is not None:
+            config["adversarial_chat_system_prompt_prefix"] = self.adversarial_chat_system_prompt_prefix
         return json.dumps(config, sort_keys=True, separators=(",", ":"))
 
     def get_identifier(self) -> dict[str, Any]:
@@ -187,10 +169,8 @@ class SeedSimulatedConversation(Seed):
             ),
             "pyrit_version": self.pyrit_version,
         }
-        if self.adversarial_chat_system_prompt_prefixes:
-            identifier["adversarial_chat_system_prompt_prefixes"] = [
-                self._serialize_system_prompt_prefix(prefix) for prefix in self.adversarial_chat_system_prompt_prefixes
-            ]
+        if self.adversarial_chat_system_prompt_prefix is not None:
+            identifier["adversarial_chat_system_prompt_prefix"] = self.adversarial_chat_system_prompt_prefix
         return identifier
 
     def compute_hash(self) -> str:

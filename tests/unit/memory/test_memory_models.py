@@ -641,10 +641,10 @@ class TestSeedEntry:
         assert (recovered.metadata or {}).get("owned") == "by-caller"
 
     def test_roundtrip_seed_simulated_conversation_preserves_system_prompt_prefix(self):
-        prefix = SeedPrompt(value="Static guidance", data_type="text")
+        prefix = "Static guidance"
         config = SeedSimulatedConversation(
             adversarial_chat_system_prompt_path="/path/to/adversarial.yaml",
-            adversarial_chat_system_prompt_prefixes=[prefix],
+            adversarial_chat_system_prompt_prefix=prefix,
         )
 
         recovered = SeedEntry(entry=config).get_seed()
@@ -652,8 +652,7 @@ class TestSeedEntry:
         assert isinstance(recovered, SeedSimulatedConversation)
         assert recovered.value == config.value
         assert recovered.adversarial_chat_system_prompt_path == config.adversarial_chat_system_prompt_path
-        assert len(recovered.adversarial_chat_system_prompt_prefixes) == 1
-        assert recovered.adversarial_chat_system_prompt_prefixes[0].value == prefix.value
+        assert recovered.adversarial_chat_system_prompt_prefix == prefix
 
     def test_corrupt_reserved_key_unpack_returns_no_schema(self):
         """A malformed JSON-encoded schema in the DB must round-trip as no schema, with clean metadata."""

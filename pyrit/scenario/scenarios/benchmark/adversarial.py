@@ -44,14 +44,14 @@ logger = logging.getLogger(__name__)
 
 
 @cache
-def _get_benchmark_adversarial_guidance() -> SeedPrompt:
+def _get_benchmark_adversarial_guidance() -> str:
     """
     Load the static guidance prepended to every selected adversarial technique.
 
     Returns:
-        SeedPrompt: The benchmark-owned cross-technique guidance.
+        str: The benchmark-owned cross-technique guidance.
     """
-    return SeedPrompt.from_yaml_file(EXECUTOR_SEED_PROMPT_PATH / "benchmark" / "adversarial_guidance.yaml")
+    return SeedPrompt.from_yaml_file(EXECUTOR_SEED_PROMPT_PATH / "benchmark" / "adversarial_guidance.yaml").value
 
 
 @cache
