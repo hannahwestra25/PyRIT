@@ -407,13 +407,12 @@ class MatrixAtomicAttackBuilder:
                     if compatible_groups is None:
                         continue
 
-                    create_adversarial = {"adversarial_chat": target_instance} if target_instance is not None else {}
                     attack_technique = factory.create(
                         objective_target=self._objective_target,
                         attack_scoring_config=scoring_config,
+                        adversarial_chat=target_instance,
                         adversarial_system_prompt_prefix=adversarial_system_prompt_prefix,
                         extra_request_converters=extra_request_converters,
-                        **create_adversarial,
                     )
 
                     combo = MatrixCombo(
