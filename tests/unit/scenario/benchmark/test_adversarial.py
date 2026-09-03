@@ -153,7 +153,6 @@ def _register_mock_factory(*, name: str, tags: list[str] | None = None, seed_tec
     )
     factory.create.return_value = technique_instance
     factory.attack_class = MagicMock(__name__=name)
-    factory.with_adversarial_system_prompt_prefix.return_value = factory
     AttackTechniqueRegistry.get_registry_singleton().register_from_factories([factory])
     return factory
 
@@ -285,22 +284,40 @@ class TestAdversarialBenchmarkTechnique:
         assert "{{" not in guidance
 
     @pytest.mark.parametrize("technique_name", ["role_play_video_game", "crescendo_simulated"])
+    @pytest.mark.usefixtures("patch_central_database")
     def test_simulated_defaults_receive_prefix_without_mutating_global_factory(self, technique_name: str):
         registry_factories = AttackTechniqueRegistry.get_registry_singleton().get_factories_or_raise()
         global_factory = registry_factories[technique_name]
         global_hash = global_factory.get_identifier().hash
+        objective_target = MagicMock(spec=PromptTarget)
+        objective_target.get_identifier.return_value = ComponentIdentifier(
+            class_name="MockObjectiveTarget",
+            class_module="pyrit.test",
+        )
+        objective_scorer = MagicMock(spec=TrueFalseScorer)
+        objective_scorer.get_identifier.return_value = ComponentIdentifier(
+            class_name="MockObjectiveScorer",
+            class_module="pyrit.test",
+        )
+        scoring_config = AttackScoringConfig(objective_scorer=objective_scorer)
 
-        local_factory = global_factory.with_adversarial_system_prompt_prefix(
-            prefix=_get_benchmark_adversarial_guidance()
+        global_technique = global_factory.create(
+            objective_target=objective_target,
+            attack_scoring_config=scoring_config,
+        )
+        local_technique = global_factory.create(
+            objective_target=objective_target,
+            attack_scoring_config=scoring_config,
+            adversarial_system_prompt_prefix=_get_benchmark_adversarial_guidance(),
         )
 
         assert registry_factories[technique_name] is global_factory
         assert global_factory.get_identifier().hash == global_hash
-        assert local_factory.get_identifier().hash != global_hash
+        assert local_technique.get_identifier().hash != global_technique.get_identifier().hash
         assert global_factory.seed_technique is not None
-        assert local_factory.seed_technique is not None
+        assert local_technique.seed_technique is not None
         global_seed = global_factory.seed_technique.seeds[0]
-        local_seed = local_factory.seed_technique.seeds[0]
+        local_seed = local_technique.seed_technique.seeds[0]
         assert isinstance(global_seed, SeedSimulatedConversation)
         assert isinstance(local_seed, SeedSimulatedConversation)
         assert local_seed.adversarial_chat_system_prompt_path == global_seed.adversarial_chat_system_prompt_path
@@ -404,8 +421,7 @@ class TestAdversarialBenchmarkInit:
 
     def test_tap_constructs_with_benchmark_scorer_policy(self, caplog):
         """The benchmark's generic scorer is skipped under TAP's WARN policy so TAP can use its own scorer."""
-        registered_factory = AttackTechniqueRegistry.get_registry_singleton().get_factories_or_raise()["tap"]
-        factory = registered_factory.with_adversarial_system_prompt_prefix(prefix=_get_benchmark_adversarial_guidance())
+        factory = AttackTechniqueRegistry.get_registry_singleton().get_factories_or_raise()["tap"]
 
         objective_target = MagicMock(spec=PromptTarget)
         objective_target.configuration.capabilities.output_modalities = [{"text"}]
@@ -430,6 +446,7 @@ class TestAdversarialBenchmarkInit:
                 objective_target=objective_target,
                 attack_scoring_config=scoring_config,
                 adversarial_chat=adversarial_target,
+                adversarial_system_prompt_prefix=_get_benchmark_adversarial_guidance(),
             )
 
         assert isinstance(technique.attack, TreeOfAttacksWithPruningAttack)
@@ -457,8 +474,7 @@ class TestAdversarialBenchmarkInit:
         assert any("incompatible" in record.message for record in caplog.records)
 
     def test_red_teaming_uses_guidance_with_canonical_system_prompt(self):
-        registered_factory = AttackTechniqueRegistry.get_registry_singleton().get_factories_or_raise()["red_teaming"]
-        factory = registered_factory.with_adversarial_system_prompt_prefix(prefix=_get_benchmark_adversarial_guidance())
+        factory = AttackTechniqueRegistry.get_registry_singleton().get_factories_or_raise()["red_teaming"]
         objective_target = MagicMock(spec=PromptTarget)
         objective_target.get_identifier.return_value = ComponentIdentifier(
             class_name="MockObjectiveTarget",
@@ -472,6 +488,7 @@ class TestAdversarialBenchmarkInit:
             objective_target=objective_target,
             attack_scoring_config=scoring_config,
             adversarial_chat=adversarial_target,
+            adversarial_system_prompt_prefix=_get_benchmark_adversarial_guidance(),
         )
 
         assert isinstance(technique.attack, RedTeamingAttack)
@@ -688,17 +705,18 @@ class TestGetAtomicAttacksCrossProduct:
 
         await _build_atomic_attacks(bench)
 
-        factory.with_adversarial_system_prompt_prefix.assert_called_once_with(
-            prefix=_get_benchmark_adversarial_guidance()
-        )
         # 1 factory × 2 targets × 1 dataset = 2 create calls
         assert factory.create.call_count == 2
+        assert all(
+            call.kwargs["adversarial_system_prompt_prefix"] == _get_benchmark_adversarial_guidance()
+            for call in factory.create.call_args_list
+        )
         target_a = TargetRegistry.get_registry_singleton().instances.get("adv_a")
         target_b = TargetRegistry.get_registry_singleton().instances.get("adv_b")
         injected_targets = {call.kwargs["adversarial_chat"] for call in factory.create.call_args_list}
         assert injected_targets == {target_a, target_b}
 
-    async def test_selected_factory_uses_scenario_local_prefixed_copy(self):
+    async def test_selected_factory_receives_create_time_prefix(self):
         bench = self._make_bench_with_targets(
             target_names=["adv_a"],
             technique_name="future_adversarial_attack",
@@ -706,25 +724,14 @@ class TestGetAtomicAttacksCrossProduct:
         registered_factory = AttackTechniqueRegistry.get_registry_singleton().get_factories_or_raise()[
             "future_adversarial_attack"
         ]
-        benchmark_factory = MagicMock(spec=AttackTechniqueFactory)
-        benchmark_factory.seed_technique = None
-        benchmark_technique = MagicMock()
-        benchmark_technique.get_identifier.return_value = ComponentIdentifier(
-            class_name="BenchmarkRolePlay",
-            class_module="pyrit.test",
-        )
-        benchmark_factory.create.return_value = benchmark_technique
-
-        registered_factory.with_adversarial_system_prompt_prefix.return_value = benchmark_factory
-
         result = await _build_atomic_attacks(bench)
 
         assert len(result) == 1
-        registered_factory.with_adversarial_system_prompt_prefix.assert_called_once_with(
-            prefix=_get_benchmark_adversarial_guidance()
+        registered_factory.create.assert_called_once()
+        assert (
+            registered_factory.create.call_args.kwargs["adversarial_system_prompt_prefix"]
+            == _get_benchmark_adversarial_guidance()
         )
-        benchmark_factory.create.assert_called_once()
-        registered_factory.create.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
