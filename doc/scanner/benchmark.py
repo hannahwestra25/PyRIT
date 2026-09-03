@@ -5,7 +5,7 @@
 #       extension: .py
 #       format_name: percent
 #       format_version: '1.3'
-#       jupytext_version: 1.19.3
+#       jupytext_version: 1.18.1
 # ---
 
 # %% [markdown]
@@ -40,9 +40,10 @@
 #
 # **Default techniques:** `role_play_video_game`, `crescendo_simulated`, and `tap`. TAP's
 # branching search makes this default slower and more expensive than the former `light` default.
-# These defaults prepend benchmark-owned single-turn or multi-turn red-team guidance to their
-# technique-specific prompts. Explicitly selected non-default techniques continue to use their
-# registered prompts.
+# These defaults prepend one shared benchmark guidance layer to the existing canonical technique
+# prompts. The canonical strategy, template parameters, and response format remain the source of
+# truth, so canonical prompt updates are inherited rather than copied into benchmark snapshots.
+# Explicitly selected non-default techniques continue to use their registered prompts.
 # For a cheaper run, explicitly pass `--techniques light`.
 #
 # **Other available selections:** `light`, `single_turn`, `multi_turn`, plus one member per

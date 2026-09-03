@@ -84,6 +84,7 @@ class AttackTechniqueFactory(Identifiable):
         adversarial_seed_prompt: SeedPrompt | str | None = None,
         seed_technique: AttackTechniqueSeedGroup | None = None,
         uses_adversarial: bool | None = None,
+        supports_additional_request_converters: bool = False,
         scorer_override_policy: ScorerOverridePolicy = ScorerOverridePolicy.WARN,
     ) -> None:
         """
@@ -121,6 +122,9 @@ class AttackTechniqueFactory(Identifiable):
                 chat during execution. ``None`` auto-derives from the attack
                 class constructor signature and seed-technique shape.
                 Authors can override the derivation explicitly.
+            supports_additional_request_converters: Whether callers may safely
+                append request converters to this technique. This is an explicit
+                semantic opt-in, not merely constructor-signature detection.
             scorer_override_policy: What to do when a scenario's scorer is
                 incompatible with the attack's ``attack_scoring_config`` type
                 annotation. Defaults to WARN.
@@ -145,11 +149,13 @@ class AttackTechniqueFactory(Identifiable):
             adversarial_system_prompt is not None or adversarial_seed_prompt is not None
         )
         self._seed_technique = seed_technique
+        self._supports_additional_request_converters = supports_additional_request_converters
         self._scorer_override_policy = scorer_override_policy
 
         self._uses_adversarial = uses_adversarial if uses_adversarial is not None else self._derive_uses_adversarial()
 
         self._validate_kwargs()
+        self._validate_converter_composition()
         self._validate_adversarial_flags()
 
     @classmethod
@@ -159,6 +165,7 @@ class AttackTechniqueFactory(Identifiable):
         name: str,
         attack_class: type[AttackStrategy[Any, Any]] | None = None,
         description: str | None = None,
+        adversarial_chat_system_prompt: SeedPrompt | None = None,
         adversarial_chat_system_prompt_path: str | Path | None = None,
         simulated_target_system_prompt_path: str | Path | None = None,
         next_message_system_prompt_path: str | Path | None = None,
@@ -168,6 +175,7 @@ class AttackTechniqueFactory(Identifiable):
         attack_kwargs: dict[str, Any] | None = None,
         adversarial_chat: PromptTarget | None = None,
         uses_adversarial: bool | None = None,
+        supports_additional_request_converters: bool = False,
         scorer_override_policy: ScorerOverridePolicy = ScorerOverridePolicy.WARN,
     ) -> AttackTechniqueFactory:
         """
@@ -185,6 +193,9 @@ class AttackTechniqueFactory(Identifiable):
                 ``PromptSendingAttack``.
             description: Short human-readable summary of what the technique does.
                 Forwarded to the factory constructor as descriptive metadata.
+            adversarial_chat_system_prompt: Resolved adversarial chat system prompt for
+                the simulated conversation. Mutually exclusive with
+                ``adversarial_chat_system_prompt_path``.
             adversarial_chat_system_prompt_path: Path to the YAML file containing
                 the adversarial chat system prompt for the simulated conversation.
                 Defaults to ``EXECUTOR_SEED_PROMPT_PATH/red_teaming/{name}.yaml``.
@@ -219,6 +230,9 @@ class AttackTechniqueFactory(Identifiable):
                 during execution. ``None`` auto-derives from the attack class
                 constructor signature and seed-technique shape. Forwarded to
                 the factory constructor.
+            supports_additional_request_converters: Whether callers may safely
+                append request converters to this technique. Forwarded to the
+                factory constructor.
             scorer_override_policy: Policy applied when a scenario's scorer is
                 incompatible with the attack's ``attack_scoring_config`` type
                 annotation. Defaults to ``WARN``. Forwarded to the factory
@@ -227,10 +241,17 @@ class AttackTechniqueFactory(Identifiable):
         Returns:
             AttackTechniqueFactory: A new factory whose ``seed_technique`` is the
                 wrapped simulated conversation.
+
+        Raises:
+            ValueError: If both a direct adversarial system prompt and its path are provided.
         """
         if attack_class is None:
             attack_class = PromptSendingAttack
-        if adversarial_chat_system_prompt_path is None:
+        if adversarial_chat_system_prompt is not None and adversarial_chat_system_prompt_path is not None:
+            raise ValueError(
+                "Set only one of adversarial_chat_system_prompt or adversarial_chat_system_prompt_path, not both."
+            )
+        if adversarial_chat_system_prompt is None and adversarial_chat_system_prompt_path is None:
             adversarial_chat_system_prompt_path = Path(EXECUTOR_SEED_PROMPT_PATH) / "red_teaming" / f"{name}.yaml"
 
         # A fixed final user message and an LLM-generated next message are mutually
@@ -241,10 +262,14 @@ class AttackTechniqueFactory(Identifiable):
         elif next_message_system_prompt_path is None:
             next_message_system_prompt_path = NextMessageSystemPromptPaths.DIRECT.value
 
-        simulated_conversation_kwargs: dict[str, Any] = {
-            "adversarial_chat_system_prompt_path": Path(adversarial_chat_system_prompt_path),
-            "num_turns": num_turns,
-        }
+        simulated_conversation_kwargs: dict[str, Any] = {"num_turns": num_turns}
+        if adversarial_chat_system_prompt is not None:
+            simulated_conversation_kwargs["adversarial_chat_system_prompt"] = adversarial_chat_system_prompt
+        else:
+            assert adversarial_chat_system_prompt_path is not None
+            simulated_conversation_kwargs["adversarial_chat_system_prompt_path"] = Path(
+                adversarial_chat_system_prompt_path
+            )
         if simulated_target_system_prompt_path is not None:
             simulated_conversation_kwargs["simulated_target_system_prompt_path"] = Path(
                 simulated_target_system_prompt_path
@@ -279,6 +304,7 @@ class AttackTechniqueFactory(Identifiable):
             adversarial_chat=adversarial_chat,
             seed_technique=seed_technique,
             uses_adversarial=uses_adversarial,
+            supports_additional_request_converters=supports_additional_request_converters,
             scorer_override_policy=scorer_override_policy,
         )
 
@@ -312,6 +338,23 @@ class AttackTechniqueFactory(Identifiable):
                 f"Factory '{self._name}': an adversarial chat or prompt is set but "
                 f"uses_adversarial=False. A technique that doesn't use an adversarial chat "
                 f"should not have one wired."
+            )
+
+    def _validate_converter_composition(self) -> None:
+        """
+        Validate that an opt-in factory can receive additive request converters.
+
+        Raises:
+            ValueError: If composition is enabled but the attack constructor does
+                not accept ``attack_converter_config``.
+        """
+        if (
+            self._supports_additional_request_converters
+            and "attack_converter_config" not in self._get_accepted_params()
+        ):
+            raise ValueError(
+                f"Factory '{self._name}' declares supports_additional_request_converters=True, "
+                f"but {self._attack_class.__name__} does not accept 'attack_converter_config'."
             )
 
     def _validate_kwargs(self) -> None:
@@ -483,6 +526,11 @@ class AttackTechniqueFactory(Identifiable):
     def uses_adversarial(self) -> bool:
         """Whether this technique drives an adversarial chat during execution."""
         return self._uses_adversarial
+
+    @property
+    def supports_additional_request_converters(self) -> bool:
+        """Whether callers may safely append request converters to this technique."""
+        return self._supports_additional_request_converters
 
     @property
     def scoring_config_type(self) -> type | None:
@@ -828,6 +876,7 @@ class AttackTechniqueFactory(Identifiable):
             "attack_class": self._attack_class.__name__,
             "kwargs": kwargs_for_id,
             "uses_adversarial": self._uses_adversarial,
+            "supports_additional_request_converters": self._supports_additional_request_converters,
         }
         if self._technique_tags:
             params["technique_tags"] = list(self._technique_tags)

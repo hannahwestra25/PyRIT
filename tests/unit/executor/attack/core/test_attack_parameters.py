@@ -233,6 +233,29 @@ class TestFromSeedGroupAsyncWithSimulatedConversation:
         assert call_kwargs["num_turns"] == 3
 
     @patch("pyrit.executor.attack.multi_turn.simulated_conversation.generate_simulated_conversation_async")
+    async def test_passes_direct_adversarial_prompt_to_simulated_conversation(
+        self,
+        mock_generate: AsyncMock,
+        seed_objective: SeedObjective,
+        mock_adversarial_chat: MagicMock,
+        mock_objective_scorer: MagicMock,
+        mock_simulated_result: list,
+    ) -> None:
+        prompt = SeedPrompt(value="Direct {{ objective }}", data_type="text", parameters=["objective"])
+        config = SeedSimulatedConversation(adversarial_chat_system_prompt=prompt)
+        mock_generate.return_value = mock_simulated_result
+
+        await AttackParameters.from_seed_group_async(
+            seed_group=AttackSeedGroup(seeds=[seed_objective, config]),
+            adversarial_chat=mock_adversarial_chat,
+            objective_scorer=mock_objective_scorer,
+        )
+
+        call_kwargs = mock_generate.call_args.kwargs
+        assert call_kwargs["adversarial_chat_system_prompt"] is prompt
+        assert call_kwargs["adversarial_chat_system_prompt_path"] is None
+
+    @patch("pyrit.executor.attack.multi_turn.simulated_conversation.generate_simulated_conversation_async")
     async def test_uses_generated_prepended_messages(
         self,
         mock_generate: AsyncMock,

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import logging
 from functools import cache
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from pyrit.common import apply_defaults
 from pyrit.common.path import SCORER_SEED_PROMPT_PATH
@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 
 @cache
-def _extra_default_factories() -> dict[str, AttackTechniqueFactory]:
+def _leakage_factories() -> list[AttackTechniqueFactory]:
     """
     Return the AIRT source-owned leakage techniques (``first_letter``, ``image``).
 
@@ -42,11 +42,11 @@ def _extra_default_factories() -> dict[str, AttackTechniqueFactory]:
     them explicitly, so the shared technique pool for other scenarios is unchanged.
 
     Returns:
-        dict[str, AttackTechniqueFactory]: The leakage-owned technique factories keyed by name.
+        list[AttackTechniqueFactory]: The leakage-owned technique factories.
     """
     from pyrit.setup.initializers.techniques.airt import get_technique_factories
 
-    return {factory.name: factory for factory in get_technique_factories()}
+    return get_technique_factories()
 
 
 @cache
@@ -62,7 +62,7 @@ def _build_leakage_technique() -> type[ScenarioTechnique]:
     """
     registry = AttackTechniqueRegistry.get_registry_singleton()
     core_factories = list(registry.get_factories_or_raise().values())
-    all_factories = core_factories + list(_extra_default_factories().values())
+    all_factories = core_factories + _leakage_factories()
     return AttackTechniqueRegistry.build_technique_class_from_factories(  # type: ignore[return-value, ty:invalid-return-type]
         class_name="LeakageTechnique",
         factories=all_factories,
@@ -80,6 +80,11 @@ class Leakage(Scenario):
     """
 
     VERSION: int = 2
+    RUN_SIZE_USES_FACTORY_COMPATIBILITY: ClassVar[bool] = True
+
+    def _get_run_size_extra_factories(self) -> dict[str, AttackTechniqueFactory]:
+        """Return Leakage's source-owned factories for matrix sizing."""
+        return {factory.name: factory for factory in _leakage_factories()}
 
     @classmethod
     def _get_additional_scoring_questions(cls) -> list[Path]:
@@ -144,5 +149,5 @@ class Leakage(Scenario):
             context=context,
             objective_scorer=self._objective_scorer,
             technique_converters=self._technique_converters,
-            extra_factories=_extra_default_factories(),
+            extra_factories={factory.name: factory for factory in _leakage_factories()},
         )

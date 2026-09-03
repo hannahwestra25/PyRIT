@@ -636,8 +636,28 @@ class TestSeedEntry:
         assert SEED_RESPONSE_JSON_SCHEMA_METADATA_KEY not in entry.prompt_metadata
         recovered = entry.get_seed()
         assert isinstance(recovered, SeedSimulatedConversation)
+        assert recovered.value == config.value
         assert SEED_RESPONSE_JSON_SCHEMA_METADATA_KEY not in (recovered.metadata or {})
         assert (recovered.metadata or {}).get("owned") == "by-caller"
+
+    def test_roundtrip_seed_simulated_conversation_preserves_direct_prompt(self):
+        direct_prompt = SeedPrompt(
+            value="Direct {{ objective }}",
+            data_type="text",
+            parameters=["objective"],
+            response_json_schema={"type": "object"},
+            is_jinja_template=True,
+        )
+        config = SeedSimulatedConversation(adversarial_chat_system_prompt=direct_prompt)
+
+        recovered = SeedEntry(entry=config).get_seed()
+
+        assert isinstance(recovered, SeedSimulatedConversation)
+        assert recovered.value == config.value
+        assert recovered.adversarial_chat_system_prompt is not None
+        assert recovered.adversarial_chat_system_prompt.value == direct_prompt.value
+        assert recovered.adversarial_chat_system_prompt.parameters == direct_prompt.parameters
+        assert recovered.adversarial_chat_system_prompt.response_json_schema == direct_prompt.response_json_schema
 
     def test_corrupt_reserved_key_unpack_returns_no_schema(self):
         """A malformed JSON-encoded schema in the DB must round-trip as no schema, with clean metadata."""

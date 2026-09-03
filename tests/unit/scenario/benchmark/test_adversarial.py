@@ -18,7 +18,7 @@ These tests cover the new contract:
   that do not bake their own ``adversarial_chat``; the default expands to the exact
   benchmark set while the ``light`` aggregate remains selectable.
 * ``supported_parameters`` declares ``adversarial_targets: list[str]``.
-* The three default techniques resolve to benchmark-owned prompt variants.
+* The three default techniques compose shared guidance with canonical prompts.
 * ``_resolve_adversarial_targets`` raises with available names on typos.
 * ``_build_atomic_attacks_async`` produces ``N × M × D`` atomic attacks
   with the expected ``atomic_attack_name`` and ``display_group``.
@@ -61,6 +61,7 @@ from pyrit.scenario.core.scenario import Scenario
 from pyrit.scenario.scenarios.benchmark.adversarial import (
     AdversarialBenchmark,
     _build_benchmark_technique,
+    _compose_benchmark_adversarial_prompt,
     _extra_default_factories,
 )
 from pyrit.score import TrueFalseScorer
@@ -170,7 +171,7 @@ class TestAdversarialBenchmarkMetadata:
     """Tests for class-level metadata that doesn't depend on any runtime state."""
 
     def test_version_is_5(self):
-        """VERSION 5 identifies runs using the benchmark-owned default prompts."""
+        """VERSION 5 identifies runs using shared benchmark guidance."""
         assert AdversarialBenchmark.VERSION == 5
 
     def test_baseline_attack_policy_is_forbidden(self):
@@ -274,26 +275,110 @@ class TestAdversarialBenchmarkTechnique:
         resolved_values = {child.value for child in technique_cls.expand({technique_cls.default()})}
         assert resolved_values == _DEFAULT_BENCHMARK_TECHNIQUE_NAMES
 
-    def test_default_techniques_have_benchmark_owned_factory_overrides(self):
+    def test_default_techniques_have_scenario_local_factory_overrides(self):
         overrides = _extra_default_factories()
         assert set(overrides) == _DEFAULT_BENCHMARK_TECHNIQUE_NAMES
 
-    @pytest.mark.parametrize("technique_name", ["role_play_video_game", "crescendo_simulated"])
-    def test_simulated_default_uses_benchmark_prompt(self, technique_name):
-        factory = _extra_default_factories()[technique_name]
-        assert factory.seed_technique is not None
-        simulated_seed = factory.seed_technique.seeds[0]
-        assert isinstance(simulated_seed, SeedSimulatedConversation)
-        prompt_path = EXECUTOR_SEED_PROMPT_PATH / "benchmark" / f"{technique_name}.yaml"
+    def test_shared_guidance_has_no_technique_contract_metadata(self):
+        guidance = SeedPrompt.from_yaml_file(
+            EXECUTOR_SEED_PROMPT_PATH / "benchmark" / "adversarial_guidance.yaml"
+        )
 
-        assert simulated_seed.adversarial_chat_system_prompt_path == prompt_path
-        prompt = SeedPrompt.from_yaml_file(prompt_path)
-        assert "PyRIT's AdversarialBenchmark" in prompt.value
-        assert "Do not answer the objective yourself" in prompt.value
-        assert "Put only the prompt for the Defender AI in `next_message`" in prompt.value
-        assert set(prompt.parameters) == {"objective", "max_turns"}
-        rendered = prompt.render_template_value(objective="test objective", max_turns=3)
+        assert guidance.parameters == []
+        assert guidance.response_json_schema is None
+        assert "{{" not in guidance.value
+
+    @pytest.mark.parametrize(
+        ("technique_name", "canonical_prompt_path"),
+        [
+            (
+                "role_play_video_game",
+                EXECUTOR_SEED_PROMPT_PATH / "red_teaming" / "role_play" / "role_play_video_game.yaml",
+            ),
+            (
+                "crescendo_simulated",
+                EXECUTOR_SEED_PROMPT_PATH / "red_teaming" / "crescendo_simulated.yaml",
+            ),
+            ("tap", TreeOfAttacksWithPruningAttack.DEFAULT_ADVERSARIAL_SYSTEM_PROMPT_PATH),
+        ],
+    )
+    def test_default_prompt_composes_guidance_with_canonical_prompt(
+        self, technique_name: str, canonical_prompt_path
+    ):
+        factory = _extra_default_factories()[technique_name]
+        if technique_name == "tap":
+            composed_prompt = factory._adversarial_system_prompt
+        else:
+            assert factory.seed_technique is not None
+            simulated_seed = factory.seed_technique.seeds[0]
+            assert isinstance(simulated_seed, SeedSimulatedConversation)
+            assert simulated_seed.adversarial_chat_system_prompt_path is None
+            composed_prompt = simulated_seed.adversarial_chat_system_prompt
+        assert isinstance(composed_prompt, SeedPrompt)
+
+        guidance = SeedPrompt.from_yaml_file(
+            EXECUTOR_SEED_PROMPT_PATH / "benchmark" / "adversarial_guidance.yaml"
+        )
+        canonical_prompt = SeedPrompt.from_yaml_file(canonical_prompt_path)
+        assert composed_prompt.value.startswith(guidance.value.rstrip())
+        assert composed_prompt.value.count(guidance.value.rstrip()) == 1
+        assert canonical_prompt.value in composed_prompt.value
+        assert composed_prompt.model_dump(exclude={"id", "date_added", "value"}) == canonical_prompt.model_dump(
+            exclude={"id", "date_added", "value"}
+        )
+
+    def test_composed_prompt_changes_local_factory_identity_without_mutating_globals(self):
+        registry_factories = AttackTechniqueRegistry.get_registry_singleton().get_factories_or_raise()
+        global_factories = {name: registry_factories[name] for name in _DEFAULT_BENCHMARK_TECHNIQUE_NAMES}
+        global_hashes = {name: factory.get_identifier().hash for name, factory in global_factories.items()}
+
+        overrides = _extra_default_factories()
+
+        for name, global_factory in global_factories.items():
+            assert registry_factories[name] is global_factory
+            assert global_factory.get_identifier().hash == global_hashes[name]
+            assert overrides[name] is not global_factory
+            assert overrides[name].get_identifier().hash != global_hashes[name]
+
+    @pytest.mark.parametrize("technique_name", ["role_play_video_game", "crescendo_simulated"])
+    @pytest.mark.usefixtures("patch_central_database")
+    def test_simulated_composed_prompt_participates_in_attack_technique_identity(self, technique_name: str):
+        factory = _extra_default_factories()[technique_name]
+        objective_target = MagicMock(spec=PromptTarget)
+        objective_target.get_identifier.return_value = ComponentIdentifier(
+            class_name="MockObjectiveTarget",
+            class_module="pyrit.test",
+        )
+        objective_scorer = MagicMock(spec=TrueFalseScorer)
+        objective_scorer.get_identifier.return_value = ComponentIdentifier(
+            class_name="MockObjectiveScorer",
+            class_module="pyrit.test",
+        )
+        scoring_config = AttackScoringConfig(objective_scorer=objective_scorer)
+
+        technique = factory.create(
+            objective_target=objective_target,
+            attack_scoring_config=scoring_config,
+        )
+        identifier = technique.get_identifier()
+
+        assert identifier.technique_seeds
+        assert "# Cross-Technique Guidance" in identifier.technique_seeds[0].value
+
+    def test_composition_preserves_required_jinja_parameters_and_schema(self):
+        prompt = _compose_benchmark_adversarial_prompt(
+            canonical_prompt_path=TreeOfAttacksWithPruningAttack.DEFAULT_ADVERSARIAL_SYSTEM_PROMPT_PATH
+        )
+
+        assert set(prompt.parameters or []) == {"objective", "desired_prefix", "conversation_context"}
+        assert prompt.response_json_schema is not None
+        rendered = prompt.render_template_value(
+            objective="test objective",
+            desired_prefix="Expected prefix",
+            conversation_context="",
+        )
         assert "test objective" in rendered
+        assert "Expected prefix" in rendered
         assert "{{" not in rendered
 
     def test_light_aggregate_excludes_non_light_techniques(self):
@@ -397,8 +482,21 @@ class TestAdversarialBenchmarkInit:
 
         objective_target = MagicMock(spec=PromptTarget)
         objective_target.configuration.capabilities.output_modalities = [{"text"}]
+        objective_target.get_identifier.return_value = ComponentIdentifier(
+            class_name="MockObjectiveTarget",
+            class_module="pyrit.test",
+        )
         adversarial_target = TargetRegistry.get_registry_singleton().instances.get("adversarial_chat")
-        scoring_config = AttackScoringConfig(objective_scorer=MagicMock(spec=TrueFalseScorer))
+        adversarial_target.get_identifier.return_value = ComponentIdentifier(
+            class_name="MockAdversarialTarget",
+            class_module="pyrit.test",
+        )
+        objective_scorer = MagicMock(spec=TrueFalseScorer)
+        objective_scorer.get_identifier.return_value = ComponentIdentifier(
+            class_name="MockObjectiveScorer",
+            class_module="pyrit.test",
+        )
+        scoring_config = AttackScoringConfig(objective_scorer=objective_scorer)
 
         with caplog.at_level(logging.WARNING):
             technique = factory.create(
@@ -408,8 +506,14 @@ class TestAdversarialBenchmarkInit:
             )
 
         assert isinstance(technique.attack, TreeOfAttacksWithPruningAttack)
-        assert "PyRIT's AdversarialBenchmark" in technique.attack._adversarial_chat_system_seed_prompt.value
-        assert "# Follow-Up Turns" in technique.attack._adversarial_chat_system_seed_prompt.value
+        assert "# Cross-Technique Guidance" in technique.attack._adversarial_chat_system_seed_prompt.value
+        assert "SETTING:" in technique.attack._adversarial_chat_system_seed_prompt.value
+        identifier = technique.get_identifier()
+        assert identifier.attack is not None
+        assert (
+            identifier.attack.adversarial_system_prompt
+            == technique.attack._adversarial_chat_system_seed_prompt.value
+        )
         assert "{{ max_turns }}" not in technique.attack._adversarial_chat_system_seed_prompt.value
         assert set(technique.attack._adversarial_chat_system_seed_prompt.parameters) == {
             "objective",

@@ -93,6 +93,27 @@ class TestFactoryInit:
 
         assert factory.description == "Staged as a journalist interview."
 
+    def test_with_simulated_conversation_accepts_direct_prompt(self):
+        prompt = SeedPrompt(value="Direct {{ objective }}", data_type="text", parameters=["objective"])
+
+        factory = AttackTechniqueFactory.with_simulated_conversation(
+            name="custom",
+            adversarial_chat_system_prompt=prompt,
+        )
+
+        assert factory.seed_technique is not None
+        simulated_seed = factory.seed_technique.seeds[0]
+        assert simulated_seed.adversarial_chat_system_prompt is prompt
+        assert simulated_seed.adversarial_chat_system_prompt_path is None
+
+    def test_with_simulated_conversation_rejects_direct_prompt_and_path(self):
+        with pytest.raises(ValueError, match="Set only one of adversarial_chat_system_prompt"):
+            AttackTechniqueFactory.with_simulated_conversation(
+                name="custom",
+                adversarial_chat_system_prompt=SeedPrompt(value="direct", data_type="text"),
+                adversarial_chat_system_prompt_path="prompt.yaml",
+            )
+
     def test_description_does_not_affect_identifier(self):
         """Description is decorative metadata and must not change the behavioral identity hash."""
         with_desc = AttackTechniqueFactory(name="test", attack_class=_StubAttack, description="Does the thing.")
@@ -206,6 +227,29 @@ class TestFactoryInit:
         )
 
         assert not factory.can_append_request_converter(converter_type=TranslationConverter)
+
+    def test_request_converter_composition_requires_supported_constructor(self):
+        class _NoConverterAttack:
+            def __init__(self, *, objective_target, attack_scoring_config=None):
+                self.objective_target = objective_target
+
+        with pytest.raises(ValueError, match="does not accept 'attack_converter_config'"):
+            AttackTechniqueFactory(
+                name="test",
+                attack_class=_NoConverterAttack,
+                supports_additional_request_converters=True,
+            )
+
+    def test_request_converter_composition_is_explicit_opt_in(self):
+        default_factory = AttackTechniqueFactory(name="default", attack_class=_StubAttack)
+        composable_factory = AttackTechniqueFactory(
+            name="composable",
+            attack_class=_StubAttack,
+            supports_additional_request_converters=True,
+        )
+
+        assert not default_factory.supports_additional_request_converters
+        assert composable_factory.supports_additional_request_converters
 
 
 class TestFactoryCreate:

@@ -13,15 +13,30 @@ from pyrit.analytics import get_cached_results_for_technique
 from pyrit.common import apply_defaults
 from pyrit.common.path import EXECUTOR_SEED_PROMPT_PATH, EXECUTOR_SIMULATED_TARGET_PATH
 from pyrit.executor.attack import TreeOfAttacksWithPruningAttack
-from pyrit.models import AttackOutcome, AttackResult, ObjectiveTargetEvaluationIdentifier, ScenarioResult, SeedPrompt
+from pyrit.models import (
+    AttackOutcome,
+    AttackResult,
+    ObjectiveTargetEvaluationIdentifier,
+    ScenarioResult,
+    ScenarioRunSizeComponent,
+    ScenarioRunSizeEstimate,
+    SeedPrompt,
+)
 from pyrit.models.parameter import Parameter
 from pyrit.registry import AttackTechniqueRegistry, TargetRegistry
 from pyrit.scenario.core.attack_technique_factory import AttackTechniqueFactory
 from pyrit.scenario.core.dataset_configuration import DatasetAttackConfiguration
-from pyrit.scenario.core.matrix_atomic_attack_builder import MatrixAtomicAttackBuilder, resolve_technique_factories
+from pyrit.scenario.core.matrix_atomic_attack_builder import (
+    MatrixAtomicAttackBuilder,
+    filter_compatible_seed_groups,
+    resolve_technique_factories,
+    resolve_technique_factories_for_techniques,
+)
 from pyrit.scenario.core.scenario import BaselineAttackPolicy, Scenario
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from pyrit.prompt_target import PromptTarget
     from pyrit.scenario.core.atomic_attack import AtomicAttack
     from pyrit.scenario.core.scenario_context import ScenarioContext
@@ -32,41 +47,65 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _compose_benchmark_adversarial_prompt(*, canonical_prompt_path: Path) -> SeedPrompt:
+    """
+    Prepend shared benchmark guidance to a canonical technique prompt.
+
+    Args:
+        canonical_prompt_path: Path to the canonical technique system prompt.
+
+    Returns:
+        SeedPrompt: The canonical prompt with benchmark guidance prepended and all
+            canonical metadata preserved.
+    """
+    guidance = SeedPrompt.from_yaml_file(EXECUTOR_SEED_PROMPT_PATH / "benchmark" / "adversarial_guidance.yaml")
+    canonical_prompt = SeedPrompt.from_yaml_file(canonical_prompt_path)
+    return canonical_prompt.model_copy(
+        update={"value": f"{guidance.value.rstrip()}\n\n{canonical_prompt.value.lstrip()}"},
+    )
+
+
 @cache
 def _extra_default_factories() -> dict[str, AttackTechniqueFactory]:
     """
     Build scenario-owned factories for the benchmark's default techniques.
 
-    These overrides keep benchmark prompt behavior stable without changing the
-    globally registered versions of the same techniques. Each prompt preserves
-    the source technique's required template variables and response schema.
+    These overrides prepend shared benchmark guidance to the canonical technique
+    prompts without changing the globally registered factories or prompt files.
 
     Returns:
         dict[str, AttackTechniqueFactory]: Factories keyed by the technique names
             they override within this scenario.
     """
-    benchmark_prompt_path = EXECUTOR_SEED_PROMPT_PATH / "benchmark"
     return {
         "role_play_video_game": AttackTechniqueFactory.with_simulated_conversation(
             name="role_play_video_game",
-            description="Uses the benchmark-owned video-game role-play prompt.",
-            adversarial_chat_system_prompt_path=benchmark_prompt_path / "role_play_video_game.yaml",
+            description="Composes benchmark guidance with the canonical video-game role-play prompt.",
+            adversarial_chat_system_prompt=_compose_benchmark_adversarial_prompt(
+                canonical_prompt_path=(
+                    EXECUTOR_SEED_PROMPT_PATH / "red_teaming" / "role_play" / "role_play_video_game.yaml"
+                )
+            ),
             next_message_system_prompt_path=EXECUTOR_SIMULATED_TARGET_PATH / "role_play_next_message.yaml",
             technique_tags=["single_turn", "light"],
             num_turns=2,
         ),
         "crescendo_simulated": AttackTechniqueFactory.with_simulated_conversation(
             name="crescendo_simulated",
-            description="Uses the benchmark-owned simulated Crescendo prompt.",
-            adversarial_chat_system_prompt_path=benchmark_prompt_path / "crescendo_simulated.yaml",
+            description="Composes benchmark guidance with the canonical simulated Crescendo prompt.",
+            adversarial_chat_system_prompt=_compose_benchmark_adversarial_prompt(
+                canonical_prompt_path=EXECUTOR_SEED_PROMPT_PATH / "red_teaming" / "crescendo_simulated.yaml"
+            ),
             technique_tags=["single_turn"],
         ),
         "tap": AttackTechniqueFactory(
             name="tap",
             attack_class=TreeOfAttacksWithPruningAttack,
-            description="Uses the benchmark-owned TAP prompt.",
+            description="Composes benchmark guidance with the canonical TAP prompt.",
             technique_tags=["multi_turn"],
-            adversarial_system_prompt=SeedPrompt.from_yaml_file(benchmark_prompt_path / "tap.yaml"),
+            adversarial_system_prompt=_compose_benchmark_adversarial_prompt(
+                canonical_prompt_path=TreeOfAttacksWithPruningAttack.DEFAULT_ADVERSARIAL_SYSTEM_PROMPT_PATH
+            ),
         ),
     }
 
@@ -119,9 +158,9 @@ class AdversarialBenchmark(Scenario):
     ``TargetInitializer`` from ``ADVERSARIAL_CHAT_*`` env vars, or
     programmatically via ``TargetRegistry.get_registry_singleton().instances.register``.
     The default ``role_play_video_game``, ``crescendo_simulated``, and ``tap``
-    techniques use benchmark-owned adversarial system prompts. These scenario-local
-    overrides keep benchmark behavior stable without changing the globally registered
-    versions of the techniques.
+    techniques prepend one shared benchmark guidance layer to their canonical
+    adversarial system prompts. These scenario-local overrides leave global factories
+    and canonical prompt files unchanged.
 
     At run time, ``_build_atomic_attacks_async`` performs the
     ``(technique × adversarial_target × dataset)`` cross-product: for each
@@ -143,7 +182,8 @@ class AdversarialBenchmark(Scenario):
     #: initializer registered rather than only core-tagged factories.
     #: Bumped from 3 → 4 when the no-selection default changed from the ``light``
     #: aggregate to ``role_play_video_game``, ``crescendo_simulated``, and ``tap``.
-    #: Bumped from 4 → 5 when those three defaults received benchmark-owned prompts.
+    #: Bumped from 4 → 5 when those three defaults began composing shared benchmark
+    #: guidance with their canonical technique prompts.
     #: ``VERSION`` participates in resume identity, so older results cannot be resumed
     #: as v5. The separate ``use_cached`` behavioral cache intentionally remains
     #: keyed by technique and objective-target identity across scenario versions.
@@ -238,6 +278,108 @@ class AdversarialBenchmark(Scenario):
             scenario_result_id=scenario_result_id,
         )
 
+    async def _estimate_run_size_async(self) -> ScenarioRunSizeEstimate:
+        """
+        Estimate the target-by-technique matrix using execution compatibility.
+
+        Returns:
+            ScenarioRunSizeEstimate: Structured benchmark estimate.
+        """
+        selected_groups, datasets = await self._resolve_dataset_groups_for_estimate_async()
+        factories = resolve_technique_factories_for_techniques(
+            scenario_techniques=self._scenario_techniques,
+        )
+        per_target_components: list[ScenarioRunSizeComponent] = []
+        for technique in self._scenario_techniques:
+            factory = factories.get(technique.value)
+            if factory is None:
+                continue
+            compatible_count = sum(
+                len(filter_compatible_seed_groups(factory=factory, seed_groups=groups))
+                for groups in selected_groups.values()
+            )
+            per_target_components.append(
+                ScenarioRunSizeComponent(
+                    label=technique.value,
+                    count=compatible_count,
+                    note="Count per adversarial target.",
+                )
+            )
+
+        compatibility_bounds = (
+            self._get_technique_compatibility_bounds(datasets=datasets) if self._estimate_has_binding_size_cap else None
+        )
+        sampled_per_target_count = sum(component.count for component in per_target_components)
+        if compatibility_bounds is not None:
+            per_target_minimum = sum(bounds[0] for bounds in compatibility_bounds.values())
+            per_target_maximum = sum(bounds[1] for bounds in compatibility_bounds.values())
+        elif self._estimate_has_binding_size_cap:
+            per_target_minimum = None
+            per_target_maximum = None
+        else:
+            per_target_minimum = sampled_per_target_count
+            per_target_maximum = sampled_per_target_count
+        target_names = self.params.get("adversarial_targets") or []
+        if not target_names:
+            return ScenarioRunSizeEstimate(
+                minimum_attack_count=per_target_minimum,
+                components=per_target_components,
+                datasets=datasets,
+                note=(
+                    "Counts are per adversarial target. At least one adversarial_targets entry is required, "
+                    "and the total scales with the number of entries supplied. Baseline is forbidden."
+                ),
+            )
+
+        resolved_targets = self._resolve_adversarial_targets(target_names=target_names)
+        target_count = len(resolved_targets)
+        components = [
+            component.model_copy(update={"count": component.count * target_count, "note": None})
+            for component in per_target_components
+        ]
+        if self._use_cached:
+            return ScenarioRunSizeEstimate(
+                minimum_attack_count=0,
+                maximum_attack_count=per_target_maximum * target_count if per_target_maximum is not None else None,
+                components=components,
+                datasets=datasets,
+                note=(
+                    "Components describe the candidate population. Live behavioral-cache hits can suppress work, "
+                    "so the authoritative total is unavailable before launch."
+                ),
+            )
+        if self._estimate_has_binding_size_cap and compatibility_bounds is None:
+            return ScenarioRunSizeEstimate(
+                components=components,
+                datasets=datasets,
+                note=(
+                    "Components describe the sampled candidate population. A binding randomized dataset cap may "
+                    "select a different compatibility mix at launch."
+                ),
+            )
+        if (
+            self._estimate_has_binding_size_cap
+            and per_target_minimum is not None
+            and per_target_maximum is not None
+            and per_target_minimum != per_target_maximum
+        ):
+            return ScenarioRunSizeEstimate(
+                minimum_attack_count=per_target_minimum * target_count,
+                maximum_attack_count=per_target_maximum * target_count,
+                components=components,
+                datasets=datasets,
+                note=(
+                    "The range covers every compatibility mix that the randomized per-dataset caps can select. "
+                    "Baseline is forbidden."
+                ),
+            )
+        return ScenarioRunSizeEstimate(
+            estimated_attack_count=sum(component.count for component in components),
+            components=components,
+            datasets=datasets,
+            note="Baseline is forbidden; retries and internal attack turns are excluded.",
+        )
+
     async def _build_atomic_attacks_async(self, *, context: ScenarioContext) -> list[AtomicAttack]:
         """
         Build atomic attacks from (technique × adversarial_target × dataset), then apply caching.
@@ -248,7 +390,8 @@ class AdversarialBenchmark(Scenario):
         with the resolved targets as its adversarial-target axis. Each pair calls
         ``factory.create(adversarial_chat=...)`` with the resolved target — no global
         registry state is touched. The benchmark's three default techniques resolve to
-        scenario-owned factory variants with benchmark-specific prompts. When
+        scenario-owned factory variants with shared guidance composed before their
+        canonical prompts. When
         ``self._use_cached`` is set, the resulting candidate
         list is filtered against the live behavioral cache via
         ``_collect_cached_completion_pairs``, which delegates to
