@@ -30,8 +30,14 @@ import {
   MoreHorizontalRegular,
   OpenRegular,
 } from '@fluentui/react-icons'
-import type { DisplayScore, Message, MessageAttachment, MessageDisplayPiece } from '../../types'
-import MarkdownContent from './MarkdownContent'
+import MarkdownContent from '@/components/Markdown/MarkdownContent'
+
+import type {
+  DisplayScore,
+  Message,
+  MessageAttachment,
+  MessageDisplayPiece,
+} from '../../types'
 import { useMessageListStyles } from './MessageList.styles'
 
 interface MessageListProps {
@@ -103,6 +109,15 @@ function MediaWithFallback({ type, src, className }: { type: 'video' | 'audio'; 
   return <audio src={src} controls className={className} onError={handleError} data-testid="audio-player" />
 }
 
+function scoreDisplayValue(score: DisplayScore): string {
+  // An undetermined score has no value, so name its status instead.
+  return score.score_value ?? score.status ?? ''
+}
+
+function scoreDisplayLabel(score: DisplayScore): string {
+  return `${score.is_objective_score ? 'Final score' : 'Score'}: ${scoreDisplayValue(score)}`
+}
+
 function ScoreDetails({ score, testId }: { score: DisplayScore; testId: string }) {
   const styles = useMessageListStyles()
   const categories = score.score_category?.filter(Boolean) ?? []
@@ -111,27 +126,19 @@ function ScoreDetails({ score, testId }: { score: DisplayScore; testId: string }
     <div className={styles.scoreSurface} data-testid={testId}>
       <Text weight="semibold">Score details</Text>
       <div className={styles.scoreRow}>
-        <Text size={200} weight="semibold" className={styles.scoreLabel}>Value</Text>
-        <Badge appearance="tint" color="brand" size="small" className={styles.scoreValue}>{score.score_value}</Badge>
-      </div>
-      <div className={styles.scoreRow}>
-        <Text size={200} weight="semibold" className={styles.scoreLabel}>Type</Text>
-        <Text size={200} className={styles.scoreValue}>{score.score_type}</Text>
+        <Text size={200} weight="semibold" className={styles.scoreLabel}>Score</Text>
+        <Badge appearance="tint" color="brand" size="small" className={styles.scoreValue}>{scoreDisplayValue(score)}</Badge>
       </div>
       <div className={styles.scoreRow}>
         <Text size={200} weight="semibold" className={styles.scoreLabel}>Scorer</Text>
         <Text size={200} className={styles.scoreValue}>{score.scorer_type}</Text>
       </div>
       <div className={styles.scoreRow}>
-        <Text size={200} weight="semibold" className={styles.scoreLabel}>Objective</Text>
-        <Text size={200} className={styles.scoreValue}>{score.is_objective_score ? 'Yes' : 'No'}</Text>
+        <Text size={200} weight="semibold" className={styles.scoreLabel}>Result role</Text>
+        <Text size={200} className={styles.scoreValue}>
+          {score.is_objective_score ? 'Final score' : 'Supporting score'}
+        </Text>
       </div>
-      {score.sourceLabel && (
-        <div className={styles.scoreRow}>
-          <Text size={200} weight="semibold" className={styles.scoreLabel}>Piece</Text>
-          <Text size={200} className={styles.scoreValue}>{score.sourceLabel}</Text>
-        </div>
-      )}
       {categories.length > 0 && (
         <div className={styles.scoreRow}>
           <Text size={200} weight="semibold" className={styles.scoreLabel}>Category</Text>
@@ -150,20 +157,22 @@ function ScoreDetails({ score, testId }: { score: DisplayScore; testId: string }
 
 function MessageScore({ score, groupId, scoreIndex }: { score: DisplayScore; groupId: string | number; scoreIndex: number }) {
   const styles = useMessageListStyles()
+  const displayValue = scoreDisplayValue(score)
+  const displayLabel = scoreDisplayLabel(score)
 
   return (
     <Popover withArrow>
-      <Tooltip content={score.score_value} relationship="description" withArrow>
+      <Tooltip content={displayLabel} relationship="description" withArrow>
         <PopoverTrigger disableButtonEnhancement>
           <Button
             appearance="subtle"
             size="small"
             className={styles.scoreChip}
-            aria-label={`Score ${score.score_value} from ${score.scorer_type}${score.is_objective_score ? ', objective score' : ''}${score.sourceLabel ? `, ${score.sourceLabel}` : ''}`}
+            aria-label={`Score ${displayValue} from ${score.scorer_type}${score.is_objective_score ? ', objective score' : ''}${score.sourceLabel ? `, ${score.sourceLabel}` : ''}`}
             data-testid={`message-score-${groupId}-${scoreIndex}`}
           >
             <Badge appearance="tint" color="brand" size="medium" className={styles.scoreChipValue}>
-              {score.score_value}
+              {displayLabel}
             </Badge>
           </Button>
         </PopoverTrigger>
@@ -197,23 +206,37 @@ function ScoreOverflowMenuItem({ score, label, onSelect }: ScoreOverflowMenuItem
 
 interface ScoreOverflowMenuProps {
   scores: DisplayScore[]
+  orderedScores: DisplayScore[]
   onSelect: (scoreId: string) => void
 }
 
 // Keep these measurements synchronized with scoreTab, scoreTabs.columnGap,
 // and scoreOverflowButton in MessageList.styles.ts.
-const SCORE_TAB_WIDTH_PX = 72
+const SCORE_TAB_WIDTH_PX = 152
 const SCORE_TAB_GAP_PX = 4
 const SCORE_OVERFLOW_BUTTON_WIDTH_PX = 112
 
-function getScoreOverflowLabels(scores: DisplayScore[]): string[] {
+function scoreTabLabel({
+  score,
+  orderedScores,
+}: {
+  score: DisplayScore
+  orderedScores: DisplayScore[]
+}): string {
+  if (score.is_objective_score) return 'Final Score'
+  return `Score ${orderedScores.indexOf(score) + 1}`
+}
+
+function getScoreOverflowLabels(
+  scores: DisplayScore[],
+  orderedScores: DisplayScore[],
+): string[] {
   const baseLabels = scores.map((score) => {
     const categories = score.score_category?.filter(Boolean) ?? []
     return [
-      score.score_value,
+      scoreTabLabel({ score, orderedScores }),
       score.scorer_type,
-      score.is_objective_score ? 'Objective' : '',
-      score.sourceLabel,
+      scoreDisplayValue(score),
       categories.length > 0 ? `Categories: ${categories.join(', ')}` : '',
     ].filter(Boolean).join(' · ')
   })
@@ -230,9 +253,9 @@ function getScoreOverflowLabels(scores: DisplayScore[]): string[] {
   })
 }
 
-function ScoreOverflowMenu({ scores, onSelect }: ScoreOverflowMenuProps) {
+function ScoreOverflowMenu({ scores, orderedScores, onSelect }: ScoreOverflowMenuProps) {
   const styles = useMessageListStyles()
-  const labels = getScoreOverflowLabels(scores)
+  const labels = getScoreOverflowLabels(scores, orderedScores)
 
   return (
     <Menu>
@@ -383,20 +406,20 @@ function MessageScores({ scores, groupId }: { scores: DisplayScore[]; groupId: s
         unstable_disableAutoFocus
         onOpenChange={(_event: unknown, data: { open: boolean }) => setIsScorePopoverOpen(data.open)}
       >
-        <Tooltip content={displayedScore.score_value} relationship="description" withArrow>
+        <Tooltip content={scoreDisplayLabel(displayedScore)} relationship="description" withArrow>
           <PopoverTrigger disableButtonEnhancement>
             <Button
               appearance="subtle"
               size="small"
               className={styles.stackedScoreButton}
-              aria-label={`View ${scores.length} scores, displayed score ${displayedScore.score_value} from ${displayedScore.scorer_type}${displayedScore.is_objective_score ? ', objective score' : ''}${displayedScore.sourceLabel ? `, ${displayedScore.sourceLabel}` : ''}`}
+              aria-label={`View ${scores.length} scores, displayed score ${scoreDisplayValue(displayedScore)} from ${displayedScore.scorer_type}${displayedScore.is_objective_score ? ', objective score' : ''}${displayedScore.sourceLabel ? `, ${displayedScore.sourceLabel}` : ''}`}
               data-testid={`message-score-stack-${groupId}`}
             >
               <span className={styles.scoreStack} aria-hidden="true">
                 <span className={styles.scoreStackOvalBack} />
                 <span className={styles.scoreStackOvalMiddle} />
                 <span className={styles.scoreStackOvalFront}>
-                  {displayedScore.score_value}
+                  {scoreDisplayLabel(displayedScore)}
                 </span>
               </span>
             </Button>
@@ -414,7 +437,9 @@ function MessageScores({ scores, groupId }: { scores: DisplayScore[]; groupId: s
             >
               {visibleScores.map((score) => {
                 const scoreIndex = scores.indexOf(score)
-                const scoreContext = `Score ${score.score_value} from ${score.scorer_type}${score.is_objective_score ? ', objective score' : ''}${score.sourceLabel ? `, ${score.sourceLabel}` : ''}`
+                const scoreContext = `${
+                  score.is_objective_score ? 'Final score from' : 'Score from'
+                } ${score.scorer_type}: ${scoreDisplayValue(score)}`
                 return (
                   <Tooltip
                     key={score.id}
@@ -432,7 +457,7 @@ function MessageScores({ scores, groupId }: { scores: DisplayScore[]; groupId: s
                       data-testid={`message-score-tab-${groupId}-${scoreIndex}`}
                     >
                       <span className={styles.scoreTabValue}>
-                        {score.score_value}
+                        {scoreTabLabel({ score, orderedScores })}
                       </span>
                     </Tab>
                   </Tooltip>
@@ -442,6 +467,7 @@ function MessageScores({ scores, groupId }: { scores: DisplayScore[]; groupId: s
             {overflowScores.length > 0 && (
               <ScoreOverflowMenu
                 scores={overflowScores}
+                orderedScores={orderedScores}
                 onSelect={setSelectedScoreId}
               />
             )}
@@ -685,9 +711,11 @@ export default function MessageList({ messages, onCopyToInput, onCopyToNewConver
                           ) : (
                             <Text className={styles.messageText}>{piece.content}</Text>
                           )}
-                          {piece.scores && piece.scores.length > 0 && (
-                            <MessageScores scores={piece.scores} groupId={groupId} />
-                          )}
+                          <div className={styles.scoreControls}>
+                            {piece.scores && piece.scores.length > 0 && (
+                              <MessageScores scores={piece.scores} groupId={groupId} />
+                            )}
+                          </div>
                         </div>
                       )
                     }
@@ -734,9 +762,11 @@ export default function MessageList({ messages, onCopyToInput, onCopyToNewConver
                             )}
                           </div>
                         )}
-                        {piece.scores && piece.scores.length > 0 && (
-                          <MessageScores scores={piece.scores} groupId={groupId} />
-                        )}
+                        <div className={styles.scoreControls}>
+                          {piece.scores && piece.scores.length > 0 && (
+                            <MessageScores scores={piece.scores} groupId={groupId} />
+                          )}
+                        </div>
                       </div>
                     )
                   })}
@@ -876,6 +906,7 @@ export default function MessageList({ messages, onCopyToInput, onCopyToNewConver
                       />
                     </Tooltip>
                   ))}
+
                 </div>
               )}
 

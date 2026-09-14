@@ -6,7 +6,7 @@
 #       extension: .py
 #       format_name: percent
 #       format_version: '1.3'
-#       jupytext_version: 1.19.4
+#       jupytext_version: 1.19.5
 # ---
 
 # %% [markdown]
@@ -112,6 +112,7 @@ from pyrit.converter import (
     ArabiziConverter,
     BidiConverter,
     CharacterSpaceConverter,
+    CharNoiseConverter,
     CharSwapConverter,
     CodeAttackConverter,
     CodeChameleonConverter,
@@ -123,6 +124,7 @@ from pyrit.converter import (
     InsertPunctuationConverter,
     LeetspeakConverter,
     MathObfuscationConverter,
+    PuzzledConverter,
     RandomCapitalLettersConverter,
     RepeatTokenConverter,
     StringJoinConverter,
@@ -181,6 +183,9 @@ char_swap = CharSwapConverter(
 )
 print("CharSwap:", await char_swap.convert_async(prompt=prompt))  # type: ignore
 
+# CharNoise nudges printable ASCII characters to an adjacent codepoint
+print("CharNoise:", await CharNoiseConverter(noise_probability=0.2).convert_async(prompt=prompt))  # type: ignore
+
 # Insert punctuation adds punctuation marks
 insert_punct = InsertPunctuationConverter(word_swap_ratio=0.2)
 print("Insert Punctuation:", await insert_punct.convert_async(prompt=prompt))  # type: ignore
@@ -204,6 +209,12 @@ print("Colloquial Wordswap:", await colloquial.convert_async(prompt=prompt))  # 
 # CodeChameleon [@lv2024codechameleon] encrypts and wraps in code
 code_chameleon = CodeChameleonConverter(encrypt_type="reverse")
 print("CodeChameleon:", await code_chameleon.convert_async(prompt=prompt))  # type: ignore
+
+# PUZZLED [@ahn2025puzzled] hides sensitive words in a word puzzle the target must solve.
+# Run `python -m spacy download en_core_web_sm` for the paper's part-of-speech-aware word choice;
+# without it, words are picked by length alone and every clue is just "n-letter word".
+puzzled = PuzzledConverter(puzzle_type="word_search", seed=1)
+print("Puzzled:", await puzzled.convert_async(prompt=prompt))  # type: ignore
 
 # %%
 # CodeAttack [@ren2024codeattack] hides the request inside a code-completion task

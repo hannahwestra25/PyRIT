@@ -432,7 +432,7 @@ async def test_receive_events_soft_finishes_after_audio_done(target):
         yield _scripted_event("response.output_audio.delta", delta=base64.b64encode(b"audio").decode("ascii"))
         yield _scripted_event("response.output_audio_transcript.delta", delta="partial")
         yield _scripted_event("response.output_audio.done")
-        raise asyncio.TimeoutError
+        raise TimeoutError
 
     mock_connection.__aiter__.side_effect = _events
 
@@ -549,7 +549,7 @@ async def test_receive_events_ignores_late_events_from_soft_finished_response(ta
             delta=base64.b64encode(b"first").decode("ascii"),
         )
         yield _scripted_event("response.audio.done", response_id="response-1")
-        raise asyncio.TimeoutError
+        raise TimeoutError
 
     async def _second_response_events() -> AsyncIterator[Any]:
         yield _scripted_event(
@@ -631,12 +631,12 @@ async def test_receive_events_timeout_before_audio_done_raises(target):
     target._existing_conversation[conversation_id] = mock_connection
 
     async def _events():
-        raise asyncio.TimeoutError
+        raise TimeoutError
         yield  # pragma: no cover
 
     mock_connection.__aiter__.side_effect = _events
 
-    with pytest.raises(asyncio.TimeoutError):
+    with pytest.raises(TimeoutError):
         await target.receive_events_async(conversation_id)
 
 
@@ -1412,31 +1412,54 @@ async def test_send_prompt_audio_path_calls_send_audio_async(target, tmp_path):
     target.send_audio_async.assert_awaited_once()
 
 
-async def test_cleanup_conversation_async_closes_and_removes(target):
+async def test_reset_conversation_async_closes_and_removes(target):
     mock_connection = AsyncMock()
     target._existing_conversation["conv"] = mock_connection
 
-    await target.cleanup_conversation_async(conversation_id="conv")
+    await target.reset_conversation_async(conversation_id="conv")
 
     mock_connection.close.assert_awaited_once()
     assert "conv" not in target._existing_conversation
 
 
-async def test_cleanup_conversation_async_swallows_close_error(target):
+async def test_reset_conversation_async_swallows_close_error(target):
     mock_connection = AsyncMock()
     mock_connection.close.side_effect = RuntimeError("close failed")
     target._existing_conversation["conv"] = mock_connection
 
     # The error is swallowed and the conversation is still removed.
-    await target.cleanup_conversation_async(conversation_id="conv")
+    await target.reset_conversation_async(conversation_id="conv")
 
     assert "conv" not in target._existing_conversation
 
 
-async def test_cleanup_conversation_async_unknown_id_is_noop(target):
+async def test_reset_conversation_async_propagates_cancellation(target):
+    mock_connection = AsyncMock()
+    mock_connection.close.side_effect = asyncio.CancelledError
+    target._existing_conversation["conv"] = mock_connection
+
+    with pytest.raises(asyncio.CancelledError):
+        await target.reset_conversation_async(conversation_id="conv")
+
+    mock_connection.close.assert_awaited_once()
+    assert "conv" not in target._existing_conversation
+
+
+async def test_cleanup_conversation_async_warns_and_delegates(target):
+    mock_connection = AsyncMock()
+    target._existing_conversation["conv"] = mock_connection
+
+    with pytest.warns(DeprecationWarning, match="reset_conversation_async"):
+        await target.cleanup_conversation_async(conversation_id="conv")
+
+    mock_connection.close.assert_awaited_once()
+    assert "conv" not in target._existing_conversation
+
+
+async def test_reset_conversation_async_unknown_id_is_noop(target):
     target._existing_conversation["conv"] = AsyncMock()
 
-    await target.cleanup_conversation_async(conversation_id="missing")
+    await target.reset_conversation_async(conversation_id="missing")
 
     assert "conv" in target._existing_conversation
 

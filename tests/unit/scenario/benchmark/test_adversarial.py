@@ -32,7 +32,7 @@ These tests cover the new contract:
 
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -1127,7 +1127,7 @@ def _persist_attack_result(
         objective=objective,
         atomic_attack_identifier=_make_atomic_attack_identifier(target),
         outcome=outcome,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         attribution_data={"parent_collection": atomic_attack_name} if atomic_attack_name else None,
     )
     memory.add_attack_results_to_memory(attack_results=[attack_result])
@@ -1443,7 +1443,7 @@ def _make_exact_cached_result(
         attack_result_id=attack_result_id or str(uuid.uuid4()),
         conversation_id=str(uuid.uuid4()),
         objective=objective,
-        last_score=score,
+        automated_score=score,
         outcome=outcome,
         attribution_parent_id=parent_id,
         attribution_data={"parent_collection": "attack_a", "parent_eval_hash": "technique-hash"},

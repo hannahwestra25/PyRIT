@@ -46,6 +46,7 @@ if TYPE_CHECKING:
     from pyrit.converter.binary_converter import BinaryConverter
     from pyrit.converter.braille_converter import BrailleConverter
     from pyrit.converter.caesar_converter import CaesarConverter
+    from pyrit.converter.char_noise_converter import CharNoiseConverter
     from pyrit.converter.character_space_converter import CharacterSpaceConverter
     from pyrit.converter.charswap_attack_converter import CharSwapConverter
     from pyrit.converter.code_attack_converter import CodeAttackConverter
@@ -80,6 +81,7 @@ if TYPE_CHECKING:
     from pyrit.converter.pdf_converter import PDFConverter
     from pyrit.converter.persuasion_converter import PersuasionConverter
     from pyrit.converter.policy_puppetry_converter import PolicyPuppetryConverter, PolicyPuppetryTemplate
+    from pyrit.converter.puzzled import PuzzledConverter, PuzzleType
     from pyrit.converter.qr_code_converter import QRCodeConverter
     from pyrit.converter.random_capital_letters_converter import RandomCapitalLettersConverter
     from pyrit.converter.random_translation_converter import RandomTranslationConverter
@@ -164,6 +166,7 @@ _LAZY_EXPORTS: dict[str, str | tuple[str, str | None]] = {
     "BinaryConverter": "pyrit.converter.binary_converter",
     "BrailleConverter": "pyrit.converter.braille_converter",
     "CaesarConverter": "pyrit.converter.caesar_converter",
+    "CharNoiseConverter": "pyrit.converter.char_noise_converter",
     "CharSwapConverter": "pyrit.converter.charswap_attack_converter",
     "CharacterSpaceConverter": "pyrit.converter.character_space_converter",
     "CodeAttackConverter": "pyrit.converter.code_attack_converter",
@@ -205,6 +208,8 @@ _LAZY_EXPORTS: dict[str, str | tuple[str, str | None]] = {
     "PositionSelectionStrategy": "pyrit.converter.text_selection_strategy",
     "Converter": "pyrit.converter.converter",
     "ProportionSelectionStrategy": "pyrit.converter.text_selection_strategy",
+    "PuzzleType": "pyrit.converter.puzzled",
+    "PuzzledConverter": "pyrit.converter.puzzled",
     "QRCodeConverter": "pyrit.converter.qr_code_converter",
     "ROT13Converter": "pyrit.converter.rot13_converter",
     "RandomCapitalLettersConverter": "pyrit.converter.random_capital_letters_converter",

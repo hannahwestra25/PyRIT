@@ -11,9 +11,9 @@ import type {
 } from '../types'
 
 /**
- * Read a File and return its contents as a base64-encoded string (no data URI prefix).
+ * Read a File or Blob and return its contents as a base64-encoded string (no data URI prefix).
  */
-export function fileToBase64(file: File): Promise<string> {
+export function fileToBase64(file: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => {
@@ -246,6 +246,18 @@ export function backendMessageToFrontend(msg: BackendMessage): Message {
     if (isReasoningDataType(piece.converted_value_data_type)) {
       const summaries = extractReasoningSummaries(piece.converted_value)
       reasoningSummaries.push(...summaries)
+      const scores = piece.scores
+        .map((score) => scoreWithProvenance(score, { piece, pieceIndex }))
+        .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+      if (scores.length > 0) {
+        displayPieces.push({
+          type: 'text',
+          pieceId: piece.id,
+          pieceIndex,
+          content: '',
+          scores,
+        })
+      }
       continue
     }
 
