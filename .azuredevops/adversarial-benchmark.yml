@@ -1,5 +1,5 @@
 # Manually triggered prototype for comparing adversarial models and technique sets.
-# Completed results are retained with the Azure DevOps pipeline run as an artifact.
+# Completed results and reusable SQLite state are retained as pipeline artifacts.
 
 trigger: none
 pr: none
@@ -33,6 +33,10 @@ parameters:
     displayName: Maximum scenario retries
     type: number
     default: 0
+  - name: useCached
+    displayName: Reuse compatible results from prior runs
+    type: boolean
+    default: true
   - name: logLevel
     displayName: Log level
     type: string
@@ -53,6 +57,21 @@ jobs:
     steps:
       - checkout: self
         fetchDepth: 1
+
+      - ${{ if eq(parameters.useCached, true) }}:
+          - task: DownloadPipelineArtifact@2
+            displayName: Restore prior benchmark database
+            continueOnError: true
+            inputs:
+              buildType: specific
+              project: $(System.TeamProject)
+              definition: $(System.DefinitionId)
+              buildVersionToDownload: latestFromBranch
+              branchName: $(Build.SourceBranch)
+              allowPartiallySucceededBuilds: true
+              allowFailedBuilds: true
+              artifactName: adversarial-benchmark-db
+              targetPath: $(Build.SourcesDirectory)/dbdata
 
       - task: UsePythonVersion@0
         displayName: Use Python 3.12
@@ -190,6 +209,7 @@ jobs:
               --max-dataset-size "$MAX_DATASET_SIZE_INPUT" \
               --max-concurrency "$MAX_CONCURRENCY_INPUT" \
               --max-retries "$MAX_RETRIES_INPUT" \
+              --use-cached "$USE_CACHED_INPUT" \
               --memory-labels "$memory_labels" \
               2>&1 | tee "$scenario_log"
             benchmark_exit_code=${PIPESTATUS[0]}
@@ -282,6 +302,7 @@ jobs:
           MAX_DATASET_SIZE_INPUT: "${{ parameters.maxDatasetSize }}"
           MAX_CONCURRENCY_INPUT: "${{ parameters.maxConcurrency }}"
           MAX_RETRIES_INPUT: "${{ parameters.maxRetries }}"
+          USE_CACHED_INPUT: "${{ parameters.useCached }}"
           LOG_LEVEL_INPUT: "${{ parameters.logLevel }}"
 
       - bash: |
@@ -336,6 +357,7 @@ jobs:
               "max_dataset_size": int(os.environ["MAX_DATASET_SIZE_INPUT"]),
               "max_concurrency": int(os.environ["MAX_CONCURRENCY_INPUT"]),
               "max_retries": int(os.environ["MAX_RETRIES_INPUT"]),
+              "use_cached": os.environ["USE_CACHED_INPUT"].lower() == "true",
               "log_level": os.environ["LOG_LEVEL_INPUT"],
           }
           (artifact_dir / "run-manifest.json").write_text(
@@ -353,7 +375,30 @@ jobs:
           MAX_DATASET_SIZE_INPUT: "${{ parameters.maxDatasetSize }}"
           MAX_CONCURRENCY_INPUT: "${{ parameters.maxConcurrency }}"
           MAX_RETRIES_INPUT: "${{ parameters.maxRetries }}"
+          USE_CACHED_INPUT: "${{ parameters.useCached }}"
           LOG_LEVEL_INPUT: "${{ parameters.logLevel }}"
+
+      - bash: |
+          set -euo pipefail
+          db_artifact_dir="$(Build.ArtifactStagingDirectory)/adversarial-benchmark-db"
+          mkdir -p "$db_artifact_dir"
+          if [[ -f dbdata/pyrit.db ]]; then
+            cp dbdata/pyrit.db "$db_artifact_dir/pyrit.db"
+            echo "##vso[task.setvariable variable=hasBenchmarkDatabase]true"
+          else
+            echo "No benchmark database was created."
+            echo "##vso[task.setvariable variable=hasBenchmarkDatabase]false"
+          fi
+        displayName: Stage reusable benchmark database
+        condition: always()
+
+      - task: PublishPipelineArtifact@1
+        displayName: Publish reusable benchmark database
+        condition: and(always(), eq(variables['hasBenchmarkDatabase'], 'true'))
+        inputs:
+          targetPath: $(Build.ArtifactStagingDirectory)/adversarial-benchmark-db
+          artifactName: adversarial-benchmark-db
+          publishLocation: pipeline
 
       - task: PublishPipelineArtifact@1
         displayName: Publish benchmark snapshot
