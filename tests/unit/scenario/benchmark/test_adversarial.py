@@ -43,6 +43,7 @@ from pyrit.executor.attack import AttackScoringConfig, TreeOfAttacksWithPruningA
 from pyrit.memory.memory_interface import MemoryInterface
 from pyrit.models import (
     AtomicAttackEvaluationIdentifier,
+    AtomicAttackIdentifier,
     AttackOutcome,
     AttackResult,
     AttackSeedGroup,
@@ -225,6 +226,16 @@ class TestAdversarialBenchmarkSupportedParameters:
         params = {p.name: p for p in AdversarialBenchmark.supported_parameters()}
 
         assert params["use_cached"].coerce_value(raw_value) is expected
+
+    @pytest.mark.parametrize(
+        "parameter_name",
+        ["tap_tree_width", "tap_tree_depth", "tap_branching_factor", "tap_batch_size"],
+    )
+    def test_declares_optional_tap_override(self, parameter_name: str) -> None:
+        params = {p.name: p for p in AdversarialBenchmark.supported_parameters()}
+
+        assert params[parameter_name].param_type is int
+        assert params[parameter_name].default is None
 
 
 # ---------------------------------------------------------------------------
@@ -414,6 +425,68 @@ class TestAdversarialBenchmarkInit:
         atomic_attack.attack_technique = technique
         expected_scorer_hash = ScorerEvaluationIdentifier(technique.attack._objective_scorer.get_identifier()).eval_hash
         assert AdversarialBenchmark._get_attack_scorer_eval_hash(atomic_attack=atomic_attack) == expected_scorer_hash
+
+    def test_tap_factory_override_applies_search_parameters_and_changes_identity(self) -> None:
+        bench = AdversarialBenchmark(objective_scorer=MagicMock(spec=TrueFalseScorer))
+        bench.params = {
+            "tap_tree_width": 2,
+            "tap_tree_depth": 3,
+            "tap_branching_factor": 2,
+            "tap_batch_size": 2,
+        }
+        override = bench._get_tap_factory_override()
+        assert override is not None
+        registered_factory = AttackTechniqueRegistry.get_registry_singleton().get_factories_or_raise()["tap"]
+        assert override["tap"].description == registered_factory.description
+        assert override["tap"].attack_class is registered_factory.attack_class
+        assert override["tap"].technique_tags == registered_factory.technique_tags
+
+        objective_target = MagicMock(spec=PromptTarget)
+        objective_target.configuration.capabilities.output_modalities = [{"text"}]
+        objective_target.get_identifier.return_value = TargetIdentifier(
+            class_name="MockObjectiveTarget",
+            class_module="tests.unit.scenario.benchmark.test_adversarial",
+        )
+        adversarial_target = TargetRegistry.get_registry_singleton().instances.get("adversarial_chat")
+        adversarial_target.get_identifier.return_value = TargetIdentifier(
+            class_name="MockAdversarialTarget",
+            class_module="tests.unit.scenario.benchmark.test_adversarial",
+        )
+        scoring_config = AttackScoringConfig(objective_scorer=MagicMock(spec=TrueFalseScorer))
+
+        default_technique = (
+            AttackTechniqueRegistry.get_registry_singleton()
+            .get_factories_or_raise()["tap"]
+            .create(
+                objective_target=objective_target,
+                attack_scoring_config=scoring_config,
+                adversarial_chat=adversarial_target,
+            )
+        )
+        quick_technique = override["tap"].create(
+            objective_target=objective_target,
+            attack_scoring_config=scoring_config,
+            adversarial_chat=adversarial_target,
+        )
+
+        configuration = quick_technique.attack._configuration
+        assert configuration.tree_width == 2
+        assert configuration.tree_depth == 3
+        assert configuration.branching_factor == 2
+        assert configuration.batch_size == 2
+        default_identity = AtomicAttackEvaluationIdentifier(
+            AtomicAttackIdentifier.build(technique_identifier=default_technique.get_identifier())
+        )
+        quick_identity = AtomicAttackEvaluationIdentifier(
+            AtomicAttackIdentifier.build(technique_identifier=quick_technique.get_identifier())
+        )
+        assert quick_identity.eval_hash != default_identity.eval_hash
+
+    def test_tap_factory_override_is_absent_when_parameters_are_unset(self) -> None:
+        bench = AdversarialBenchmark(objective_scorer=MagicMock(spec=TrueFalseScorer))
+        bench.params = {}
+
+        assert bench._get_tap_factory_override() is None
 
 
 # ---------------------------------------------------------------------------

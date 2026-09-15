@@ -40,6 +40,7 @@ if TYPE_CHECKING:
     from pyrit.models import AttackSeedGroup
     from pyrit.prompt_target import PromptTarget
     from pyrit.scenario.core.atomic_attack import AtomicAttack
+    from pyrit.scenario.core.attack_technique_factory import AttackTechniqueFactory
     from pyrit.scenario.core.scenario_context import ScenarioContext
     from pyrit.scenario.core.scenario_technique import ScenarioTechnique
     from pyrit.score.true_false.true_false_scorer import TrueFalseScorer
@@ -127,6 +128,12 @@ class AdversarialBenchmark(Scenario):
     #: AdversarialBenchmark compares attack-success rates across adversarial models; a baseline
     #: attack would be model-independent and contribute no signal to the comparison.
     BASELINE_ATTACK_POLICY: ClassVar[BaselineAttackPolicy] = BaselineAttackPolicy.Forbidden
+    _TAP_PARAMETER_MAP: ClassVar[tuple[tuple[str, str], ...]] = (
+        ("tap_tree_width", "tree_width"),
+        ("tap_tree_depth", "tree_depth"),
+        ("tap_branching_factor", "branching_factor"),
+        ("tap_batch_size", "batch_size"),
+    )
 
     @classmethod
     def _get_additional_scoring_questions(cls) -> list[Path]:
@@ -174,6 +181,32 @@ class AdversarialBenchmark(Scenario):
                     "Defaults to false; set with --use-cached true on the CLI."
                 ),
                 param_type=bool,
+                default=None,
+            ),
+            Parameter(
+                name="tap_tree_width",
+                description="Override TAP's retained tree width. Leave unset to use the registered technique default.",
+                param_type=int,
+                default=None,
+            ),
+            Parameter(
+                name="tap_tree_depth",
+                description="Override TAP's maximum tree depth. Leave unset to use the registered technique default.",
+                param_type=int,
+                default=None,
+            ),
+            Parameter(
+                name="tap_branching_factor",
+                description="Override TAP's branching factor. Leave unset to use the registered technique default.",
+                param_type=int,
+                default=None,
+            ),
+            Parameter(
+                name="tap_batch_size",
+                description=(
+                    "Override TAP's internal node batch size. Leave unset to use the registered technique default."
+                ),
+                param_type=int,
                 default=None,
             ),
         ]
@@ -289,6 +322,7 @@ class AdversarialBenchmark(Scenario):
         selected_groups, datasets = await self._resolve_dataset_groups_for_estimate_async()
         factories = resolve_technique_factories_for_techniques(
             scenario_techniques=self._scenario_techniques,
+            extra_factories=self._get_tap_factory_override(),
         )
         per_target_components: list[ScenarioRunSizeComponent] = []
         for technique in self._scenario_techniques:
@@ -414,7 +448,10 @@ class AdversarialBenchmark(Scenario):
             )
 
         resolved_targets = self._resolve_adversarial_targets(target_names=target_names)
-        technique_factories = resolve_technique_factories(context=context)
+        technique_factories = resolve_technique_factories(
+            context=context,
+            extra_factories=self._get_tap_factory_override(),
+        )
 
         builder = MatrixAtomicAttackBuilder(
             objective_target=context.objective_target,
@@ -442,6 +479,27 @@ class AdversarialBenchmark(Scenario):
 
         self._apply_reusable_cached_results(atomic_attacks=atomic_attacks)
         return atomic_attacks
+
+    def _get_tap_factory_override(self) -> dict[str, AttackTechniqueFactory] | None:
+        """
+        Build a scenario-local TAP factory when search parameters are overridden.
+
+        Returns:
+            dict[str, AttackTechniqueFactory] | None: A TAP factory override, or
+                ``None`` when the registered TAP defaults should remain unchanged.
+        """
+        attack_kwargs = {
+            attack_parameter: self.params[scenario_parameter]
+            for scenario_parameter, attack_parameter in self._TAP_PARAMETER_MAP
+            if self.params.get(scenario_parameter) is not None
+        }
+        if not attack_kwargs:
+            return None
+
+        registered_factory = AttackTechniqueRegistry.get_registry_singleton().get_factories_or_raise().get("tap")
+        return (
+            {"tap": registered_factory.with_attack_kwargs(attack_kwargs=attack_kwargs)} if registered_factory else None
+        )
 
     def _build_initial_scenario_metadata(self) -> dict[str, Any]:
         """
