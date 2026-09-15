@@ -128,6 +128,11 @@ class AdversarialBenchmark(Scenario):
     #: AdversarialBenchmark compares attack-success rates across adversarial models; a baseline
     #: attack would be model-independent and contribute no signal to the comparison.
     BASELINE_ATTACK_POLICY: ClassVar[BaselineAttackPolicy] = BaselineAttackPolicy.Forbidden
+
+    #: Provider policy blocks from the benchmark's scorer mean that no verdict was
+    #: available; they should not abort the objective or be interpreted as failure.
+    RAISE_IF_DEFAULT_SCORER_BLOCKS: ClassVar[bool] = False
+
     _TAP_PARAMETER_MAP: ClassVar[tuple[tuple[str, str], ...]] = (
         ("tap_tree_width", "tree_width"),
         ("tap_tree_depth", "tree_depth"),
@@ -261,7 +266,7 @@ class AdversarialBenchmark(Scenario):
         self, *, apply_sampling: bool = True
     ) -> dict[str, list[AttackSeedGroup]]:
         """
-        Resolve a stable objective subset when cross-run cache reuse is enabled.
+        Resolve a stable, harm-category-balanced subset for capped benchmark runs.
 
         Args:
             apply_sampling: Whether to apply the configured global dataset limit.
@@ -269,7 +274,7 @@ class AdversarialBenchmark(Scenario):
         Returns:
             dict[str, list[AttackSeedGroup]]: Attack groups keyed by dataset name.
         """
-        if not apply_sampling or not self._is_cache_reuse_enabled():
+        if not apply_sampling:
             return await super()._resolve_seed_groups_by_dataset_async(apply_sampling=apply_sampling)
 
         groups_by_dataset = await super()._resolve_seed_groups_by_dataset_async(apply_sampling=False)
@@ -278,19 +283,66 @@ class AdversarialBenchmark(Scenario):
         if max_dataset_size is None or len(pairs) <= max_dataset_size:
             return groups_by_dataset
 
-        selected = sorted(
-            pairs,
-            key=lambda pair: self._get_cache_sampling_key(dataset_name=pair[0], seed_group=pair[1]),
-        )[:max_dataset_size]
+        selected = self._select_stable_sample(pairs=pairs, max_dataset_size=max_dataset_size)
         sampled: dict[str, list[AttackSeedGroup]] = {}
         for dataset_name, seed_group in selected:
             sampled.setdefault(dataset_name, []).append(seed_group)
         return sampled
 
-    @staticmethod
-    def _get_cache_sampling_key(*, dataset_name: str, seed_group: AttackSeedGroup) -> str:
+    @classmethod
+    def _select_stable_sample(
+        cls,
+        *,
+        pairs: list[tuple[str, AttackSeedGroup]],
+        max_dataset_size: int,
+    ) -> list[tuple[str, AttackSeedGroup]]:
         """
-        Return a stable rank for cache-compatible objective sampling.
+        Select a stable sample, balancing objectives with one harm category.
+
+        Falls back to a global stable ranking when any objective does not map to
+        exactly one harm category.
+
+        Args:
+            pairs: Dataset names paired with their attack groups.
+            max_dataset_size: Maximum number of groups to select.
+
+        Returns:
+            list[tuple[str, AttackSeedGroup]]: The selected dataset/group pairs.
+
+        Raises:
+            ValueError: If an attack group has no objective.
+        """
+        ranked = sorted(
+            pairs,
+            key=lambda pair: cls._get_sampling_key(dataset_name=pair[0], seed_group=pair[1]),
+        )
+        if max_dataset_size <= 0:
+            return []
+
+        by_category: dict[str, list[tuple[str, AttackSeedGroup]]] = {}
+        for pair in ranked:
+            objective = pair[1].objective
+            if objective is None:
+                raise ValueError(f"Dataset '{pair[0]}' produced an attack group without an objective.")
+            harm_categories = objective.harm_categories or []
+            if len(harm_categories) != 1 or not harm_categories[0]:
+                return ranked[:max_dataset_size]
+            by_category.setdefault(harm_categories[0], []).append(pair)
+
+        selected: list[tuple[str, AttackSeedGroup]] = []
+        for category_index in range(max(len(groups) for groups in by_category.values())):
+            for category in sorted(by_category):
+                category_groups = by_category[category]
+                if category_index < len(category_groups):
+                    selected.append(category_groups[category_index])
+                if len(selected) == max_dataset_size:
+                    return selected
+        return selected
+
+    @staticmethod
+    def _get_sampling_key(*, dataset_name: str, seed_group: AttackSeedGroup) -> str:
+        """
+        Return a stable rank for deterministic objective sampling.
 
         Args:
             dataset_name: Dataset that owns the attack group.

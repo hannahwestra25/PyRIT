@@ -456,10 +456,12 @@ def pyrit_placeholder_retry(func: Callable[..., Any]) -> Callable[..., Any]:
 #   - ``policy_violation``         - Substring of Azure's ``content_policy_violation``
 #                                    and OpenAI moderation's ``usage_policy_violation``.
 #   - ``moderation_blocked``       - OpenAI moderation ``error.code``.
+#   - ``cyber_policy``             - Azure OpenAI cybersecurity-policy ``error.code``.
 CONTENT_FILTER_MARKERS = frozenset(
     {
         "content_filter",
         "content_safety_violation",
+        "cyber_policy",
         "policy_violation",
         "moderation_blocked",
     }

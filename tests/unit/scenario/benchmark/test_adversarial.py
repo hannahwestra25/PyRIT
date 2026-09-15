@@ -32,14 +32,16 @@ These tests cover the new contract:
 
 import logging
 import uuid
+from collections import Counter
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from unit.mocks import store_message
 
 from pyrit.common.path import SCORER_SEED_PROMPT_PATH
 from pyrit.common.utils import to_sha256
-from pyrit.executor.attack import AttackScoringConfig, TreeOfAttacksWithPruningAttack
+from pyrit.executor.attack import AttackScoringConfig, TreeOfAttacksWithPruningAttack, attack_outcome_from_score
 from pyrit.memory.memory_interface import MemoryInterface
 from pyrit.models import (
     AtomicAttackEvaluationIdentifier,
@@ -48,12 +50,14 @@ from pyrit.models import (
     AttackResult,
     AttackSeedGroup,
     ComponentIdentifier,
+    MessagePiece,
     ObjectiveTargetEvaluationIdentifier,
     ScenarioIdentifier,
     ScenarioResult,
     ScenarioRunState,
     Score,
     ScorerEvaluationIdentifier,
+    ScoringExpectation,
     SeedObjective,
     TargetIdentifier,
 )
@@ -64,7 +68,7 @@ from pyrit.scenario.core import AtomicAttack, BaselineAttackPolicy
 from pyrit.scenario.core.attack_technique_factory import AttackTechniqueFactory
 from pyrit.scenario.core.scenario import Scenario
 from pyrit.scenario.scenarios.benchmark.adversarial import AdversarialBenchmark, _build_benchmark_technique
-from pyrit.score import TrueFalseScorer
+from pyrit.score import MessageScorable, TrueFalseCompositeScorer, TrueFalseInverterScorer, TrueFalseScorer
 from pyrit.setup.initializers.techniques import build_technique_factories
 
 # ---------------------------------------------------------------------------
@@ -182,6 +186,62 @@ class TestAdversarialBenchmarkMetadata:
         expected = SCORER_SEED_PROMPT_PATH / "true_false_question" / "task_achieved_refined.yaml"
 
         assert AdversarialBenchmark._get_additional_scoring_questions() == [expected]
+
+    async def test_default_scorer_treats_provider_blocks_as_undetermined(self, patch_central_database) -> None:
+        bench = AdversarialBenchmark(objective_scorer=MagicMock(spec=TrueFalseScorer))
+        scorer_target = MagicMock(spec=PromptTarget)
+        scorer_target.capabilities.includes.return_value = True
+        scorer_target.get_identifier.return_value = ComponentIdentifier(
+            class_name="MockScorerTarget",
+            class_module="tests.unit.scenario.benchmark.test_adversarial",
+        )
+        scorer_target.send_prompt_async = AsyncMock(
+            side_effect=[
+                [
+                    MessagePiece(
+                        role="assistant",
+                        original_value="",
+                        original_value_data_type="error",
+                        converted_value="",
+                        converted_value_data_type="error",
+                        conversation_id=f"scorer-conversation-{index}",
+                        response_error="blocked",
+                    ).to_message()
+                ]
+                for index in range(2)
+            ],
+        )
+        registry = MagicMock()
+        registry.instances.get_by_tag.return_value = []
+
+        with (
+            patch("pyrit.scenario.core.scenario.ScorerRegistry.get_registry_singleton", return_value=registry),
+            patch("pyrit.scenario.core.scenario.get_default_scorer_target", return_value=scorer_target),
+        ):
+            scorer = bench._get_default_objective_scorer()
+
+        assert isinstance(scorer, TrueFalseCompositeScorer)
+        task_scorer, inverted_refusal_scorer = scorer._scorers
+        assert task_scorer.raise_if_scorer_blocks is False
+        assert isinstance(inverted_refusal_scorer, TrueFalseInverterScorer)
+        assert inverted_refusal_scorer._scorer.raise_if_scorer_blocks is False
+
+        response = store_message(
+            MessagePiece(
+                role="assistant",
+                original_value="response to evaluate",
+                conversation_id="objective-conversation",
+            ).to_message()
+        )
+        score = (
+            await scorer.score_async(
+                scorable=MessageScorable.from_message(response),
+                expectation=ScoringExpectation(objective="Complete the requested task."),
+            )
+        )[0]
+
+        assert score.is_undetermined
+        assert attack_outcome_from_score(score) is AttackOutcome.UNDETERMINED
 
 
 # ---------------------------------------------------------------------------
@@ -671,6 +731,7 @@ class TestGetAtomicAttacksCrossProduct:
 
         seed_group = AttackSeedGroup(seeds=[SeedObjective(value="display_group_regression_objective")])
         bench._dataset_config = MagicMock()
+        bench._dataset_config.max_dataset_size = None
         bench._dataset_config.get_attack_groups_by_dataset_async = AsyncMock(return_value={"harmbench": [seed_group]})
 
         result = await _build_atomic_attacks(bench)
@@ -963,8 +1024,8 @@ class TestSkipCachedFilter:
         identifier_instance.eval_hash = eval_hash
         return patch(self._IDENTIFIER_PATH, return_value=identifier_instance)
 
-    async def test_use_cached_sampling_is_stable_across_fresh_runs(self):
-        bench = self._make_bench(use_cached=True)
+    async def test_sampling_is_stable_across_fresh_runs(self):
+        bench = self._make_bench(use_cached=False)
         bench._dataset_config.max_dataset_size = 1
         group_a = AttackSeedGroup(seeds=[SeedObjective(value="objective a")])
         group_b = AttackSeedGroup(seeds=[SeedObjective(value="objective b")])
@@ -984,7 +1045,51 @@ class TestSkipCachedFilter:
             {"apply_sampling": False},
         ]
 
-    async def test_use_cached_false_preserves_default_sampling(self):
+    async def test_sampling_balances_single_harm_categories_without_cache(self) -> None:
+        bench = self._make_bench(use_cached=False)
+        bench._dataset_config.max_dataset_size = 24
+        categories = [
+            "election_critical_information",
+            "hate_v3",
+            "inference_sensitive_attributes",
+            "offensive_cyber_v2",
+            "self_harm_v3",
+            "sensitive_data_leakage",
+            "sexual_v3",
+            "violence_v3",
+        ]
+        groups = [
+            AttackSeedGroup(
+                seeds=[
+                    SeedObjective(
+                        value=f"{category} objective {objective_index}",
+                        harm_categories=[category],
+                    )
+                ]
+            )
+            for category in categories
+            for objective_index in range(4)
+        ]
+
+        with patch.object(
+            Scenario,
+            "_resolve_seed_groups_by_dataset_async",
+            new=AsyncMock(side_effect=[{"dataset": groups}, {"dataset": list(reversed(groups))}]),
+        ):
+            first = await bench._resolve_seed_groups_by_dataset_async()
+            second = await bench._resolve_seed_groups_by_dataset_async()
+
+        first_objectives = [group.objective for group in first["dataset"]]
+        second_objectives = [group.objective for group in second["dataset"]]
+        assert all(objective is not None for objective in first_objectives)
+        assert Counter(
+            objective.harm_categories[0] for objective in first_objectives if objective is not None
+        ) == Counter(dict.fromkeys(categories, 3))
+        assert [objective.value for objective in first_objectives if objective is not None] == [
+            objective.value for objective in second_objectives if objective is not None
+        ]
+
+    async def test_sampling_disabled_returns_all_groups(self):
         bench = self._make_bench(use_cached=False)
         expected = {"dataset": [AttackSeedGroup(seeds=[SeedObjective(value="objective")])]}
 
@@ -993,10 +1098,10 @@ class TestSkipCachedFilter:
             "_resolve_seed_groups_by_dataset_async",
             new=AsyncMock(return_value=expected),
         ) as resolve_groups:
-            actual = await bench._resolve_seed_groups_by_dataset_async()
+            actual = await bench._resolve_seed_groups_by_dataset_async(apply_sampling=False)
 
         assert actual == expected
-        resolve_groups.assert_awaited_once_with(apply_sampling=True)
+        resolve_groups.assert_awaited_once_with(apply_sampling=False)
 
     async def test_use_cached_false_returns_all_candidates_without_analytics_call(self):
         bench = self._make_bench(use_cached=False)
