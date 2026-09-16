@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import uuid
 from functools import cache
@@ -17,6 +19,7 @@ from pyrit.common.utils import to_sha256
 from pyrit.models import (
     AttackOutcome,
     AttackResult,
+    ComponentIdentifier,
     ObjectiveTargetEvaluationIdentifier,
     ScenarioResult,
     ScenarioRunSizeComponent,
@@ -85,6 +88,71 @@ def _build_benchmark_technique() -> type[ScenarioTechnique]:
         factories=factories,
         default_names={"role_play_video_game", "crescendo_simulated", "tap"},
     )
+
+
+def resolve_objective_identity(
+    *,
+    objective_target_identifier: ComponentIdentifier | None,
+    objective_scorer_identifier: ComponentIdentifier | None,
+) -> tuple[str, str]:
+    """
+    Derive the (objective_target, objective_scorer) display identity for a benchmark run.
+
+    Shared by ``AdversarialBenchmark`` (to recognize rows already present in a committed
+    benchmark metrics store, via ``benchmark_store_path``) and
+    ``build_scripts/export_adversarial_benchmark_result.py`` (to label freshly exported
+    rows), so both sides agree on what "the same objective_target/objective_scorer" means.
+    Both values are constant across an entire scenario run (``AdversarialBenchmark`` fixes
+    exactly one objective target and one objective scorer per run).
+
+    Args:
+        objective_target_identifier: The resolved objective target's identifier, or
+            ``None`` when unavailable.
+        objective_scorer_identifier: The resolved objective scorer's identifier, or
+            ``None`` when unavailable.
+
+    Returns:
+        tuple[str, str]: The (objective_target, objective_scorer) display labels.
+    """
+    objective_target = "<unknown>"
+    if objective_target_identifier is not None:
+        objective_target = (
+            getattr(objective_target_identifier, "underlying_model_name", None)
+            or getattr(objective_target_identifier, "model_name", None)
+            or objective_target_identifier.class_name
+        )
+
+    objective_scorer = (
+        objective_scorer_identifier.class_name if objective_scorer_identifier is not None else "<unknown>"
+    )
+
+    return objective_target, objective_scorer
+
+
+def _read_benchmark_store_rows(*, store_path: Path) -> list[dict[str, Any]]:
+    """
+    Read the committed benchmark metrics JSONL store, tolerating a missing file.
+
+    This is a synchronous helper so it can be dispatched via ``asyncio.to_thread``
+    from async scenario code without blocking the event loop.
+
+    Args:
+        store_path: Path to the JSONL store (one JSON object per line), matching the
+            schema written by ``build_scripts/export_adversarial_benchmark_result.py``.
+
+    Returns:
+        list[dict[str, Any]]: The parsed rows, in file order. Empty when the file does
+        not exist.
+    """
+    if not store_path.exists():
+        return []
+    rows: list[dict[str, Any]] = []
+    with store_path.open("r", encoding="utf-8") as fp:
+        for line in fp:
+            line = line.strip()
+            if line:
+                rows.append(json.loads(line))
+    return rows
 
 
 class AdversarialBenchmark(Scenario):
@@ -222,6 +290,7 @@ class AdversarialBenchmark(Scenario):
         *,
         objective_scorer: TrueFalseScorer | None = None,
         use_cached: bool = False,
+        benchmark_store_path: Path | None = None,
         scenario_result_id: str | None = None,
     ) -> None:
         """
@@ -236,7 +305,24 @@ class AdversarialBenchmark(Scenario):
                 etc.) is tracked as a follow-up.
             use_cached: Backward-compatible programmatic default for cache reuse.
                 The runtime ``use_cached`` parameter overrides it when supplied.
-                Reuse is disabled when both are omitted.
+                Reuse is disabled when both are omitted. Exact compatible
+                ``SUCCESS`` and ``FAILURE`` results are copied into the new
+                scenario result; ``ERROR`` and ``UNDETERMINED`` results are
+                retried.
+            benchmark_store_path: Optional path to a committed benchmark metrics JSONL
+                store (matching the schema written by
+                ``build_scripts/export_adversarial_benchmark_result.py``). When set,
+                ``_build_atomic_attacks_async`` skips any atomic attack whose
+                (technique, adversarial_model, objective_target, objective_scorer,
+                dataset) combination is already present in the store for the current
+                objective target/scorer, before the ``use_cached`` live-memory filter
+                runs. This lets a re-run of the same benchmark against an
+                already-committed store only execute combinations that are missing or
+                stale, mirroring the scorer-evaluation JSONL cache. Unlike
+                ``use_cached``, skipped combinations are not backfilled into the
+                returned ``ScenarioResult`` — there is no per-attack result to
+                backfill from an aggregated store row, so they are simply excluded
+                from the run. Defaults to ``None`` (no store-based filtering).
             scenario_result_id: Optional ID of an existing scenario result
                 to resume.
         """
@@ -245,6 +331,7 @@ class AdversarialBenchmark(Scenario):
         )
         self._constructor_use_cached: bool = use_cached
         self._use_cached: bool = use_cached
+        self._benchmark_store_path: Path | None = benchmark_store_path
         self._precomputed_cached_results: dict[str, list[AttackResult]] = {}
         self._cached_results_by_name: dict[str, list[AttackResult]] = {}
         self._initial_objective_hashes: list[str] = []
@@ -476,9 +563,13 @@ class AdversarialBenchmark(Scenario):
         ``(technique × target × dataset)`` cross-product to ``MatrixAtomicAttackBuilder``
         with the resolved targets as its adversarial-target axis. Each pair calls
         ``factory.create(adversarial_chat=...)`` with the resolved target — no global
-        registry state is touched. When cache reuse is enabled, exact compatible
-        prior results are retained for the final scenario result and only their
-        corresponding objective seed groups are removed from execution.
+        registry state is touched. Two independent, additive filters may then narrow the
+        candidate list, in this order: when ``self._benchmark_store_path`` is set, combinations
+        already present in that committed JSONL store (for the current objective
+        target/scorer) are removed via ``_collect_already_exported_names_async``; then, when
+        cache reuse is enabled, exact compatible prior results are retained for the final
+        scenario result and only their corresponding objective seed groups are removed from
+        execution.
 
         Args:
             context (ScenarioContext): The resolved runtime inputs for this run.
@@ -526,7 +617,22 @@ class AdversarialBenchmark(Scenario):
         )
 
         self._use_cached = self._is_cache_reuse_enabled()
-        if not self._use_cached or self._scenario_result_id:
+        if self._scenario_result_id:
+            return atomic_attacks
+
+        if self._benchmark_store_path is not None:
+            exported_names = await self._collect_already_exported_names_async(atomic_attacks=atomic_attacks)
+            if exported_names:
+                logger.info(
+                    "benchmark_store_path set: skipping %d/%d atomic attack(s) already present in the "
+                    "committed benchmark metrics store (%s).",
+                    len([c for c in atomic_attacks if c.atomic_attack_name in exported_names]),
+                    len(atomic_attacks),
+                    self._benchmark_store_path,
+                )
+                atomic_attacks = [c for c in atomic_attacks if c.atomic_attack_name not in exported_names]
+
+        if not self._use_cached:
             return atomic_attacks
 
         self._apply_reusable_cached_results(atomic_attacks=atomic_attacks)
@@ -788,6 +894,67 @@ class AdversarialBenchmark(Scenario):
                 )
         self._memory.add_attack_results_to_memory(attack_results=copies)
         self._precomputed_cached_results = {}
+
+    async def _collect_already_exported_names_async(self, *, atomic_attacks: list[AtomicAttack]) -> set[str]:
+        """
+        Identify atomic attacks already present in the committed benchmark metrics store.
+
+        Reads ``self._benchmark_store_path`` (a JSONL file matching the schema written by
+        ``build_scripts/export_adversarial_benchmark_result.py``) and reconstructs the
+        ``atomic_attack_name`` each row corresponds to, using the same
+        ``f"{technique}__{adversarial_model}_{dataset}"`` format
+        ``MatrixAtomicAttackBuilder`` uses by default. A row only counts as a match when its
+        ``objective_target``/``objective_scorer`` values (as produced by
+        ``resolve_objective_identity``) match this scenario's resolved objective target and
+        scorer, so a store shared across multiple target/scorer configurations only ever
+        skips combinations that were actually exported for the current configuration.
+
+        Args:
+            atomic_attacks: The candidate atomic attacks built earlier in
+                ``_build_atomic_attacks_async``.
+
+        Returns:
+            set[str]: ``atomic_attack_name`` values already present in the store for the
+            current objective target/scorer. Empty set when ``self._benchmark_store_path``
+            is unset, the store file does not exist, or every row fails to parse (logged at
+            warning level) — the filter becomes a no-op rather than blocking the run.
+        """
+        if self._benchmark_store_path is None:
+            return set()
+
+        try:
+            rows = await asyncio.to_thread(_read_benchmark_store_rows, store_path=self._benchmark_store_path)
+        except Exception as exc:
+            logger.warning(
+                "benchmark_store_path: failed to read '%s' (%s); skipping store-based filter.",
+                self._benchmark_store_path,
+                exc,
+            )
+            return set()
+
+        objective_target, objective_scorer = resolve_objective_identity(
+            objective_target_identifier=self._objective_target_identifier,
+            objective_scorer_identifier=self._objective_scorer.get_identifier(),
+        )
+
+        candidate_names = {attack.atomic_attack_name for attack in atomic_attacks}
+        exported_names: set[str] = set()
+        for row in rows:
+            try:
+                if row["objective_target"] != objective_target or row["objective_scorer"] != objective_scorer:
+                    continue
+                name = f"{row['technique']}__{row['adversarial_model']}_{row['dataset']}"
+            except (KeyError, TypeError) as exc:
+                logger.warning(
+                    "benchmark_store_path: skipping malformed row in '%s' (%s).",
+                    self._benchmark_store_path,
+                    exc,
+                )
+                continue
+            if name in candidate_names:
+                exported_names.add(name)
+
+        return exported_names
 
     def _collect_cached_completion_pairs(self, *, atomic_attacks: list[AtomicAttack]) -> set[str]:
         """
