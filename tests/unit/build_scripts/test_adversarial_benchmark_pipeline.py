@@ -93,6 +93,17 @@ def test_benchmark_manifest_records_profile_and_effective_tap_settings() -> None
     assert '"tap_batch_size": int(os.environ["TAP_BATCH_SIZE_INPUT"])' in script
 
 
+def test_benchmark_export_updates_metrics_store() -> None:
+    pipeline = _load_pipeline()
+    run_step = next(
+        step
+        for step in pipeline["jobs"][0]["steps"]
+        if step.get("displayName") == "Run benchmark and capture result snapshot"
+    )
+
+    assert "--update-benchmark-store" in run_step["inputs"]["inlineScript"]
+
+
 def test_benchmark_cache_restores_same_branch_state_including_failed_runs() -> None:
     pipeline = _load_pipeline()
     steps = pipeline["jobs"][0]["steps"]

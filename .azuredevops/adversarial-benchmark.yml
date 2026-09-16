@@ -347,7 +347,8 @@ jobs:
               set +e
               uv run python -m build_scripts.export_adversarial_benchmark_result \
                 --scenario-result-id "$result_id" \
-                --output-dir "$artifact_dir"
+                --output-dir "$artifact_dir" \
+                --update-benchmark-store
               export_exit_code=$?
               set -e
               echo "$export_exit_code" > "$artifact_dir/export-exit-code.txt"
