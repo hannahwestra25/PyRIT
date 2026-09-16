@@ -2783,6 +2783,7 @@ def test_tap_init_raises_when_objective_scorer_is_none():
             attack_adversarial_config=MagicMock(
                 target=MagicMock(spec=PromptTarget),
                 system_prompt=None,
+                system_prompt_addendum=None,
             ),
             attack_scoring_config=scoring_config,
         )

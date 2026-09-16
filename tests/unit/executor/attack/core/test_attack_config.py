@@ -85,7 +85,7 @@ class TestAttackScoringConfig:
         assert config.use_score_as_feedback is False
 
 
-class TestResolveAdversarialSystemPrompt:
+class TestResolveAdversarialSystemPromptInlineString:
     """Tests for resolve_adversarial_system_prompt."""
 
     def test_inline_string_is_trusted_and_wrapped(self):
@@ -175,3 +175,98 @@ class TestResolveAdversarialSystemPrompt:
                 required_parameters=["objective"],
                 error_message="must declare objective",
             )
+
+
+class TestResolveAdversarialSystemPromptAddendum:
+    """Tests for layering ``system_prompt_addendum`` on top of resolve_adversarial_system_prompt."""
+
+    def test_addendum_appended_to_inline_system_prompt(self):
+        """An addendum is appended, blank-line separated, after an inline system_prompt."""
+        config = AttackAdversarialConfig(
+            target=MagicMock(spec=PromptTarget),
+            system_prompt="base persona {{ objective }}",
+            system_prompt_addendum="never use copy-through attacks",
+        )
+        seed = resolve_adversarial_system_prompt(
+            config=config,
+            default_system_prompt_path="unused.yaml",
+            required_parameters=["objective"],
+        )
+        assert seed.value == "base persona {{ objective }}\n\nnever use copy-through attacks"
+        assert "objective" in (seed.parameters or [])
+
+    def test_addendum_appended_to_default_yaml_prompt(self, tmp_path):
+        """An addendum is appended after the technique's built-in default system prompt."""
+        default_path = tmp_path / "default.yaml"
+        default_path.write_text(
+            "name: default\ndata_type: text\nvalue: 'default persona {{ objective }}'\nparameters:\n  - objective\n"
+        )
+        config = AttackAdversarialConfig(
+            target=MagicMock(spec=PromptTarget),
+            system_prompt_addendum="extra rules",
+        )
+        seed = resolve_adversarial_system_prompt(
+            config=config,
+            default_system_prompt_path=default_path,
+            required_parameters=["objective"],
+        )
+        assert seed.value == "default persona {{ objective }}\n\nextra rules"
+
+    def test_addendum_as_explicit_seedprompt_uses_its_value(self):
+        """An addendum provided as a SeedPrompt contributes its rendered value text, not the object itself."""
+        addendum = SeedPrompt(value="extra rules {{ objective }}", data_type="text", parameters=["objective"])
+        config = AttackAdversarialConfig(
+            target=MagicMock(spec=PromptTarget),
+            system_prompt="base persona",
+            system_prompt_addendum=addendum,
+        )
+        seed = resolve_adversarial_system_prompt(
+            config=config,
+            default_system_prompt_path="unused.yaml",
+            required_parameters=["objective"],
+        )
+        assert seed.value == "base persona\n\nextra rules {{ objective }}"
+
+    def test_addendum_missing_required_params_raises(self):
+        """An addendum SeedPrompt missing a required parameter raises ValueError."""
+        addendum = SeedPrompt(value="extra rules", data_type="text", parameters=[])
+        config = AttackAdversarialConfig(
+            target=MagicMock(spec=PromptTarget),
+            system_prompt="base persona {{ objective }}",
+            system_prompt_addendum=addendum,
+        )
+        with pytest.raises(ValueError, match="missing required parameters"):
+            resolve_adversarial_system_prompt(
+                config=config,
+                default_system_prompt_path="unused.yaml",
+                required_parameters=["objective"],
+            )
+
+    def test_no_addendum_returns_base_prompt_unchanged(self):
+        """With no addendum configured, the resolved base SeedPrompt is returned as-is (same object)."""
+        provided = SeedPrompt(value="persona {{ objective }}", data_type="text", parameters=["objective"])
+        config = AttackAdversarialConfig(target=MagicMock(spec=PromptTarget), system_prompt=provided)
+        seed = resolve_adversarial_system_prompt(
+            config=config,
+            default_system_prompt_path="unused.yaml",
+            required_parameters=["objective"],
+        )
+        assert seed is provided
+
+    def test_addendum_preserves_base_response_json_schema(self):
+        """The combined prompt carries over the base prompt's response_json_schema; the addendum's is ignored."""
+        schema = {"type": "object", "properties": {"next_message": {"type": "string"}}}
+        base = SeedPrompt(
+            value="base {{ objective }}", data_type="text", parameters=["objective"], response_json_schema=schema
+        )
+        config = AttackAdversarialConfig(
+            target=MagicMock(spec=PromptTarget),
+            system_prompt=base,
+            system_prompt_addendum="extra rules",
+        )
+        seed = resolve_adversarial_system_prompt(
+            config=config,
+            default_system_prompt_path="unused.yaml",
+            required_parameters=["objective"],
+        )
+        assert seed.response_json_schema == schema

@@ -78,8 +78,55 @@ class AttackAdversarialConfig:
     adversarial_prompt_template: str | SeedPrompt | None = DEFAULT_ADVERSARIAL_PROMPT_TEMPLATE
 
     # System prompt for the adversarial chat target, as an inline Jinja template string or a
-    # SeedPrompt.
+    # SeedPrompt. When None, the attack's own built-in default system prompt is used instead.
     system_prompt: str | SeedPrompt | None = None
+
+    # Optional additional instructions layered on top of the resolved system prompt above (either
+    # ``system_prompt`` or, when that is None, the attack's built-in default). Lets callers add
+    # extra rules (e.g. "never use copy-through attacks") on top of a technique's default persona
+    # without hand-copying it into a full replacement string. Supports the same Jinja template
+    # variables as ``system_prompt`` (e.g. ``{{ objective }}``).
+    system_prompt_addendum: str | SeedPrompt | None = None
+
+
+def _coerce_and_validate_prompt_component(
+    *,
+    value: str | SeedPrompt,
+    required_parameters: list[str],
+    error_message: str | None,
+) -> SeedPrompt:
+    """
+    Coerce an inline string or ``SeedPrompt`` into a ``SeedPrompt`` declaring ``required_parameters``.
+
+    Inline strings are trusted: they are wrapped in a Jinja ``SeedPrompt`` whose declared
+    parameters are set to ``required_parameters``. Explicitly provided ``SeedPrompt`` objects are
+    validated against ``required_parameters`` and returned unchanged (never copied).
+
+    Args:
+        value: The inline string or SeedPrompt to coerce.
+        required_parameters: Parameter names the resolved template must support.
+        error_message: Optional custom error message for validation failures.
+
+    Returns:
+        The resolved SeedPrompt.
+
+    Raises:
+        ValueError: If an explicitly provided SeedPrompt is missing required parameters.
+    """
+    if isinstance(value, SeedPrompt):
+        # Validate only explicitly provided SeedPrompts against the required parameters.
+        declared = value.parameters or []
+        missing = [param for param in required_parameters if param not in declared]
+        if missing:
+            raise ValueError(error_message or f"Adversarial system prompt is missing required parameters: {missing}")
+        return value
+
+    # Inline strings are trusted — declare all required params so Jinja rendering works.
+    return SeedPrompt(
+        value=value,
+        is_jinja_template=True,
+        parameters=list(required_parameters),
+    )
 
 
 def resolve_adversarial_system_prompt(
@@ -101,6 +148,13 @@ def resolve_adversarial_system_prompt(
     parameters are set to ``required_parameters``. Explicitly provided ``SeedPrompt`` objects
     and YAML files are validated against ``required_parameters``.
 
+    When ``config.system_prompt_addendum`` is also set, its resolved text is appended to
+    whichever base prompt was resolved above (separated by a blank line), producing a single
+    combined ``SeedPrompt`` that declares the same ``required_parameters`` and carries over the
+    base prompt's ``response_json_schema``. This lets callers layer extra instructions on top of
+    a technique's default (or a custom ``system_prompt``) instead of hand-copying the base text
+    into a full replacement string.
+
     Args:
         config: The adversarial configuration to resolve the system prompt from.
         default_system_prompt_path: Fallback YAML path when neither inline nor path is set.
@@ -111,32 +165,36 @@ def resolve_adversarial_system_prompt(
         The resolved adversarial system-prompt SeedPrompt.
 
     Raises:
-        ValueError: If an explicitly provided SeedPrompt is missing required parameters.
+        ValueError: If an explicitly provided SeedPrompt (base or addendum) is missing required
+            parameters.
     """
     system_prompt = config.system_prompt
     if system_prompt is not None:
-        if isinstance(system_prompt, SeedPrompt):
-            # Validate only explicitly provided SeedPrompts against the required parameters.
-            declared = system_prompt.parameters or []
-            missing = [param for param in required_parameters if param not in declared]
-            if missing:
-                raise ValueError(
-                    error_message or f"Adversarial system prompt is missing required parameters: {missing}"
-                )
-            return system_prompt
-
-        # Inline strings are trusted — declare all required params so Jinja rendering works.
-        return SeedPrompt(
+        base_prompt = _coerce_and_validate_prompt_component(
             value=system_prompt,
-            is_jinja_template=True,
-            parameters=list(required_parameters),
+            required_parameters=required_parameters,
+            error_message=error_message,
+        )
+    else:
+        base_prompt = SeedPrompt.from_yaml_with_required_parameters(
+            template_path=default_system_prompt_path,
+            required_parameters=required_parameters,
+            error_message=error_message,
         )
 
-    template_path = default_system_prompt_path
-    return SeedPrompt.from_yaml_with_required_parameters(
-        template_path=template_path,
+    if config.system_prompt_addendum is None:
+        return base_prompt
+
+    addendum_prompt = _coerce_and_validate_prompt_component(
+        value=config.system_prompt_addendum,
         required_parameters=required_parameters,
         error_message=error_message,
+    )
+    return SeedPrompt(
+        value=f"{base_prompt.value}\n\n{addendum_prompt.value}",
+        is_jinja_template=True,
+        parameters=list(required_parameters),
+        response_json_schema=base_prompt.response_json_schema,
     )
 
 
