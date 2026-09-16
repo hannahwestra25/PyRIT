@@ -6,13 +6,13 @@ a glance instead of digging through JSONL files by hand.
 
 ## What's here today
 
-- **[Scorer Quality](1_scorer_quality.ipynb)** — an Objective Scorer Leaderboard (accuracy,
+- **[Scorer Quality](1_scorer_quality.md)** — an Objective Scorer Leaderboard (accuracy,
   F1, precision, recall) and a Harm Scorer Leaderboard (mean absolute error, Krippendorff's
   alpha), built from the evaluation registries the team already maintains under
   `pyrit/datasets/scorer_evals/`. See [Scorer Metrics](../code/scoring/4_scorer_metrics.ipynb)
   for what these numbers mean and [Scoring Scorers](../blog/2026_04_14_scoring_scorers.md) for
   the full evaluation framework.
-- **[Benchmark Leaderboard](2_benchmark_leaderboard.ipynb)** — attack success rate by technique
+- **[Benchmark Leaderboard](2_benchmark_leaderboard.md)** — attack success rate by technique
   and adversarial model, built from `AdversarialBenchmark` scenario runs via
   `build_scripts/export_adversarial_benchmark_result.py --update-benchmark-store`. The data
   behind it today is a small demo-scale run (see the page's "Note on scope") — treat it as a
@@ -28,8 +28,9 @@ scope" section on the Benchmark Leaderboard page.
 
 ## Refreshing the data
 
-These pages read committed JSONL files, not live services, so refreshing the dashboard is a
-two-step, human-in-the-loop process: regenerate the data, then re-render the page.
+Both pages `{include}` static HTML fragments under `_generated/` rather than running any Python
+when the site builds, so refreshing the dashboard is a human-in-the-loop process: regenerate
+the underlying JSONL data, regenerate the fragments, then commit both.
 
 **Scorer Quality:**
 
@@ -42,8 +43,7 @@ two-step, human-in-the-loop process: regenerate the data, then re-render the pag
    This is safe to re-run — scorer configurations that already have up-to-date metrics are
    skipped automatically (see [Scorer Metrics](../code/scoring/4_scorer_metrics.ipynb)).
    Commit the updated files under `pyrit/datasets/scorer_evals/` through a normal PR.
-2. Rebuild this page. The notebook re-reads the committed JSONL files each time it runs, and
-   the site rebuilds automatically on every merge to `main`.
+2. Regenerate the HTML fragments (see below) and commit them alongside the data.
 
 **Benchmark Leaderboard:**
 
@@ -62,7 +62,19 @@ two-step, human-in-the-loop process: regenerate the data, then re-render the pag
    dataset)`, so re-running the same combination replaces its row instead of appending. Commit
    the updated `pyrit/datasets/benchmark_results/adversarial_benchmark_metrics.jsonl` through a
    normal PR.
-3. Rebuild this page.
+3. Regenerate the HTML fragments (see below) and commit them alongside the data.
 
-There's no CI automation that runs either of these steps or opens a PR for you yet — both
-pages are refreshed manually today.
+**Regenerating the HTML fragments:**
+
+```bash
+python -m build_scripts.generate_dashboard_html
+```
+
+This re-reads all of the committed JSONL files above and (re)writes every fragment under
+`doc/dashboard/_generated/` — both pages' tables at once, regardless of which data changed.
+Commit the updated fragment files through a normal PR. The site itself rebuilds automatically
+on every merge to `main`, but only re-renders whatever HTML fragments are already committed —
+it never runs this generator for you.
+
+There's no CI automation that runs any of these steps or opens a PR for you yet — the
+dashboard is refreshed manually today.
