@@ -47,9 +47,25 @@ the underlying JSONL data, regenerate the fragments, then commit both.
 
 **Benchmark Leaderboard:**
 
-1. Run the scenario (see [Benchmark Scenarios](../scanner/benchmark.ipynb) for the full
-   `pyrit_scan` invocation and available techniques/targets).
-2. Export and upsert its result into the committed store:
+1. Run the scenario and refresh the committed store:
+
+   ```bash
+   python -m build_scripts.run_adversarial_benchmark \
+     --objective-target <target> \
+     --adversarial-targets <target> [<target> ...] \
+     --output-dir <dir>
+   ```
+
+   This is safe to re-run — combinations already present in the committed store, or already
+   completed in memory, are skipped automatically, so re-running after adding a new adversarial
+   target only executes the new combinations. Pass `--force` to ignore both caches and re-run
+   everything. Omit `--output-dir` to only run the scenario and print its `scenario_result_id`
+   (export separately with the command below).
+
+   For finer control over dataset selection or techniques, run the scenario directly instead
+   (see [Benchmark Scenarios](../scanner/benchmark.ipynb) for the full `pyrit_scan` invocation
+   and available techniques/targets), then export and upsert its result into the committed
+   store:
 
    ```bash
    python -m build_scripts.export_adversarial_benchmark_result \
@@ -62,7 +78,20 @@ the underlying JSONL data, regenerate the fragments, then commit both.
    dataset)`, so re-running the same combination replaces its row instead of appending. Commit
    the updated `pyrit/datasets/benchmark_results/adversarial_benchmark_metrics.jsonl` through a
    normal PR.
-3. Regenerate the HTML fragments (see below) and commit them alongside the data.
+
+   Already have a `technique-metrics.json` from elsewhere — for example downloaded from an
+   Azure DevOps `adversarial-benchmark-<BuildId>` pipeline artifact (see
+   `.azuredevops/adversarial-benchmark.yml`) — rather than a scenario result in local memory?
+   Import it directly instead of re-running the scenario:
+
+   ```bash
+   python -m build_scripts.import_adversarial_benchmark_snapshot \
+     --technique-metrics-json <path-to-technique-metrics.json>
+   ```
+
+   This upserts into the same committed store using the same key, so it composes with either
+   path above.
+2. Regenerate the HTML fragments (see below) and commit them alongside the data.
 
 **Regenerating the HTML fragments:**
 
