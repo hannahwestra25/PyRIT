@@ -1,5 +1,11 @@
 # Manually triggered prototype for comparing adversarial models and technique sets.
 # Completed results and reusable SQLite state are retained as pipeline artifacts.
+# Optional PR publication requires a GITHUB_PAT secret pipeline variable configured
+# manually in the pipeline Variables UI (marked "secret" so Azure DevOps masks it in
+# logs — this step embeds it in a git remote URL, which is safe only if the variable
+# is a genuine secret) with contents:write and pull-requests:write permissions scoped
+# to microsoft/PyRIT only. Prefer a fine-grained PAT scoped to just this repo (or a
+# GitHub App installation token) over a broad classic PAT.
 
 trigger: none
 pr: none
@@ -60,6 +66,10 @@ parameters:
     displayName: Reuse compatible results from prior runs
     type: boolean
     default: true
+  - name: publishBenchmarkStore
+    displayName: Open a PR with updated committed benchmark store (requires GITHUB_PAT pipeline secret)
+    type: boolean
+    default: false
   - name: logLevel
     displayName: Log level
     type: string
@@ -345,10 +355,11 @@ jobs:
             if [[ -n "$result_id" ]]; then
               echo "export-results" > "$artifact_dir/phase.txt"
               set +e
-              uv run python -m build_scripts.export_adversarial_benchmark_result \
-                --scenario-result-id "$result_id" \
-                --output-dir "$artifact_dir" \
-                --update-benchmark-store
+              export_args=(--scenario-result-id "$result_id" --output-dir "$artifact_dir")
+              if [[ "${PUBLISH_BENCHMARK_STORE_INPUT,,}" == "true" ]]; then
+                export_args+=(--update-benchmark-store)
+              fi
+              uv run python -m build_scripts.export_adversarial_benchmark_result "${export_args[@]}"
               export_exit_code=$?
               set -e
               echo "$export_exit_code" > "$artifact_dir/export-exit-code.txt"
@@ -380,11 +391,55 @@ jobs:
           MAX_CONCURRENCY_INPUT: "${{ parameters.maxConcurrency }}"
           MAX_RETRIES_INPUT: "${{ parameters.maxRetries }}"
           USE_CACHED_INPUT: "${{ parameters.useCached }}"
+          PUBLISH_BENCHMARK_STORE_INPUT: "${{ parameters.publishBenchmarkStore }}"
           TAP_TREE_WIDTH_INPUT: "$(benchmarkTapTreeWidth)"
           TAP_TREE_DEPTH_INPUT: "$(benchmarkTapTreeDepth)"
           TAP_BRANCHING_FACTOR_INPUT: "$(benchmarkTapBranchingFactor)"
           TAP_BATCH_SIZE_INPUT: "$(benchmarkTapBatchSize)"
           LOG_LEVEL_INPUT: "${{ parameters.logLevel }}"
+
+      - bash: |
+          set -euo pipefail
+
+          if [[ -z "${GITHUB_PAT:-}" || "$GITHUB_PAT" == '$(GITHUB_PAT)' ]]; then
+            echo "GITHUB_PAT is not configured; skipping automated benchmark-store PR. See doc/dashboard/0_dashboard.md for the manual alternative (build_scripts/import_adversarial_benchmark_snapshot.py)."
+            exit 0
+          fi
+
+          store_path="pyrit/datasets/benchmark_results/adversarial_benchmark_metrics.jsonl"
+          if git diff --quiet -- "$store_path"; then
+            echo "No benchmark store changes to publish."
+            exit 0
+          fi
+          if ! command -v gh >/dev/null 2>&1; then
+            echo "gh CLI not found on this agent; cannot open a PR." >&2
+            exit 1
+          fi
+
+          branch_name="automation/benchmark-store-update-$BUILD_BUILDID"
+          target_branch="${BUILD_SOURCEBRANCH#refs/heads/}"
+
+          git config user.name "PyRIT Benchmark Bot"
+          git config user.email "pyrit-benchmark-bot@users.noreply.github.com"
+          git checkout -b "$branch_name"
+          git add "$store_path"
+          git commit -m "MAINT: Update adversarial benchmark store (build $BUILD_BUILDID)"
+          git remote set-url origin "https://x-access-token:${GITHUB_PAT}@github.com/microsoft/PyRIT.git"
+          git push origin "$branch_name"
+
+          export GH_TOKEN="$GITHUB_PAT"
+          gh pr create \
+            --repo microsoft/PyRIT \
+            --base "$target_branch" \
+            --head "$branch_name" \
+            --title "MAINT: Update adversarial benchmark store (build $BUILD_BUILDID)" \
+            --body "Automated update to \`$store_path\` from the adversarial-benchmark pipeline (build $BUILD_BUILDID)."
+        displayName: Publish benchmark store update as a PR
+        condition: succeeded()
+        env:
+          GITHUB_PAT: $(GITHUB_PAT)
+          BUILD_BUILDID: $(Build.BuildId)
+          BUILD_SOURCEBRANCH: $(Build.SourceBranch)
 
       - bash: |
           set -euo pipefail

@@ -93,15 +93,41 @@ def test_benchmark_manifest_records_profile_and_effective_tap_settings() -> None
     assert '"tap_batch_size": int(os.environ["TAP_BATCH_SIZE_INPUT"])' in script
 
 
-def test_benchmark_export_updates_metrics_store() -> None:
+def test_benchmark_store_publication_is_opt_in() -> None:
     pipeline = _load_pipeline()
+    parameters = {parameter["name"]: parameter for parameter in pipeline["parameters"]}
     run_step = next(
         step
         for step in pipeline["jobs"][0]["steps"]
         if step.get("displayName") == "Run benchmark and capture result snapshot"
     )
+    script = run_step["inputs"]["inlineScript"]
 
-    assert "--update-benchmark-store" in run_step["inputs"]["inlineScript"]
+    assert parameters["publishBenchmarkStore"]["default"] is False
+    assert 'if [[ "${PUBLISH_BENCHMARK_STORE_INPUT,,}" == "true" ]]' in script
+    assert "export_args+=(--update-benchmark-store)" in script
+    assert 'uv run python -m build_scripts.export_adversarial_benchmark_result "${export_args[@]}"' in script
+    assert run_step["env"]["PUBLISH_BENCHMARK_STORE_INPUT"] == "${{ parameters.publishBenchmarkStore }}"
+
+
+def test_benchmark_store_pr_step_is_credential_gated() -> None:
+    pipeline = _load_pipeline()
+    publish_step = next(
+        step
+        for step in pipeline["jobs"][0]["steps"]
+        if step.get("displayName") == "Publish benchmark store update as a PR"
+    )
+    script = publish_step["bash"]
+
+    assert publish_step["condition"] == "succeeded()"
+    assert publish_step["env"]["GITHUB_PAT"] == "$(GITHUB_PAT)"
+    assert """if [[ -z "${GITHUB_PAT:-}" || "$GITHUB_PAT" == '$(GITHUB_PAT)' ]]""" in script
+    assert 'git diff --quiet -- "$store_path"' in script
+    assert 'git remote set-url origin "https://x-access-token:${GITHUB_PAT}@github.com/microsoft/PyRIT.git"' in script
+    assert 'export GH_TOKEN="$GITHUB_PAT"' in script
+    assert "gh pr create" in script
+    assert "--repo microsoft/PyRIT" in script
+    assert '--base "$target_branch"' in script
 
 
 def test_benchmark_cache_restores_same_branch_state_including_failed_runs() -> None:
