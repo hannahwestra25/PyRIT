@@ -26,6 +26,7 @@ from pyrit.models import (
     ScenarioRunSizeEstimate,
     ScorerEvaluationIdentifier,
 )
+from pyrit.models.identifiers import compute_inner_attack_eval_hash
 from pyrit.models.parameter import Parameter
 from pyrit.registry import AttackTechniqueRegistry, TargetRegistry
 from pyrit.scenario.core.dataset_configuration import DatasetAttackConfiguration
@@ -859,6 +860,10 @@ class AdversarialBenchmark(Scenario):
             str | None: Scorer evaluation hash, or None when the final score has no identifier.
         """
         scorer_identifier = result.last_score.scorer_class_identifier if result.last_score else None
+        if scorer_identifier is None and result.atomic_attack_identifier:
+            technique_identifier = result.atomic_attack_identifier.get_child("attack_technique")
+            attack_identifier = technique_identifier.get_child("attack") if technique_identifier else None
+            scorer_identifier = attack_identifier.get_child("objective_scorer") if attack_identifier else None
         return ScorerEvaluationIdentifier(scorer_identifier).eval_hash if scorer_identifier else None
 
     def _persist_precomputed_cached_results(self) -> None:
@@ -960,10 +965,11 @@ class AdversarialBenchmark(Scenario):
         """
         Return the set of ``atomic_attack_name`` values already cached for this scenario's objective target.
 
-        Database queries are deduplicated by unique ``technique_eval_hash`` (one query per hash,
-        regardless of how many atomic attacks share that hash), then the skip eligibility
-        decision is applied per-atomic-attack using a Python-side filter on
-        ``attribution_data["parent_collection"]``.
+        Database queries are deduplicated across both the planned technique
+        eval hash and the inner attack eval hash. The latter supports rows
+        persisted before an atomic attack enriched them with technique seeds.
+        The skip eligibility decision is then applied per atomic attack using
+        a Python-side filter on ``attribution_data["parent_collection"]``.
 
         **Dataset-level scoping is implemented as a semantic Python filter, not a database query.**
         ``get_cached_results_for_technique`` has no ``dataset`` parameter; it returns all results
@@ -1007,11 +1013,17 @@ class AdversarialBenchmark(Scenario):
 
         objective_target_eval_hash = ObjectiveTargetEvaluationIdentifier(self._objective_target_identifier).eval_hash
 
-        unique_technique_hashes = {c.technique_eval_hash for c in atomic_attacks if c.technique_eval_hash}
+        lookup_hashes_by_name: dict[str, set[str]] = {}
+        for attack in atomic_attacks:
+            lookup_hashes = {
+                attack.technique_eval_hash,
+                compute_inner_attack_eval_hash(attack=attack.attack_technique.attack),
+            }
+            lookup_hashes_by_name[attack.atomic_attack_name] = {value for value in lookup_hashes if value}
 
         # One DB query per unique hash (deduplication), results stored temporarily by hash.
         raw_results_by_hash: dict[str, list[AttackResult]] = {}
-        for technique_eval_hash in unique_technique_hashes:
+        for technique_eval_hash in set().union(*lookup_hashes_by_name.values()) if lookup_hashes_by_name else set():
             raw_results_by_hash[technique_eval_hash] = get_cached_results_for_technique(
                 self._memory,
                 technique_eval_hash=technique_eval_hash,
@@ -1021,11 +1033,14 @@ class AdversarialBenchmark(Scenario):
         # Per-attack attribution filter: only count results that were produced for this
         # specific atomic_attack_name slot (dataset-level scoping via parent_collection).
         for attack in atomic_attacks:
-            if not attack.technique_eval_hash or attack.technique_eval_hash not in raw_results_by_hash:
-                continue
+            raw_results = [
+                result
+                for lookup_hash in lookup_hashes_by_name[attack.atomic_attack_name]
+                for result in raw_results_by_hash[lookup_hash]
+            ]
             attributed = [
                 r
-                for r in raw_results_by_hash[attack.technique_eval_hash]
+                for r in raw_results
                 if r.attribution_data and r.attribution_data.get("parent_collection") == attack.atomic_attack_name
             ]
             if any(r.outcome in (AttackOutcome.SUCCESS, AttackOutcome.FAILURE) for r in attributed):

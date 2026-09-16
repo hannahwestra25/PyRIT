@@ -809,6 +809,12 @@ class TestCollectCachedCompletionPairs:
 
     _ANALYTICS_PATH = "pyrit.scenario.scenarios.benchmark.adversarial.get_cached_results_for_technique"
     _IDENTIFIER_PATH = "pyrit.scenario.scenarios.benchmark.adversarial.ObjectiveTargetEvaluationIdentifier"
+    _INNER_HASH_PATH = "pyrit.scenario.scenarios.benchmark.adversarial.compute_inner_attack_eval_hash"
+
+    @pytest.fixture(autouse=True)
+    def _patch_inner_attack_eval_hash(self):
+        with patch(self._INNER_HASH_PATH, side_effect=lambda *, attack: attack._cache_lookup_hash):
+            yield
 
     def _make_bench(self, *, with_target_identifier: bool = True) -> AdversarialBenchmark:
         bench = AdversarialBenchmark(objective_scorer=MagicMock(spec=TrueFalseScorer))
@@ -816,10 +822,17 @@ class TestCollectCachedCompletionPairs:
         bench._objective_target_identifier = MagicMock() if with_target_identifier else None
         return bench
 
-    def _make_candidate(self, *, technique_eval_hash: str | None, atomic_attack_name: str = "attack_a") -> MagicMock:
+    def _make_candidate(
+        self,
+        *,
+        technique_eval_hash: str | None,
+        atomic_attack_name: str = "attack_a",
+        inner_attack_eval_hash: str | None = None,
+    ) -> MagicMock:
         candidate = MagicMock()
         candidate.technique_eval_hash = technique_eval_hash
         candidate.atomic_attack_name = atomic_attack_name
+        candidate.attack_technique.attack._cache_lookup_hash = inner_attack_eval_hash or technique_eval_hash
         return candidate
 
     def _patch_identifier(self, eval_hash: str = "obj_target_hash"):
@@ -944,6 +957,35 @@ class TestCollectCachedCompletionPairs:
         assert analytics_mock.call_count == 2
         called_technique_hashes = {call.kwargs["technique_eval_hash"] for call in analytics_mock.call_args_list}
         assert called_technique_hashes == {"hash_a", "hash_b"}
+
+    def test_queries_inner_attack_hash_for_pre_enrichment_rows(self):
+        bench = self._make_bench()
+        candidate = self._make_candidate(
+            technique_eval_hash="planned-hash",
+            inner_attack_eval_hash="persisted-inner-hash",
+        )
+
+        def _fake_analytics(_memory, *, technique_eval_hash, objective_target_eval_hash):
+            if technique_eval_hash == "persisted-inner-hash":
+                return [
+                    _make_attack_result_with_attribution(
+                        outcome=AttackOutcome.SUCCESS,
+                        parent_collection="attack_a",
+                    )
+                ]
+            return []
+
+        with (
+            self._patch_identifier(),
+            patch(self._ANALYTICS_PATH, side_effect=_fake_analytics) as analytics_mock,
+        ):
+            cached = bench._collect_cached_completion_pairs(atomic_attacks=[candidate])
+
+        assert cached == {"attack_a"}
+        assert {call.kwargs["technique_eval_hash"] for call in analytics_mock.call_args_list} == {
+            "planned-hash",
+            "persisted-inner-hash",
+        }
 
     def test_delegates_with_memory_and_objective_target_hash(self):
         """Each analytics call passes the scenario's memory + the computed objective target hash."""
@@ -1508,16 +1550,12 @@ def _make_objective_target_component(
 
 def _make_atomic_attack_identifier(target: ComponentIdentifier) -> ComponentIdentifier:
     """Build the nested identifier tree the persistence layer expects."""
-    technique = ComponentIdentifier(
+    attack = ComponentIdentifier(
         class_name="PromptSendingAttack",
         class_module="pyrit.executor.attack.single_turn.prompt_sending",
         children={"objective_target": target},
     )
-    return ComponentIdentifier(
-        class_name="AtomicAttack",
-        class_module="pyrit.scenario.core.atomic_attack",
-        children={"attack_technique": technique},
-    )
+    return AtomicAttackIdentifier.build(attack_identifier=attack)
 
 
 def _technique_eval_hash_for(target: ComponentIdentifier) -> str:
@@ -1569,10 +1607,18 @@ def _make_bench_with_real_memory(
     return bench
 
 
-def _make_candidate(*, technique_eval_hash: str, atomic_attack_name: str = "attack_a") -> MagicMock:
+def _make_candidate(
+    *,
+    target: ComponentIdentifier,
+    technique_eval_hash: str,
+    atomic_attack_name: str = "attack_a",
+) -> MagicMock:
     candidate = MagicMock()
     candidate.technique_eval_hash = technique_eval_hash
     candidate.atomic_attack_name = atomic_attack_name
+    candidate.attack_technique.attack.get_identifier.return_value = (
+        _make_atomic_attack_identifier(target).get_child("attack_technique").get_child("attack")
+    )
     return candidate
 
 
@@ -1583,7 +1629,7 @@ class TestCollectCachedCompletionPairsWithRealMemory:
     def test_cold_cache_returns_empty(self, sqlite_instance):
         target = _make_objective_target_component()
         bench = _make_bench_with_real_memory(sqlite_instance, target)
-        candidate = _make_candidate(technique_eval_hash=_technique_eval_hash_for(target))
+        candidate = _make_candidate(target=target, technique_eval_hash=_technique_eval_hash_for(target))
 
         result = bench._collect_cached_completion_pairs(atomic_attacks=[candidate])
 
@@ -1595,7 +1641,7 @@ class TestCollectCachedCompletionPairsWithRealMemory:
 
         bench = _make_bench_with_real_memory(sqlite_instance, target)
         tech_hash = _technique_eval_hash_for(target)
-        candidate = _make_candidate(technique_eval_hash=tech_hash, atomic_attack_name="attack_a")
+        candidate = _make_candidate(target=target, technique_eval_hash=tech_hash, atomic_attack_name="attack_a")
 
         result = bench._collect_cached_completion_pairs(atomic_attacks=[candidate])
 
@@ -1607,7 +1653,7 @@ class TestCollectCachedCompletionPairsWithRealMemory:
 
         bench = _make_bench_with_real_memory(sqlite_instance, target)
         tech_hash = _technique_eval_hash_for(target)
-        candidate = _make_candidate(technique_eval_hash=tech_hash, atomic_attack_name="attack_a")
+        candidate = _make_candidate(target=target, technique_eval_hash=tech_hash, atomic_attack_name="attack_a")
 
         result = bench._collect_cached_completion_pairs(atomic_attacks=[candidate])
 
@@ -1630,7 +1676,10 @@ class TestCollectCachedCompletionPairsWithRealMemory:
         _persist_attack_result(sqlite_instance, persisted_target, outcome=AttackOutcome.SUCCESS)
 
         bench = _make_bench_with_real_memory(sqlite_instance, bench_target)
-        candidate = _make_candidate(technique_eval_hash=_technique_eval_hash_for(bench_target))
+        candidate = _make_candidate(
+            target=bench_target,
+            technique_eval_hash=_technique_eval_hash_for(bench_target),
+        )
 
         result = bench._collect_cached_completion_pairs(atomic_attacks=[candidate])
 
@@ -1648,7 +1697,10 @@ class TestCollectCachedCompletionPairsWithRealMemory:
         _persist_attack_result(sqlite_instance, persisted_target, outcome=AttackOutcome.SUCCESS)
 
         bench = _make_bench_with_real_memory(sqlite_instance, bench_target)
-        candidate = _make_candidate(technique_eval_hash=_technique_eval_hash_for(bench_target))
+        candidate = _make_candidate(
+            target=bench_target,
+            technique_eval_hash=_technique_eval_hash_for(bench_target),
+        )
 
         result = bench._collect_cached_completion_pairs(atomic_attacks=[candidate])
 
@@ -1661,7 +1713,7 @@ class TestCollectCachedCompletionPairsWithRealMemory:
         _persist_attack_result(sqlite_instance, target, outcome=AttackOutcome.UNDETERMINED)
 
         bench = _make_bench_with_real_memory(sqlite_instance, target)
-        candidate = _make_candidate(technique_eval_hash=_technique_eval_hash_for(target))
+        candidate = _make_candidate(target=target, technique_eval_hash=_technique_eval_hash_for(target))
 
         result = bench._collect_cached_completion_pairs(atomic_attacks=[candidate])
 
@@ -1676,8 +1728,8 @@ class TestCollectCachedCompletionPairsWithRealMemory:
         bench = _make_bench_with_real_memory(sqlite_instance, target)
         tech_hash = _technique_eval_hash_for(target)
         candidates = [
-            _make_candidate(technique_eval_hash=tech_hash, atomic_attack_name="attack_a"),
-            _make_candidate(technique_eval_hash=tech_hash, atomic_attack_name="attack_b"),
+            _make_candidate(target=target, technique_eval_hash=tech_hash, atomic_attack_name="attack_a"),
+            _make_candidate(target=target, technique_eval_hash=tech_hash, atomic_attack_name="attack_b"),
         ]
 
         result = bench._collect_cached_completion_pairs(atomic_attacks=candidates)
@@ -1702,8 +1754,8 @@ class TestCollectCachedCompletionPairsWithRealMemory:
         bench = _make_bench_with_real_memory(sqlite_instance, target)
         tech_hash = _technique_eval_hash_for(target)
         candidates = [
-            _make_candidate(technique_eval_hash=tech_hash, atomic_attack_name=harmbench_name),
-            _make_candidate(technique_eval_hash=tech_hash, atomic_attack_name=advbench_name),
+            _make_candidate(target=target, technique_eval_hash=tech_hash, atomic_attack_name=harmbench_name),
+            _make_candidate(target=target, technique_eval_hash=tech_hash, atomic_attack_name=advbench_name),
         ]
 
         result = bench._collect_cached_completion_pairs(atomic_attacks=candidates)
@@ -1725,8 +1777,8 @@ class TestCollectCachedCompletionPairsWithRealMemory:
         bench = _make_bench_with_real_memory(sqlite_instance, target)
         tech_hash = _technique_eval_hash_for(target)
         candidates = [
-            _make_candidate(technique_eval_hash=tech_hash, atomic_attack_name=harmbench_name),
-            _make_candidate(technique_eval_hash=tech_hash, atomic_attack_name=advbench_name),
+            _make_candidate(target=target, technique_eval_hash=tech_hash, atomic_attack_name=harmbench_name),
+            _make_candidate(target=target, technique_eval_hash=tech_hash, atomic_attack_name=advbench_name),
         ]
 
         result = bench._collect_cached_completion_pairs(atomic_attacks=candidates)
@@ -1845,6 +1897,7 @@ def _make_exact_cached_result(
     parent_id: str,
     outcome: AttackOutcome = AttackOutcome.SUCCESS,
     attack_result_id: str | None = None,
+    include_score: bool = True,
 ) -> AttackResult:
     score = Score(
         score_value="true",
@@ -1857,11 +1910,17 @@ def _make_exact_cached_result(
         message_piece_id=uuid.uuid4(),
         objective=objective,
     )
+    attack_identifier = ComponentIdentifier(
+        class_name="PromptSendingAttack",
+        class_module="pyrit.executor.attack.single_turn.prompt_sending",
+        children={"objective_scorer": scorer_identifier},
+    )
     return AttackResult(
         attack_result_id=attack_result_id or str(uuid.uuid4()),
         conversation_id=str(uuid.uuid4()),
         objective=objective,
-        automated_score=score,
+        atomic_attack_identifier=AtomicAttackIdentifier.build(attack_identifier=attack_identifier),
+        automated_score=score if include_score else None,
         outcome=outcome,
         attribution_parent_id=parent_id,
         attribution_data={"parent_collection": "attack_a", "parent_eval_hash": "technique-hash"},
@@ -1948,6 +2007,23 @@ class TestReusableCachedResults:
         reusable = bench._collect_reusable_cached_results(atomic_attacks=[candidate])
 
         assert reusable == {}
+
+    def test_reuses_scoreless_terminal_result_with_matching_configured_scorer(self):
+        scorer = _make_scorer_identifier(question="achieved")
+        parent_id = str(uuid.uuid4())
+        candidate = _make_cache_candidate(scorer_identifier=scorer, objectives=["objective"])
+        cached = _make_exact_cached_result(
+            objective="objective",
+            scorer_identifier=scorer,
+            parent_id=parent_id,
+            outcome=AttackOutcome.FAILURE,
+            include_score=False,
+        )
+        bench = self._make_bench_with_candidates(candidate=candidate, cached_results=[cached])
+
+        reusable = bench._collect_reusable_cached_results(atomic_attacks=[candidate])
+
+        assert reusable == {"attack_a": [cached]}
 
     def test_does_not_reuse_result_from_different_benchmark_version(self):
         scorer = _make_scorer_identifier(question="achieved")
