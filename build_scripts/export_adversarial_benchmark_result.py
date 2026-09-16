@@ -16,6 +16,7 @@ from pyrit.memory import CentralMemory
 from pyrit.models import ScenarioResult
 from pyrit.output.scenario_result.pretty import PrettyScenarioResultMemoryPrinter
 from pyrit.output.sink import FileSink
+from pyrit.scenario.scenarios.benchmark.adversarial import resolve_objective_identity
 from pyrit.setup import SQLITE, initialize_pyrit_async
 
 #: Composite identity used to upsert a row into the committed benchmark metrics store.
@@ -97,7 +98,11 @@ def _objective_identity(*, result: ScenarioResult) -> tuple[str, str]:
 
     Both are constant across an entire scenario run (``AdversarialBenchmark`` fixes exactly
     one objective target and one objective scorer per run), so they're computed once and
-    attached to every technique-metrics row rather than re-derived per group.
+    attached to every technique-metrics row rather than re-derived per group. Delegates to
+    ``resolve_objective_identity`` so this exporter and ``AdversarialBenchmark`` itself
+    (which uses the same helper to recognize already-exported rows via
+    ``benchmark_store_path``) always agree on what "the same objective_target/objective_scorer"
+    means.
 
     Args:
         result (ScenarioResult): The scenario result to derive identity from.
@@ -105,17 +110,10 @@ def _objective_identity(*, result: ScenarioResult) -> tuple[str, str]:
     Returns:
         tuple[str, str]: The (objective_target, objective_scorer) display labels.
     """
-    target_identifier = result.objective_target_identifier
-    objective_target = "<unknown>"
-    if target_identifier is not None:
-        objective_target = (
-            target_identifier.underlying_model_name or target_identifier.model_name or target_identifier.class_name
-        )
-
-    scorer_identifier = result.objective_scorer_identifier
-    objective_scorer = scorer_identifier.class_name if scorer_identifier is not None else "<unknown>"
-
-    return objective_target, objective_scorer
+    return resolve_objective_identity(
+        objective_target_identifier=result.objective_target_identifier,
+        objective_scorer_identifier=result.objective_scorer_identifier,
+    )
 
 
 def _dataset_identity(*, result: ScenarioResult) -> str:
@@ -224,7 +222,7 @@ def _write_technique_metrics(*, metrics: list[dict[str, Any]], output_dir: Path)
     (output_dir / "technique-metrics.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def _upsert_benchmark_metrics(*, metrics: list[dict[str, Any]], store_path: Path) -> None:
+def upsert_benchmark_metrics(*, metrics: list[dict[str, Any]], store_path: Path) -> None:
     """
     Upsert technique-metrics rows into the committed benchmark metrics JSONL store.
 
@@ -233,6 +231,10 @@ def _upsert_benchmark_metrics(*, metrics: list[dict[str, Any]], store_path: Path
     own cache-reuse logic uses to decide whether a prior result may be reused. An existing row
     with a matching key is replaced; otherwise the new row is appended. This keeps the store a
     single upserted snapshot per unique combination rather than an unbounded per-run log.
+
+    Not underscore-prefixed: also reused by ``build_scripts.import_adversarial_benchmark_snapshot``
+    to merge in metrics rows exported elsewhere (e.g. an Azure DevOps pipeline artifact), so both
+    entry points share one upsert implementation instead of duplicating the key/merge logic.
 
     Args:
         metrics (list[dict[str, Any]]): Freshly computed technique-metrics rows to upsert.
@@ -273,7 +275,7 @@ async def _export_async(
 
     if update_benchmark_store:
         store_path = benchmark_store_path or DEFAULT_BENCHMARK_STORE_PATH
-        await asyncio.to_thread(_upsert_benchmark_metrics, metrics=metrics, store_path=store_path)
+        await asyncio.to_thread(upsert_benchmark_metrics, metrics=metrics, store_path=store_path)
 
 
 def main() -> None:

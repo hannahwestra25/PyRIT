@@ -10,7 +10,7 @@ from build_scripts.export_adversarial_benchmark_result import (
     _build_technique_metrics,
     _dataset_identity,
     _objective_identity,
-    _upsert_benchmark_metrics,
+    upsert_benchmark_metrics,
 )
 from pyrit.models import (
     AttackOutcome,
@@ -187,7 +187,7 @@ def test_upsert_benchmark_metrics_creates_new_store(tmp_path: Path) -> None:
     store_path = tmp_path / "nested" / "adversarial_benchmark_metrics.jsonl"
     metrics = [_metrics_row()]
 
-    _upsert_benchmark_metrics(metrics=metrics, store_path=store_path)
+    upsert_benchmark_metrics(metrics=metrics, store_path=store_path)
 
     rows = [json.loads(line) for line in store_path.read_text(encoding="utf-8").splitlines()]
     assert rows == metrics
@@ -195,9 +195,9 @@ def test_upsert_benchmark_metrics_creates_new_store(tmp_path: Path) -> None:
 
 def test_upsert_benchmark_metrics_replaces_matching_key(tmp_path: Path) -> None:
     store_path = tmp_path / "adversarial_benchmark_metrics.jsonl"
-    _upsert_benchmark_metrics(metrics=[_metrics_row(success=5, success_rate=0.5)], store_path=store_path)
+    upsert_benchmark_metrics(metrics=[_metrics_row(success=5, success_rate=0.5)], store_path=store_path)
 
-    _upsert_benchmark_metrics(metrics=[_metrics_row(success=9, success_rate=0.9)], store_path=store_path)
+    upsert_benchmark_metrics(metrics=[_metrics_row(success=9, success_rate=0.9)], store_path=store_path)
 
     rows = [json.loads(line) for line in store_path.read_text(encoding="utf-8").splitlines()]
     assert len(rows) == 1
@@ -207,9 +207,9 @@ def test_upsert_benchmark_metrics_replaces_matching_key(tmp_path: Path) -> None:
 def test_upsert_benchmark_metrics_preserves_unrelated_rows(tmp_path: Path) -> None:
     store_path = tmp_path / "adversarial_benchmark_metrics.jsonl"
     other_technique = _metrics_row(technique="pair")
-    _upsert_benchmark_metrics(metrics=[other_technique], store_path=store_path)
+    upsert_benchmark_metrics(metrics=[other_technique], store_path=store_path)
 
-    _upsert_benchmark_metrics(metrics=[_metrics_row(technique="crescendo")], store_path=store_path)
+    upsert_benchmark_metrics(metrics=[_metrics_row(technique="crescendo")], store_path=store_path)
 
     rows = [json.loads(line) for line in store_path.read_text(encoding="utf-8").splitlines()]
     techniques = {row["technique"] for row in rows}
