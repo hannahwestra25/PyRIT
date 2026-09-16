@@ -53,13 +53,14 @@ async def _write_overview_async(*, result: ScenarioResult, output_dir: Path) -> 
 
 def _benchmark_groups(*, result: ScenarioResult) -> list[tuple[str, str, list[AttackResult]]]:
     """Return persisted attack groups keyed by technique and adversarial model."""
+    atomic_attack_names = dict.fromkeys([*result.display_group_map, *result.attack_results])
     return [
         (
             atomic_attack_name.split("__", 1)[0],
             result.display_group_map.get(atomic_attack_name, "<ungrouped>"),
-            attack_results,
+            result.attack_results.get(atomic_attack_name, []),
         )
-        for atomic_attack_name, attack_results in result.attack_results.items()
+        for atomic_attack_name in atomic_attack_names
     ]
 
 
