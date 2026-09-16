@@ -919,6 +919,122 @@ class TestCustomAdversarialPrompt:
                 adversarial_system_prompt="create-time {{ objective }}",
             )
 
+    def test_addendum_implies_uses_adversarial(self):
+        factory = AttackTechniqueFactory(
+            name="durian",
+            attack_class=_StubAttack,
+            adversarial_system_prompt_addendum="never use copy-through {{ objective }}",
+        )
+        assert factory.uses_adversarial is True
+
+    def test_addendum_with_uses_adversarial_false_raises(self):
+        with pytest.raises(ValueError, match="uses_adversarial=False"):
+            AttackTechniqueFactory(
+                name="durian",
+                attack_class=_StubAttack,
+                adversarial_system_prompt_addendum="custom {{ objective }}",
+                uses_adversarial=False,
+            )
+
+    def test_baked_addendum_alone_attaches_to_config(self):
+        """A baked addendum with no base prompt still resolves via the lazy default target."""
+        factory = AttackTechniqueFactory(
+            name="durian",
+            attack_class=self._AdversarialAttack,
+            adversarial_system_prompt_addendum="addendum only {{ objective }}",
+        )
+        fallback = MagicMock(spec=PromptTarget)
+        with patch(
+            "pyrit.scenario.core.attack_technique_factory.get_default_adversarial_target",
+            return_value=fallback,
+        ):
+            technique = factory.create(
+                objective_target=MagicMock(spec=PromptTarget), attack_scoring_config=self._scoring()
+            )
+
+        config = technique.attack.attack_adversarial_config
+        assert config.target is fallback
+        assert config.system_prompt is None
+        assert config.system_prompt_addendum == "addendum only {{ objective }}"
+
+    def test_baked_addendum_combines_with_baked_base_prompt(self):
+        """A baked base prompt and a baked addendum are independent slots and compose freely."""
+        factory = AttackTechniqueFactory(
+            name="durian",
+            attack_class=self._AdversarialAttack,
+            adversarial_chat=MagicMock(spec=PromptTarget),
+            adversarial_system_prompt="baked base {{ objective }}",
+            adversarial_system_prompt_addendum="baked addendum {{ objective }}",
+        )
+        technique = factory.create(objective_target=MagicMock(spec=PromptTarget), attack_scoring_config=self._scoring())
+
+        config = technique.attack.attack_adversarial_config
+        assert config.system_prompt == "baked base {{ objective }}"
+        assert config.system_prompt_addendum == "baked addendum {{ objective }}"
+
+    def test_baked_base_prompt_combines_with_create_time_addendum(self):
+        """A baked base prompt and a create-time addendum are not a conflict — they compose."""
+        factory = AttackTechniqueFactory(
+            name="durian",
+            attack_class=self._AdversarialAttack,
+            adversarial_chat=MagicMock(spec=PromptTarget),
+            adversarial_system_prompt="baked base {{ objective }}",
+        )
+        technique = factory.create(
+            objective_target=MagicMock(spec=PromptTarget),
+            attack_scoring_config=self._scoring(),
+            adversarial_system_prompt_addendum="create-time addendum {{ objective }}",
+        )
+
+        config = technique.attack.attack_adversarial_config
+        assert config.system_prompt == "baked base {{ objective }}"
+        assert config.system_prompt_addendum == "create-time addendum {{ objective }}"
+
+    def test_baked_addendum_combines_with_create_time_base_prompt(self):
+        """A baked addendum and a create-time base prompt are not a conflict — they compose."""
+        factory = AttackTechniqueFactory(
+            name="durian",
+            attack_class=self._AdversarialAttack,
+            adversarial_chat=MagicMock(spec=PromptTarget),
+            adversarial_system_prompt_addendum="baked addendum {{ objective }}",
+        )
+        technique = factory.create(
+            objective_target=MagicMock(spec=PromptTarget),
+            attack_scoring_config=self._scoring(),
+            adversarial_system_prompt="create-time base {{ objective }}",
+        )
+
+        config = technique.attack.attack_adversarial_config
+        assert config.system_prompt == "create-time base {{ objective }}"
+        assert config.system_prompt_addendum == "baked addendum {{ objective }}"
+
+    def test_create_addendum_conflicts_with_baked_addendum_raises(self):
+        """create() must not supply an addendum when the factory already baked one."""
+        factory = AttackTechniqueFactory(
+            name="durian",
+            attack_class=self._AdversarialAttack,
+            adversarial_system_prompt_addendum="baked addendum {{ objective }}",
+        )
+        with pytest.raises(ValueError, match="adversarial_system_prompt_addendum is already baked"):
+            factory.create(
+                objective_target=MagicMock(spec=PromptTarget),
+                attack_scoring_config=self._scoring(),
+                adversarial_system_prompt_addendum="create-time addendum {{ objective }}",
+            )
+
+    def test_identifier_distinguishes_custom_addendum(self):
+        f1 = AttackTechniqueFactory(
+            name="durian",
+            attack_class=self._AdversarialAttack,
+            adversarial_system_prompt_addendum="a {{ objective }}",
+        )
+        f2 = AttackTechniqueFactory(
+            name="durian",
+            attack_class=self._AdversarialAttack,
+            adversarial_system_prompt_addendum="b {{ objective }}",
+        )
+        assert f1.get_identifier().hash != f2.get_identifier().hash
+
 
 class TestResolveAdversarialChat:
     class _AdversarialAttack:

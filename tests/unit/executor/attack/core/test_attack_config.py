@@ -228,19 +228,36 @@ class TestResolveAdversarialSystemPromptAddendum:
         assert seed.value == "base persona\n\nextra rules {{ objective }}"
 
     def test_addendum_missing_required_params_raises(self):
-        """An addendum SeedPrompt missing a required parameter raises ValueError."""
+        """An addendum SeedPrompt missing a required parameter raises ValueError naming the addendum."""
         addendum = SeedPrompt(value="extra rules", data_type="text", parameters=[])
         config = AttackAdversarialConfig(
             target=MagicMock(spec=PromptTarget),
             system_prompt="base persona {{ objective }}",
             system_prompt_addendum=addendum,
         )
-        with pytest.raises(ValueError, match="missing required parameters"):
+        with pytest.raises(ValueError, match="system_prompt_addendum is missing required parameters"):
             resolve_adversarial_system_prompt(
                 config=config,
                 default_system_prompt_path="unused.yaml",
                 required_parameters=["objective"],
             )
+
+    def test_addendum_failure_does_not_reuse_base_error_message(self):
+        """A custom error_message (written for the base prompt) is not reused for addendum failures."""
+        addendum = SeedPrompt(value="extra rules", data_type="text", parameters=[])
+        config = AttackAdversarialConfig(
+            target=MagicMock(spec=PromptTarget),
+            system_prompt="base persona {{ objective }}",
+            system_prompt_addendum=addendum,
+        )
+        with pytest.raises(ValueError, match="system_prompt_addendum is missing required parameters") as exc_info:
+            resolve_adversarial_system_prompt(
+                config=config,
+                default_system_prompt_path="unused.yaml",
+                required_parameters=["objective"],
+                error_message="Adversarial seed prompt must have an objective",
+            )
+        assert "Adversarial seed prompt must have an objective" not in str(exc_info.value)
 
     def test_no_addendum_returns_base_prompt_unchanged(self):
         """With no addendum configured, the resolved base SeedPrompt is returned as-is (same object)."""
@@ -254,7 +271,7 @@ class TestResolveAdversarialSystemPromptAddendum:
         assert seed is provided
 
     def test_addendum_preserves_base_response_json_schema(self):
-        """The combined prompt carries over the base prompt's response_json_schema; the addendum's is ignored."""
+        """When only the base prompt declares a response_json_schema, the combined prompt keeps it."""
         schema = {"type": "object", "properties": {"next_message": {"type": "string"}}}
         base = SeedPrompt(
             value="base {{ objective }}", data_type="text", parameters=["objective"], response_json_schema=schema
@@ -270,3 +287,48 @@ class TestResolveAdversarialSystemPromptAddendum:
             required_parameters=["objective"],
         )
         assert seed.response_json_schema == schema
+
+    def test_addendum_schema_used_when_base_has_none(self):
+        """When only the addendum declares a response_json_schema, the combined prompt uses it."""
+        schema = {"type": "object", "properties": {"next_message": {"type": "string"}}}
+        addendum = SeedPrompt(
+            value="extra rules {{ objective }}",
+            data_type="text",
+            parameters=["objective"],
+            response_json_schema=schema,
+        )
+        config = AttackAdversarialConfig(
+            target=MagicMock(spec=PromptTarget),
+            system_prompt="base persona {{ objective }}",
+            system_prompt_addendum=addendum,
+        )
+        seed = resolve_adversarial_system_prompt(
+            config=config,
+            default_system_prompt_path="unused.yaml",
+            required_parameters=["objective"],
+        )
+        assert seed.response_json_schema == schema
+
+    def test_addendum_and_base_both_declare_schema_raises(self):
+        """Declaring a response_json_schema on both the base prompt and the addendum is ambiguous."""
+        schema = {"type": "object", "properties": {"next_message": {"type": "string"}}}
+        base = SeedPrompt(
+            value="base {{ objective }}", data_type="text", parameters=["objective"], response_json_schema=schema
+        )
+        addendum = SeedPrompt(
+            value="extra {{ objective }}",
+            data_type="text",
+            parameters=["objective"],
+            response_json_schema=schema,
+        )
+        config = AttackAdversarialConfig(
+            target=MagicMock(spec=PromptTarget),
+            system_prompt=base,
+            system_prompt_addendum=addendum,
+        )
+        with pytest.raises(ValueError, match="Both the resolved adversarial system prompt and system_prompt_addendum"):
+            resolve_adversarial_system_prompt(
+                config=config,
+                default_system_prompt_path="unused.yaml",
+                required_parameters=["objective"],
+            )

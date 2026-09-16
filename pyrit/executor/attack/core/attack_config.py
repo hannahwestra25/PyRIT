@@ -94,6 +94,7 @@ def _coerce_and_validate_prompt_component(
     value: str | SeedPrompt,
     required_parameters: list[str],
     error_message: str | None,
+    component_name: str = "system prompt",
 ) -> SeedPrompt:
     """
     Coerce an inline string or ``SeedPrompt`` into a ``SeedPrompt`` declaring ``required_parameters``.
@@ -106,6 +107,9 @@ def _coerce_and_validate_prompt_component(
         value: The inline string or SeedPrompt to coerce.
         required_parameters: Parameter names the resolved template must support.
         error_message: Optional custom error message for validation failures.
+        component_name: Human-readable label for the component being validated, used only in the
+            default failure message (ignored when ``error_message`` is provided) so callers can
+            tell which prompt component failed — e.g. "system prompt" vs. "system_prompt_addendum".
 
     Returns:
         The resolved SeedPrompt.
@@ -118,7 +122,9 @@ def _coerce_and_validate_prompt_component(
         declared = value.parameters or []
         missing = [param for param in required_parameters if param not in declared]
         if missing:
-            raise ValueError(error_message or f"Adversarial system prompt is missing required parameters: {missing}")
+            raise ValueError(
+                error_message or f"Adversarial {component_name} is missing required parameters: {missing}"
+            )
         return value
 
     # Inline strings are trusted — declare all required params so Jinja rendering works.
@@ -150,23 +156,30 @@ def resolve_adversarial_system_prompt(
 
     When ``config.system_prompt_addendum`` is also set, its resolved text is appended to
     whichever base prompt was resolved above (separated by a blank line), producing a single
-    combined ``SeedPrompt`` that declares the same ``required_parameters`` and carries over the
-    base prompt's ``response_json_schema``. This lets callers layer extra instructions on top of
-    a technique's default (or a custom ``system_prompt``) instead of hand-copying the base text
-    into a full replacement string.
+    combined ``SeedPrompt`` that declares the same ``required_parameters``. The combined prompt's
+    ``response_json_schema`` is whichever of the base prompt or the addendum declares one (it is
+    an error for both to declare one — see Raises below). This lets callers layer extra
+    instructions on top of a technique's default (or a custom ``system_prompt``) instead of
+    hand-copying the base text into a full replacement string.
+
+    Addendum validation failures never reuse ``error_message`` (that message is written for the
+    base prompt's specific contract, e.g. "must have an objective") — the addendum always raises
+    a generic message naming ``system_prompt_addendum`` so failures aren't misattributed to the
+    base prompt.
 
     Args:
         config: The adversarial configuration to resolve the system prompt from.
         default_system_prompt_path: Fallback YAML path when neither inline nor path is set.
         required_parameters: Parameter names the resolved template must support.
-        error_message: Optional custom error message for validation failures.
+        error_message: Optional custom error message for base-prompt validation failures.
 
     Returns:
         The resolved adversarial system-prompt SeedPrompt.
 
     Raises:
         ValueError: If an explicitly provided SeedPrompt (base or addendum) is missing required
-            parameters.
+            parameters, or if both the base prompt and the addendum declare a
+            ``response_json_schema``.
     """
     system_prompt = config.system_prompt
     if system_prompt is not None:
@@ -188,13 +201,19 @@ def resolve_adversarial_system_prompt(
     addendum_prompt = _coerce_and_validate_prompt_component(
         value=config.system_prompt_addendum,
         required_parameters=required_parameters,
-        error_message=error_message,
+        error_message=None,
+        component_name="system_prompt_addendum",
     )
+    if base_prompt.response_json_schema is not None and addendum_prompt.response_json_schema is not None:
+        raise ValueError(
+            "Both the resolved adversarial system prompt and system_prompt_addendum declare a "
+            "response_json_schema; set the schema on only one of them."
+        )
     return SeedPrompt(
         value=f"{base_prompt.value}\n\n{addendum_prompt.value}",
         is_jinja_template=True,
         parameters=list(required_parameters),
-        response_json_schema=base_prompt.response_json_schema,
+        response_json_schema=base_prompt.response_json_schema or addendum_prompt.response_json_schema,
     )
 
 

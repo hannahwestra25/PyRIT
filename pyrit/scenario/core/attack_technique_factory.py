@@ -82,6 +82,7 @@ class AttackTechniqueFactory(Identifiable):
         adversarial_chat: PromptTarget | None = None,
         adversarial_system_prompt: str | SeedPrompt | None = None,
         adversarial_seed_prompt: SeedPrompt | str | None = None,
+        adversarial_system_prompt_addendum: str | SeedPrompt | None = None,
         seed_technique: AttackTechniqueSeedGroup | None = None,
         uses_adversarial: bool | None = None,
         supports_additional_request_converters: bool = False,
@@ -116,6 +117,14 @@ class AttackTechniqueFactory(Identifiable):
                 ``str``) used to generate the adversarial chat's first message.
                 Combined with the resolved target like
                 ``adversarial_system_prompt``.
+            adversarial_system_prompt_addendum: Optional extra instructions (``str`` or
+                ``SeedPrompt``) layered on top of whichever adversarial system prompt is
+                ultimately used — this factory's own ``adversarial_system_prompt``, a
+                create-time one, or the attack class's built-in default. Unlike
+                ``adversarial_system_prompt``, this does not require baking (or a caller
+                supplying) a full replacement persona; it can be combined freely with a
+                baked or create-time ``adversarial_system_prompt`` / ``adversarial_seed_prompt``.
+                See ``AttackAdversarialConfig.system_prompt_addendum``.
             seed_technique: Optional technique seed group attached to created
                 techniques.
             uses_adversarial: Whether this technique drives an adversarial
@@ -145,8 +154,16 @@ class AttackTechniqueFactory(Identifiable):
         self._adversarial_chat = adversarial_chat
         self._adversarial_system_prompt = adversarial_system_prompt
         self._adversarial_seed_prompt = adversarial_seed_prompt
+        self._adversarial_system_prompt_addendum = adversarial_system_prompt_addendum
+        # Tracks the base-prompt slot (system_prompt / seed_prompt) only — this is the flag used to
+        # guard the baked-vs-create-time conflict for those two params specifically. The addendum has
+        # its own independent baked-vs-create-time guard (see create()) so a baked base prompt can
+        # freely combine with a create-time addendum, and vice versa.
+        self._has_custom_base_prompt = adversarial_system_prompt is not None or adversarial_seed_prompt is not None
+        # Broader flag: whether *any* custom adversarial prompt content (base or addendum) is wired,
+        # used only to derive/validate uses_adversarial.
         self._has_custom_adversarial_prompt = (
-            adversarial_system_prompt is not None or adversarial_seed_prompt is not None
+            self._has_custom_base_prompt or adversarial_system_prompt_addendum is not None
         )
         self._seed_technique = seed_technique
         self._supports_additional_request_converters = supports_additional_request_converters
@@ -530,6 +547,7 @@ class AttackTechniqueFactory(Identifiable):
         adversarial_chat: PromptTarget | None = None,
         adversarial_system_prompt: str | SeedPrompt | None = None,
         adversarial_seed_prompt: SeedPrompt | str | None = None,
+        adversarial_system_prompt_addendum: str | SeedPrompt | None = None,
         attack_converter_config_override: AttackConverterConfig | None = None,
         extra_request_converters: list[ConverterConfiguration] | None = None,
     ) -> AttackTechnique:
@@ -566,10 +584,16 @@ class AttackTechniqueFactory(Identifiable):
                 ``attack_adversarial_config``.
             adversarial_system_prompt: Optional inline system prompt (``str`` or
                 ``SeedPrompt``) for the adversarial chat. Only valid when the
-                factory did not bake a custom adversarial prompt.
+                factory did not bake a custom adversarial system prompt or seed prompt.
             adversarial_seed_prompt: Optional seed prompt (``SeedPrompt`` or
                 ``str``) for the adversarial chat's first message. Only valid when
-                the factory did not bake a custom adversarial prompt.
+                the factory did not bake a custom adversarial system prompt or seed prompt.
+            adversarial_system_prompt_addendum: Optional extra instructions (``str`` or
+                ``SeedPrompt``) layered on top of whichever adversarial system prompt is
+                ultimately used. Only valid when the factory did not bake an addendum of its
+                own. Unlike ``adversarial_system_prompt`` / ``adversarial_seed_prompt``, this
+                composes freely with a baked ``adversarial_system_prompt`` — a scenario can add
+                a global addendum on top of a technique's own baked persona.
             attack_converter_config_override: When non-None, replaces any
                 converter config baked into the factory.  Only forwarded if
                 the attack class constructor accepts ``attack_converter_config``.
@@ -585,9 +609,10 @@ class AttackTechniqueFactory(Identifiable):
             A fresh AttackTechnique with a newly-constructed attack technique.
 
         Raises:
-            ValueError: If a create-time adversarial chat is supplied while the
-                factory already baked one, or if ``scorer_override_policy`` is RAISE
-                and the scenario scorer is incompatible with the attack's type annotation.
+            ValueError: If a create-time adversarial chat, custom adversarial prompt, or
+                addendum is supplied while the factory already baked one, or if
+                ``scorer_override_policy`` is RAISE and the scenario scorer is incompatible
+                with the attack's type annotation.
         """
         create_time_target: PromptTarget | None = adversarial_chat
 
@@ -599,10 +624,16 @@ class AttackTechniqueFactory(Identifiable):
 
         if (
             adversarial_system_prompt is not None or adversarial_seed_prompt is not None
-        ) and self._has_custom_adversarial_prompt:
+        ) and self._has_custom_base_prompt:
             raise ValueError(
                 f"Factory '{self._name}': a custom adversarial prompt is already baked into this technique, "
                 f"so create() cannot supply 'adversarial_system_prompt' or 'adversarial_seed_prompt'."
+            )
+
+        if adversarial_system_prompt_addendum is not None and self._adversarial_system_prompt_addendum is not None:
+            raise ValueError(
+                f"Factory '{self._name}': an adversarial_system_prompt_addendum is already baked into this "
+                f"technique, so create() cannot supply another one."
             )
 
         kwargs = dict(self._attack_kwargs)
@@ -618,12 +649,14 @@ class AttackTechniqueFactory(Identifiable):
             create_time_target is not None
             or adversarial_system_prompt is not None
             or adversarial_seed_prompt is not None
+            or adversarial_system_prompt_addendum is not None
             or self._uses_adversarial
         ):
             kwargs["attack_adversarial_config"] = self._build_adversarial_config(
                 create_time_target=create_time_target,
                 create_time_system_prompt=adversarial_system_prompt,
                 create_time_seed_prompt=adversarial_seed_prompt,
+                create_time_addendum=adversarial_system_prompt_addendum,
             )
         if attack_converter_config_override is not None and "attack_converter_config" in accepted_params:
             kwargs["attack_converter_config"] = attack_converter_config_override
@@ -646,6 +679,7 @@ class AttackTechniqueFactory(Identifiable):
         create_time_target: PromptTarget | None = None,
         create_time_system_prompt: str | SeedPrompt | None = None,
         create_time_seed_prompt: SeedPrompt | str | None = None,
+        create_time_addendum: str | SeedPrompt | None = None,
     ) -> AttackAdversarialConfig:
         """
         Build the adversarial config for a created attack, resolving the target lazily.
@@ -656,11 +690,15 @@ class AttackTechniqueFactory(Identifiable):
         on that conflict.) The factory's custom ``adversarial_system_prompt`` /
         ``adversarial_seed_prompt`` take precedence over the create-time values, so a
         technique keeps its bespoke persona while a scenario can still supply the target.
+        ``adversarial_system_prompt_addendum`` follows the same baked-takes-precedence pattern,
+        but independently of the base prompt slot — it is not a full-replacement override, so a
+        baked base persona and a create-time addendum (or vice versa) combine rather than conflict.
 
         Args:
             create_time_target: An adversarial target supplied at ``create()`` time.
             create_time_system_prompt: An adversarial system prompt supplied at ``create()`` time.
             create_time_seed_prompt: An adversarial seed prompt supplied at ``create()`` time.
+            create_time_addendum: An adversarial system prompt addendum supplied at ``create()`` time.
 
         Returns:
             AttackAdversarialConfig: Config wrapping the resolved adversarial chat target.
@@ -674,12 +712,15 @@ class AttackTechniqueFactory(Identifiable):
 
         system_prompt = self._adversarial_system_prompt or create_time_system_prompt
         seed_prompt = self._adversarial_seed_prompt or create_time_seed_prompt
+        addendum = self._adversarial_system_prompt_addendum or create_time_addendum
 
         config_kwargs: dict[str, Any] = {"target": target}
         if system_prompt is not None:
             config_kwargs["system_prompt"] = system_prompt
         if seed_prompt is not None:
             config_kwargs["first_message"] = seed_prompt
+        if addendum is not None:
+            config_kwargs["system_prompt_addendum"] = addendum
         return AttackAdversarialConfig(**config_kwargs)
 
     def _get_accepted_params(self) -> set[str]:
@@ -871,6 +912,10 @@ class AttackTechniqueFactory(Identifiable):
             params["adversarial_system_prompt"] = self._serialize_value(self._adversarial_system_prompt)
         if self._adversarial_seed_prompt is not None:
             params["adversarial_seed_prompt"] = self._serialize_value(self._adversarial_seed_prompt)
+        if self._adversarial_system_prompt_addendum is not None:
+            params["adversarial_system_prompt_addendum"] = self._serialize_value(
+                self._adversarial_system_prompt_addendum
+            )
 
         children: dict[str, Any] = {}
         if self._seed_technique is not None:
