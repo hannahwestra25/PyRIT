@@ -225,6 +225,10 @@ class EmptyResponseException(BadRequestException):
         super().__init__(status_code=status_code, message=message)
 
 
+class AdversarialChatResponseBlockedException(BadRequestException):
+    """Exception raised when an adversarial chat refuses or filters its response."""
+
+
 class ScorerLLMResponseBlockedException(BadRequestException):
     """Exception raised when a scorer's own LLM response is blocked by content filtering."""
 
