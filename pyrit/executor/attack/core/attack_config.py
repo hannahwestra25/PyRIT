@@ -122,9 +122,7 @@ def _coerce_and_validate_prompt_component(
         declared = value.parameters or []
         missing = [param for param in required_parameters if param not in declared]
         if missing:
-            raise ValueError(
-                error_message or f"Adversarial {component_name} is missing required parameters: {missing}"
-            )
+            raise ValueError(error_message or f"Adversarial {component_name} is missing required parameters: {missing}")
         return value
 
     # Inline strings are trusted — declare all required params so Jinja rendering works.
