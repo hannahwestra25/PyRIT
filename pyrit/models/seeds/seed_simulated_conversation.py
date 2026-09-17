@@ -59,6 +59,11 @@ class SeedSimulatedConversation(Seed):
     Attributes:
         num_turns: Number of conversation turns to generate.
         adversarial_chat_system_prompt_path: Path to the adversarial chat system prompt YAML.
+        adversarial_chat_system_prompt_addendum: Optional extra instructions layered on top of
+            the adversarial chat system prompt loaded from ``adversarial_chat_system_prompt_path``.
+            Lets a scenario add extra rules to this technique's simulated-conversation persona
+            without hand-copying it into a full replacement prompt. Supports the same Jinja
+            template variables as the base prompt (e.g. ``{{ objective }}``).
         simulated_target_system_prompt_path: Path to the simulated target system prompt YAML.
             Defaults to the compliant prompt if not specified.
         next_message_system_prompt_path: Optional path to the system prompt for generating
@@ -86,6 +91,7 @@ class SeedSimulatedConversation(Seed):
     num_turns: int = 3
     sequence: int = 0
     adversarial_chat_system_prompt_path: Path
+    adversarial_chat_system_prompt_addendum: str | None = None
     simulated_target_system_prompt_path: Path = SimulatedTargetSystemPromptPaths.COMPLIANT.value
     next_message_system_prompt_path: Path | None = None
     pyrit_version: str | None = None
@@ -137,6 +143,7 @@ class SeedSimulatedConversation(Seed):
             "num_turns": self.num_turns,
             "sequence": self.sequence,
             "adversarial_chat_system_prompt_path": str(self.adversarial_chat_system_prompt_path),
+            "adversarial_chat_system_prompt_addendum": self.adversarial_chat_system_prompt_addendum,
             "simulated_target_system_prompt_path": str(self.simulated_target_system_prompt_path),
             "next_message_system_prompt_path": (
                 str(self.next_message_system_prompt_path) if self.next_message_system_prompt_path else None
@@ -158,6 +165,7 @@ class SeedSimulatedConversation(Seed):
             "num_turns": self.num_turns,
             "sequence": self.sequence,
             "adversarial_chat_system_prompt_path": str(self.adversarial_chat_system_prompt_path),
+            "adversarial_chat_system_prompt_addendum": self.adversarial_chat_system_prompt_addendum,
             "simulated_target_system_prompt_path": str(self.simulated_target_system_prompt_path),
             "next_message_system_prompt_path": (
                 str(self.next_message_system_prompt_path) if self.next_message_system_prompt_path else None

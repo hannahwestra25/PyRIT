@@ -60,6 +60,7 @@ async def generate_simulated_conversation_async(
     num_turns: int = 3,
     starting_sequence: int = 0,
     adversarial_chat_system_prompt_path: str | Path,
+    adversarial_chat_system_prompt_addendum: str | None = None,
     simulated_target_system_prompt_path: str | Path | None = None,
     next_message_system_prompt_path: str | Path | None = None,
     attack_converter_config: AttackConverterConfig | None = None,
@@ -87,6 +88,9 @@ async def generate_simulated_conversation_async(
         starting_sequence: The starting sequence number for the generated SeedPrompts.
             Each message gets an incrementing sequence number. Defaults to 0.
         adversarial_chat_system_prompt_path: Path to the system prompt for the adversarial chat.
+        adversarial_chat_system_prompt_addendum: Optional extra instructions layered on top of
+            the adversarial chat system prompt loaded from ``adversarial_chat_system_prompt_path``.
+            Supports the same Jinja template variables as the base prompt (e.g. ``{{ objective }}``).
         simulated_target_system_prompt_path: Path to the system prompt for the simulated target.
             If None, no system prompt is used for the simulated target.
         next_message_system_prompt_path: Optional path to a system prompt for generating
@@ -126,6 +130,7 @@ async def generate_simulated_conversation_async(
     adversarial_config = AttackAdversarialConfig(
         target=adversarial_chat,
         system_prompt=adversarial_system_prompt,
+        system_prompt_addendum=adversarial_chat_system_prompt_addendum,
     )
 
     # Create scoring config

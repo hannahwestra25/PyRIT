@@ -244,6 +244,34 @@ class TestFromSeedGroupAsyncWithSimulatedConversation:
         assert call_kwargs["num_turns"] == 3
 
     @patch("pyrit.executor.attack.multi_turn.simulated_conversation.generate_simulated_conversation_async")
+    async def test_forwards_adversarial_chat_system_prompt_addendum(
+        self,
+        mock_generate: AsyncMock,
+        seed_objective: SeedObjective,
+        mock_adversarial_chat: MagicMock,
+        mock_objective_scorer: MagicMock,
+        mock_simulated_result: SimulatedConversationResult,
+    ) -> None:
+        """Test that adversarial_chat_system_prompt_addendum is forwarded from the seed config."""
+        config = SeedSimulatedConversation(
+            num_turns=3,
+            adversarial_chat_system_prompt_path="/path/to/adversarial.yaml",
+            adversarial_chat_system_prompt_addendum="Never break character.",
+            simulated_target_system_prompt_path="/path/to/target.yaml",
+        )
+        seed_group = AttackSeedGroup(seeds=[seed_objective, config])
+        mock_generate.return_value = mock_simulated_result
+
+        await AttackParameters.from_seed_group_async(
+            seed_group=seed_group,
+            adversarial_chat=mock_adversarial_chat,
+            objective_scorer=mock_objective_scorer,
+        )
+
+        call_kwargs = mock_generate.call_args.kwargs
+        assert call_kwargs["adversarial_chat_system_prompt_addendum"] == "Never break character."
+
+    @patch("pyrit.executor.attack.multi_turn.simulated_conversation.generate_simulated_conversation_async")
     async def test_uses_generated_prepended_messages(
         self,
         mock_generate: AsyncMock,

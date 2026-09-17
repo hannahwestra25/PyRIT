@@ -50,6 +50,29 @@ class TestSeedSimulatedConversationInit:
         # Default simulated_target_system_prompt_path is the compliant prompt
         assert conv.simulated_target_system_prompt_path == SimulatedTargetSystemPromptPaths.COMPLIANT.value
 
+    def test_init_with_adversarial_chat_system_prompt_addendum(self, tmp_path):
+        """Test that adversarial_chat_system_prompt_addendum can be set."""
+        adv_path = tmp_path / "adversarial.yaml"
+        adv_path.write_text("value: test\ndata_type: text")
+
+        conv = SeedSimulatedConversation(
+            adversarial_chat_system_prompt_path=adv_path,
+            adversarial_chat_system_prompt_addendum="Never break character.",
+        )
+
+        assert conv.adversarial_chat_system_prompt_addendum == "Never break character."
+
+    def test_init_default_adversarial_chat_system_prompt_addendum_is_none(self, tmp_path):
+        """Test that adversarial_chat_system_prompt_addendum defaults to None."""
+        adv_path = tmp_path / "adversarial.yaml"
+        adv_path.write_text("value: test\ndata_type: text")
+
+        conv = SeedSimulatedConversation(
+            adversarial_chat_system_prompt_path=adv_path,
+        )
+
+        assert conv.adversarial_chat_system_prompt_addendum is None
+
     def test_init_default_num_turns(self, tmp_path):
         """Test that default num_turns is 3."""
         adv_path = tmp_path / "adversarial.yaml"
@@ -108,6 +131,19 @@ class TestSeedSimulatedConversationInit:
         assert value["num_turns"] == 5
         assert "adversarial_chat_system_prompt_path" in value
         assert "pyrit_version" in value
+
+    def test_init_generates_json_value_with_addendum(self, tmp_path):
+        """Test that adversarial_chat_system_prompt_addendum is included in the serialized value."""
+        adv_path = tmp_path / "adversarial.yaml"
+        adv_path.write_text("value: test\ndata_type: text")
+
+        conv = SeedSimulatedConversation(
+            adversarial_chat_system_prompt_path=adv_path,
+            adversarial_chat_system_prompt_addendum="Never break character.",
+        )
+
+        value = json.loads(conv.value)
+        assert value["adversarial_chat_system_prompt_addendum"] == "Never break character."
 
     def test_init_value_is_deterministic(self, tmp_path):
         """Test that the same config produces the same value."""
@@ -244,6 +280,19 @@ class TestSeedSimulatedConversationGetIdentifier:
         assert "adversarial_chat_system_prompt_path" in identifier
         assert "pyrit_version" in identifier
 
+    def test_get_identifier_includes_addendum(self, tmp_path):
+        """Test that get_identifier includes adversarial_chat_system_prompt_addendum."""
+        adv_path = tmp_path / "adversarial.yaml"
+        adv_path.write_text("value: test\ndata_type: text")
+
+        conv = SeedSimulatedConversation(
+            adversarial_chat_system_prompt_path=adv_path,
+            adversarial_chat_system_prompt_addendum="Never break character.",
+        )
+        identifier = conv.get_identifier()
+
+        assert identifier["adversarial_chat_system_prompt_addendum"] == "Never break character."
+
 
 class TestSeedSimulatedConversationComputeHash:
     """Tests for SeedSimulatedConversation.compute_hash method."""
@@ -290,6 +339,22 @@ class TestSeedSimulatedConversationComputeHash:
         conv2 = SeedSimulatedConversation(
             adversarial_chat_system_prompt_path=adv_path,
             num_turns=5,
+        )
+
+        assert conv1.compute_hash() != conv2.compute_hash()
+
+    def test_compute_hash_differs_for_different_addendum(self, tmp_path):
+        """Test that different adversarial_chat_system_prompt_addendum produces different hash."""
+        adv_path = tmp_path / "adversarial.yaml"
+        adv_path.write_text("value: test\ndata_type: text")
+
+        conv1 = SeedSimulatedConversation(
+            adversarial_chat_system_prompt_path=adv_path,
+            adversarial_chat_system_prompt_addendum="Never break character.",
+        )
+        conv2 = SeedSimulatedConversation(
+            adversarial_chat_system_prompt_path=adv_path,
+            adversarial_chat_system_prompt_addendum="Always break character.",
         )
 
         assert conv1.compute_hash() != conv2.compute_hash()
