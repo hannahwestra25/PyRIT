@@ -12,8 +12,9 @@ a glance instead of digging through JSONL files by hand.
   `pyrit/datasets/scorer_evals/`. See [Scorer Metrics](../code/scoring/4_scorer_metrics.ipynb)
   for what these numbers mean and [Scoring Scorers](../blog/2026_04_14_scoring_scorers.md) for
   the full evaluation framework.
-- **[Benchmark Leaderboard](2_benchmark_leaderboard.md)** — attack success rate by technique
-  and adversarial model, built from `AdversarialBenchmark` scenario runs via
+- **[Benchmark Leaderboard](2_benchmark_leaderboard.md)** — an Adversarial Model Leaderboard
+  (attack success rate by adversarial model, broken out by technique), built from
+  `AdversarialBenchmark` scenario runs via
   `build_scripts/export_adversarial_benchmark_result.py --update-benchmark-store`. The data
   behind it today is a small demo-scale run (see the page's "Note on scope") — treat it as a
   preview of the mechanism, not a statistically robust evaluation yet.
@@ -21,7 +22,7 @@ a glance instead of digging through JSONL files by hand.
 ## What's planned
 
 An objective-target robustness leaderboard (comparing target models against a fixed
-adversarial model, the mirror image of today's benchmark leaderboard) reuses the same
+adversarial model, the mirror image of today's adversarial model leaderboard) reuses the same
 scenario, exporter, and store — only the grouping changes. A larger, regularly-refreshed
 sweep across more techniques, models, and dataset items is future work; see the "Note on
 scope" section on the Benchmark Leaderboard page.
