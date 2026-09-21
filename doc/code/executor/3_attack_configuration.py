@@ -171,8 +171,8 @@ await output_attack_async(result)
 #   [scorers](../scoring/0_scoring.ipynb).
 # - **`AttackAdversarialConfig`** — the adversarial target (a model PyRIT controls) that multi-turn
 #   attacks use to generate each next prompt (see [Multi-Turn Attacks](2_multi_turn.ipynb)). Its
-#   `system_prompt` fully replaces the default adversarial system prompt; set `system_prompt_addendum`
-#   instead to layer extra instructions on top of whichever one (default or custom) would otherwise
+#   `system_prompt` fully replaces the default adversarial system prompt; set `system_prompt_prefix`
+#   instead to prepend extra instructions ahead of whichever one (default or custom) would otherwise
 #   be used.
 #
 # Converter and scoring configs apply to single- and multi-turn attacks alike; the adversarial config

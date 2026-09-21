@@ -27,7 +27,11 @@ from typing import TYPE_CHECKING, Any, Union
 
 from pyrit.common.path import EXECUTOR_SEED_PROMPT_PATH
 from pyrit.executor.attack import PromptSendingAttack
-from pyrit.executor.attack.core.attack_config import AttackAdversarialConfig, AttackConverterConfig, AttackScoringConfig
+from pyrit.executor.attack.core.attack_config import (
+    AttackAdversarialConfig,
+    AttackConverterConfig,
+    AttackScoringConfig,
+)
 from pyrit.models import (
     AttackTechniqueSeedGroup,
     ComponentIdentifier,
@@ -237,6 +241,7 @@ class AttackTechniqueFactory(Identifiable):
         Returns:
             AttackTechniqueFactory: A new factory whose ``seed_technique`` is the
                 wrapped simulated conversation.
+
         """
         if attack_class is None:
             attack_class = PromptSendingAttack
@@ -529,6 +534,7 @@ class AttackTechniqueFactory(Identifiable):
         attack_scoring_config: AttackScoringConfig,
         adversarial_chat: PromptTarget | None = None,
         adversarial_system_prompt: str | SeedPrompt | None = None,
+        adversarial_system_prompt_prefix: str | None = None,
         adversarial_seed_prompt: SeedPrompt | str | None = None,
         attack_converter_config_override: AttackConverterConfig | None = None,
         extra_request_converters: list[ConverterConfiguration] | None = None,
@@ -567,6 +573,8 @@ class AttackTechniqueFactory(Identifiable):
             adversarial_system_prompt: Optional inline system prompt (``str`` or
                 ``SeedPrompt``) for the adversarial chat. Only valid when the
                 factory did not bake a custom adversarial prompt.
+            adversarial_system_prompt_prefix: Optional static guidance prepended
+                to this attack instance's native adversarial system prompt.
             adversarial_seed_prompt: Optional seed prompt (``SeedPrompt`` or
                 ``str``) for the adversarial chat's first message. Only valid when
                 the factory did not bake a custom adversarial prompt.
@@ -587,7 +595,9 @@ class AttackTechniqueFactory(Identifiable):
         Raises:
             ValueError: If a create-time adversarial chat is supplied while the
                 factory already baked one, or if ``scorer_override_policy`` is RAISE
-                and the scenario scorer is incompatible with the attack's type annotation.
+                and the scenario scorer is incompatible with the attack's type annotation,
+                or if ``adversarial_system_prompt_prefix`` contains Jinja syntax or the
+                technique has no supported adversarial prompt surface.
         """
         create_time_target: PromptTarget | None = adversarial_chat
 
@@ -609,6 +619,20 @@ class AttackTechniqueFactory(Identifiable):
         kwargs["objective_target"] = objective_target
 
         accepted_params = self._get_accepted_params()
+        seed_technique = self._seed_technique
+        if adversarial_system_prompt_prefix is not None:
+            SeedPrompt.reject_jinja_syntax(
+                adversarial_system_prompt_prefix, component_name="adversarial_system_prompt_prefix"
+            )
+            seed_technique, supports_simulated = self._copy_seed_technique_with_prefix(
+                prefix=adversarial_system_prompt_prefix
+            )
+            if "attack_adversarial_config" not in accepted_params and not supports_simulated:
+                raise ValueError(
+                    f"Factory '{self._name}' cannot accept an adversarial system prompt prefix. "
+                    "Its attack must accept attack_adversarial_config or its seed technique must contain "
+                    "a SeedSimulatedConversation."
+                )
         if self._should_apply_scoring_config(
             attack_scoring_config=attack_scoring_config,
             accepted_params=accepted_params,
@@ -617,12 +641,14 @@ class AttackTechniqueFactory(Identifiable):
         if "attack_adversarial_config" in accepted_params and (
             create_time_target is not None
             or adversarial_system_prompt is not None
+            or adversarial_system_prompt_prefix is not None
             or adversarial_seed_prompt is not None
             or self._uses_adversarial
         ):
             kwargs["attack_adversarial_config"] = self._build_adversarial_config(
                 create_time_target=create_time_target,
                 create_time_system_prompt=adversarial_system_prompt,
+                create_time_system_prompt_prefix=adversarial_system_prompt_prefix,
                 create_time_seed_prompt=adversarial_seed_prompt,
             )
         if attack_converter_config_override is not None and "attack_converter_config" in accepted_params:
@@ -638,13 +664,14 @@ class AttackTechniqueFactory(Identifiable):
             )
 
         attack = self._attack_class(**kwargs)
-        return AttackTechnique(attack=attack, seed_technique=self._seed_technique)
+        return AttackTechnique(attack=attack, seed_technique=seed_technique)
 
     def _build_adversarial_config(
         self,
         *,
         create_time_target: PromptTarget | None = None,
         create_time_system_prompt: str | SeedPrompt | None = None,
+        create_time_system_prompt_prefix: str | None = None,
         create_time_seed_prompt: SeedPrompt | str | None = None,
     ) -> AttackAdversarialConfig:
         """
@@ -660,6 +687,7 @@ class AttackTechniqueFactory(Identifiable):
         Args:
             create_time_target: An adversarial target supplied at ``create()`` time.
             create_time_system_prompt: An adversarial system prompt supplied at ``create()`` time.
+            create_time_system_prompt_prefix: Static guidance prepended to the system prompt.
             create_time_seed_prompt: An adversarial seed prompt supplied at ``create()`` time.
 
         Returns:
@@ -675,12 +703,45 @@ class AttackTechniqueFactory(Identifiable):
         system_prompt = self._adversarial_system_prompt or create_time_system_prompt
         seed_prompt = self._adversarial_seed_prompt or create_time_seed_prompt
 
-        config_kwargs: dict[str, Any] = {"target": target}
+        config_kwargs: dict[str, Any] = {
+            "target": target,
+            "system_prompt_prefix": create_time_system_prompt_prefix,
+        }
         if system_prompt is not None:
             config_kwargs["system_prompt"] = system_prompt
         if seed_prompt is not None:
             config_kwargs["first_message"] = seed_prompt
         return AttackAdversarialConfig(**config_kwargs)
+
+    def _copy_seed_technique_with_prefix(
+        self,
+        *,
+        prefix: str,
+    ) -> tuple[AttackTechniqueSeedGroup | None, bool]:
+        """
+        Copy the seed technique, layering guidance onto each simulated conversation.
+
+        Delegates the per-seed copy/combine work to
+        ``SeedSimulatedConversation.with_layered_prefix``.
+
+        Returns:
+            tuple[AttackTechniqueSeedGroup | None, bool]: The copied seed technique and
+                whether it contained a simulated conversation.
+        """
+        if self._seed_technique is None:
+            return None, False
+
+        supports_simulated = False
+        seeds: list[Any] = []
+        for seed in self._seed_technique.seeds:
+            if not isinstance(seed, SeedSimulatedConversation):
+                seeds.append(seed)
+                continue
+            supports_simulated = True
+            seeds.append(seed.with_layered_prefix(prefix))
+        if not supports_simulated:
+            return self._seed_technique, False
+        return self._seed_technique.model_copy(update={"seeds": seeds}, deep=True), True
 
     def _get_accepted_params(self) -> set[str]:
         """Return the set of keyword parameter names accepted by the attack class constructor."""

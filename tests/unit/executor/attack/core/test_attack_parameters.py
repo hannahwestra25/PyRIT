@@ -9,6 +9,7 @@ import pytest
 from pyrit.executor.attack.core.attack_parameters import (
     AttackParameters,
 )
+from pyrit.executor.attack.multi_turn.red_teaming import RTASystemPromptPaths
 from pyrit.executor.attack.multi_turn.simulated_conversation import SimulatedConversationResult
 from pyrit.models import (
     AttackSeedGroup,
@@ -132,7 +133,7 @@ class TestFromSeedGroupAsyncWithSimulatedConversation:
         """Create a SeedSimulatedConversation config."""
         return SeedSimulatedConversation(
             num_turns=3,
-            adversarial_chat_system_prompt_path="/path/to/adversarial.yaml",
+            adversarial_chat_system_prompt_path=RTASystemPromptPaths.TEXT_GENERATION.value,
             simulated_target_system_prompt_path="/path/to/target.yaml",
         )
 
@@ -244,7 +245,7 @@ class TestFromSeedGroupAsyncWithSimulatedConversation:
         assert call_kwargs["num_turns"] == 3
 
     @patch("pyrit.executor.attack.multi_turn.simulated_conversation.generate_simulated_conversation_async")
-    async def test_forwards_adversarial_chat_system_prompt_addendum(
+    async def test_forwards_adversarial_chat_system_prompt_prefix(
         self,
         mock_generate: AsyncMock,
         seed_objective: SeedObjective,
@@ -252,11 +253,11 @@ class TestFromSeedGroupAsyncWithSimulatedConversation:
         mock_objective_scorer: MagicMock,
         mock_simulated_result: SimulatedConversationResult,
     ) -> None:
-        """Test that adversarial_chat_system_prompt_addendum is forwarded from the seed config."""
+        """Test that adversarial_chat_system_prompt_prefix is composed into the resolved prompt."""
         config = SeedSimulatedConversation(
             num_turns=3,
-            adversarial_chat_system_prompt_path="/path/to/adversarial.yaml",
-            adversarial_chat_system_prompt_addendum="Never break character.",
+            adversarial_chat_system_prompt_path=RTASystemPromptPaths.TEXT_GENERATION.value,
+            adversarial_chat_system_prompt_prefix="Never break character.",
             simulated_target_system_prompt_path="/path/to/target.yaml",
         )
         seed_group = AttackSeedGroup(seeds=[seed_objective, config])
@@ -269,7 +270,8 @@ class TestFromSeedGroupAsyncWithSimulatedConversation:
         )
 
         call_kwargs = mock_generate.call_args.kwargs
-        assert call_kwargs["adversarial_chat_system_prompt_addendum"] == "Never break character."
+        resolved_system_prompt = call_kwargs["adversarial_chat_system_prompt"]
+        assert resolved_system_prompt.value.startswith("Never break character.")
 
     @patch("pyrit.executor.attack.multi_turn.simulated_conversation.generate_simulated_conversation_async")
     async def test_uses_generated_prepended_messages(

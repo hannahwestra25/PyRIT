@@ -59,8 +59,7 @@ async def generate_simulated_conversation_async(
     objective_scorer: TrueFalseScorer,
     num_turns: int = 3,
     starting_sequence: int = 0,
-    adversarial_chat_system_prompt_path: str | Path,
-    adversarial_chat_system_prompt_addendum: str | None = None,
+    adversarial_chat_system_prompt: SeedPrompt,
     simulated_target_system_prompt_path: str | Path | None = None,
     next_message_system_prompt_path: str | Path | None = None,
     attack_converter_config: AttackConverterConfig | None = None,
@@ -87,10 +86,9 @@ async def generate_simulated_conversation_async(
         num_turns: Number of conversation turns to generate. Defaults to 3.
         starting_sequence: The starting sequence number for the generated SeedPrompts.
             Each message gets an incrementing sequence number. Defaults to 0.
-        adversarial_chat_system_prompt_path: Path to the system prompt for the adversarial chat.
-        adversarial_chat_system_prompt_addendum: Optional extra instructions layered on top of
-            the adversarial chat system prompt loaded from ``adversarial_chat_system_prompt_path``.
-            Supports the same Jinja template variables as the base prompt (e.g. ``{{ objective }}``).
+        adversarial_chat_system_prompt: The already-resolved system prompt for the adversarial
+            chat. Callers building this from a ``SeedSimulatedConversation`` should use its
+            ``resolve_adversarial_chat_system_prompt`` method rather than passing a raw path here.
         simulated_target_system_prompt_path: Path to the system prompt for the simulated target.
             If None, no system prompt is used for the simulated target.
         next_message_system_prompt_path: Optional path to a system prompt for generating
@@ -122,15 +120,11 @@ async def generate_simulated_conversation_async(
         simulated_target_system_prompt_path=simulated_target_system_prompt_path,
     )
 
-    # Create adversarial config for the simulation. Load the optional path into a SeedPrompt so the
-    # resolved prompt is stored directly on the configuration.
-    adversarial_system_prompt = (
-        SeedPrompt.from_yaml_file(adversarial_chat_system_prompt_path) if adversarial_chat_system_prompt_path else None
-    )
+    # adversarial_chat_system_prompt is already fully resolved by the caller, so it is passed
+    # straight through as the adversarial config's system_prompt.
     adversarial_config = AttackAdversarialConfig(
         target=adversarial_chat,
-        system_prompt=adversarial_system_prompt,
-        system_prompt_addendum=adversarial_chat_system_prompt_addendum,
+        system_prompt=adversarial_chat_system_prompt,
     )
 
     # Create scoring config
