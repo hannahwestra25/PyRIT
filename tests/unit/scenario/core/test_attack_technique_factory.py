@@ -919,42 +919,73 @@ class TestCustomAdversarialPrompt:
                 adversarial_system_prompt="create-time {{ objective }}",
             )
 
-    def test_create_time_prefix_reaches_attack_config(self):
+
+class TestWithAdversarialSystemPromptPrefix:
+    """Tests for ``with_adversarial_system_prompt_prefix``, the explicit prefix-layering API."""
+
+    class _AdversarialAttack:
+        def __init__(self, *, objective_target=None, attack_scoring_config=None, attack_adversarial_config=None):
+            self.attack_adversarial_config = attack_adversarial_config
+
+        def get_identifier(self):
+            return ComponentIdentifier(class_name="_AdversarialAttack", class_module="test")
+
+    @staticmethod
+    def _scoring():
+        return MagicMock(spec=AttackScoringConfig)
+
+    def test_reaches_attack_config(self):
         prefix = "Static guidance"
         factory = AttackTechniqueFactory(name="durian", attack_class=self._AdversarialAttack)
 
-        technique = factory.create(
+        technique = factory.with_adversarial_system_prompt_prefix(prefix).create(
             objective_target=MagicMock(spec=PromptTarget),
             attack_scoring_config=self._scoring(),
             adversarial_chat=MagicMock(spec=PromptTarget),
-            adversarial_system_prompt_prefix=prefix,
         )
 
         assert technique.attack.attack_adversarial_config.system_prompt_prefix == prefix
 
-    def test_create_time_prefix_updates_returned_simulated_seed_without_mutating_factory(self):
+    def test_does_not_mutate_original_factory(self):
+        """Deriving a prefixed factory must not change what the original factory creates."""
+        prefix = "Static guidance"
+        factory = AttackTechniqueFactory(name="durian", attack_class=self._AdversarialAttack)
+
+        factory.with_adversarial_system_prompt_prefix(prefix)
+        technique = factory.create(
+            objective_target=MagicMock(spec=PromptTarget),
+            attack_scoring_config=self._scoring(),
+            adversarial_chat=MagicMock(spec=PromptTarget),
+        )
+
+        assert technique.attack.attack_adversarial_config.system_prompt_prefix is None
+
+    def test_returns_modified_simulated_seed_without_mutating_factory(self):
         prefix = "Static guidance"
         factory = AttackTechniqueFactory.with_simulated_conversation(
             name="crescendo_simulated",
             attack_class=_StubAttack,
         )
 
-        technique = factory.create(
-            objective_target=MagicMock(spec=PromptTarget),
-            attack_scoring_config=self._scoring(),
-            adversarial_system_prompt_prefix=prefix,
+        new_factory = factory.with_adversarial_system_prompt_prefix(prefix)
+        technique = new_factory.create(
+            objective_target=MagicMock(spec=PromptTarget), attack_scoring_config=self._scoring()
         )
 
+        assert new_factory is not factory
         assert factory.seed_technique is not None
+        assert new_factory.seed_technique is not None
         assert technique.seed_technique is not None
         original_seed = factory.seed_technique.seeds[0]
+        modified_seed = new_factory.seed_technique.seeds[0]
         copied_seed = technique.seed_technique.seeds[0]
         assert original_seed.adversarial_chat_system_prompt_prefix is None
+        assert modified_seed.adversarial_chat_system_prompt_prefix == prefix
         assert copied_seed.adversarial_chat_system_prompt_prefix == prefix
-        assert copied_seed.id != original_seed.id
-        assert factory.get_identifier().hash != technique.get_identifier().hash
+        assert modified_seed.id != original_seed.id
+        assert factory.get_identifier().hash != new_factory.get_identifier().hash
 
-    def test_create_time_prefix_rejects_unsupported_adversarial_factory(self):
+    def test_rejects_unsupported_adversarial_factory(self):
         factory = AttackTechniqueFactory(
             name="unsupported",
             attack_class=_StubAttack,
@@ -962,11 +993,7 @@ class TestCustomAdversarialPrompt:
         )
 
         with pytest.raises(ValueError, match="cannot accept an adversarial system prompt prefix"):
-            factory.create(
-                objective_target=MagicMock(spec=PromptTarget),
-                attack_scoring_config=self._scoring(),
-                adversarial_system_prompt_prefix="Static guidance",
-            )
+            factory.with_adversarial_system_prompt_prefix("Static guidance")
 
 
 class TestResolveAdversarialChat:

@@ -330,10 +330,13 @@ class AdversarialBenchmark(Scenario):
         Reads the user-supplied ``adversarial_targets`` parameter, resolves each name to a
         ``PromptTarget`` via ``TargetRegistry``, and delegates the
         ``(technique × target × dataset)`` cross-product to ``MatrixAtomicAttackBuilder``
-        with the resolved targets as its adversarial-target axis. Each pair calls
-        ``factory.create(adversarial_chat=...)`` with the resolved target and shared benchmark
-        guidance — no global registry state is touched. When ``self._use_cached`` is set, the
-        resulting candidate list is filtered against the live behavioral cache via
+        with the resolved targets as its adversarial-target axis. Each resolved factory is
+        explicitly derived via ``factory.with_adversarial_system_prompt_prefix(...)`` to layer
+        the shared benchmark guidance ahead of its native adversarial system prompt, before
+        being handed to the builder — the builder and factory stay generic and never see this
+        concept. Each pair then calls ``factory.create(adversarial_chat=...)`` with the
+        resolved target — no global registry state is touched. When ``self._use_cached`` is
+        set, the resulting candidate list is filtered against the live behavioral cache via
         ``_collect_cached_completion_pairs``, which delegates to
         ``pyrit.analytics.get_cached_results_for_technique`` for each unique
         ``(technique_eval_hash, objective_target_eval_hash)`` pair.
@@ -358,7 +361,11 @@ class AdversarialBenchmark(Scenario):
             )
 
         resolved_targets = self._resolve_adversarial_targets(target_names=target_names)
-        technique_factories = resolve_technique_factories(context=context)
+        guidance = _get_benchmark_adversarial_guidance()
+        technique_factories = {
+            name: factory.with_adversarial_system_prompt_prefix(guidance)
+            for name, factory in resolve_technique_factories(context=context).items()
+        }
 
         builder = MatrixAtomicAttackBuilder(
             objective_target=context.objective_target,
@@ -373,7 +380,6 @@ class AdversarialBenchmark(Scenario):
             technique_factories=technique_factories,
             dataset_groups=context.seed_groups_by_dataset,
             adversarial_targets=resolved_targets,
-            adversarial_system_prompt_prefix=_get_benchmark_adversarial_guidance(),
             display_group_fn=lambda combo: combo.target_name or "",
             include_baseline=context.include_baseline,
         )

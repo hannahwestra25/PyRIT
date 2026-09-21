@@ -15,6 +15,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
+# Deprecation support: remove in 1.4.0.
+from pyrit.common.deprecation import print_deprecation_message
 from pyrit.executor.attack.component.adversarial_conversation_manager import (
     _AdversarialConversationManager,
 )
@@ -59,7 +61,8 @@ async def generate_simulated_conversation_async(
     objective_scorer: TrueFalseScorer,
     num_turns: int = 3,
     starting_sequence: int = 0,
-    adversarial_chat_system_prompt: SeedPrompt,
+    adversarial_chat_system_prompt: SeedPrompt | None = None,
+    adversarial_chat_system_prompt_path: str | Path | None = None,
     simulated_target_system_prompt_path: str | Path | None = None,
     next_message_system_prompt_path: str | Path | None = None,
     attack_converter_config: AttackConverterConfig | None = None,
@@ -89,6 +92,10 @@ async def generate_simulated_conversation_async(
         adversarial_chat_system_prompt: The already-resolved system prompt for the adversarial
             chat. Callers building this from a ``SeedSimulatedConversation`` should use its
             ``resolve_adversarial_chat_system_prompt`` method rather than passing a raw path here.
+            Required unless the deprecated ``adversarial_chat_system_prompt_path`` is provided.
+        adversarial_chat_system_prompt_path: Deprecated. Path to the system prompt for the
+            adversarial chat. Use ``adversarial_chat_system_prompt`` instead. Will be removed in
+            1.4.0.
         simulated_target_system_prompt_path: Path to the system prompt for the simulated target.
             If None, no system prompt is used for the simulated target.
         next_message_system_prompt_path: Optional path to a system prompt for generating
@@ -105,12 +112,32 @@ async def generate_simulated_conversation_async(
 
     Raises:
         ValueError: If num_turns is not a positive integer.
+        ValueError: If neither ``adversarial_chat_system_prompt`` nor the deprecated
+            ``adversarial_chat_system_prompt_path`` is provided, or if both are provided.
     """
     # Use the same LLM for both adversarial chat and simulated target
     # They get different system prompts to play different roles
     simulated_target = adversarial_chat
     if num_turns <= 0:
         raise ValueError("num_turns must be a positive integer")
+
+    if adversarial_chat_system_prompt_path is not None:
+        # The two params are mutually exclusive. We don't compare values when both are given:
+        # a freshly-loaded SeedPrompt always gets a new random id, so equality would never hold
+        # even when the underlying YAML content matches.
+        if adversarial_chat_system_prompt is not None:
+            raise ValueError(
+                "Provide only one of 'adversarial_chat_system_prompt' or the deprecated "
+                "'adversarial_chat_system_prompt_path', not both."
+            )
+        print_deprecation_message(
+            old_item="generate_simulated_conversation_async(adversarial_chat_system_prompt_path=...)",
+            new_item="generate_simulated_conversation_async(adversarial_chat_system_prompt=...)",
+            removed_in="1.4.0",
+        )
+        adversarial_chat_system_prompt = SeedPrompt.from_yaml_file(adversarial_chat_system_prompt_path)
+    elif adversarial_chat_system_prompt is None:
+        raise ValueError("generate_simulated_conversation_async() requires 'adversarial_chat_system_prompt'.")
 
     # Load and configure simulated target system prompt using centralized validation
     # Returns None if no path is provided (no system prompt for simulated target)

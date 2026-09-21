@@ -153,6 +153,9 @@ def _register_mock_factory(*, name: str, tags: list[str] | None = None, seed_tec
     )
     factory.create.return_value = technique_instance
     factory.attack_class = MagicMock(__name__=name)
+    # The benchmark derives a prefixed factory explicitly before building; returning
+    # the same mock keeps existing `factory.create` assertions valid.
+    factory.with_adversarial_system_prompt_prefix.return_value = factory
     AttackTechniqueRegistry.get_registry_singleton().register_from_factories([factory])
     return factory
 
@@ -305,10 +308,11 @@ class TestAdversarialBenchmarkTechnique:
             objective_target=objective_target,
             attack_scoring_config=scoring_config,
         )
-        local_technique = global_factory.create(
+        local_technique = global_factory.with_adversarial_system_prompt_prefix(
+            _get_benchmark_adversarial_guidance()
+        ).create(
             objective_target=objective_target,
             attack_scoring_config=scoring_config,
-            adversarial_system_prompt_prefix=_get_benchmark_adversarial_guidance(),
         )
 
         assert registry_factories[technique_name] is global_factory
@@ -442,11 +446,10 @@ class TestAdversarialBenchmarkInit:
         scoring_config = AttackScoringConfig(objective_scorer=objective_scorer)
 
         with caplog.at_level(logging.WARNING):
-            technique = factory.create(
+            technique = factory.with_adversarial_system_prompt_prefix(_get_benchmark_adversarial_guidance()).create(
                 objective_target=objective_target,
                 attack_scoring_config=scoring_config,
                 adversarial_chat=adversarial_target,
-                adversarial_system_prompt_prefix=_get_benchmark_adversarial_guidance(),
             )
 
         assert isinstance(technique.attack, TreeOfAttacksWithPruningAttack)
@@ -484,11 +487,10 @@ class TestAdversarialBenchmarkInit:
         objective_scorer = MagicMock(spec=TrueFalseScorer)
         scoring_config = AttackScoringConfig(objective_scorer=objective_scorer)
 
-        technique = factory.create(
+        technique = factory.with_adversarial_system_prompt_prefix(_get_benchmark_adversarial_guidance()).create(
             objective_target=objective_target,
             attack_scoring_config=scoring_config,
             adversarial_chat=adversarial_target,
-            adversarial_system_prompt_prefix=_get_benchmark_adversarial_guidance(),
         )
 
         assert isinstance(technique.attack, RedTeamingAttack)
@@ -705,18 +707,17 @@ class TestGetAtomicAttacksCrossProduct:
 
         await _build_atomic_attacks(bench)
 
+        # The prefix is derived once per technique (not once per target/dataset), and the
+        # resulting factory is reused for every create() call below.
+        factory.with_adversarial_system_prompt_prefix.assert_called_once_with(_get_benchmark_adversarial_guidance())
         # 1 factory × 2 targets × 1 dataset = 2 create calls
         assert factory.create.call_count == 2
-        assert all(
-            call.kwargs["adversarial_system_prompt_prefix"] == _get_benchmark_adversarial_guidance()
-            for call in factory.create.call_args_list
-        )
         target_a = TargetRegistry.get_registry_singleton().instances.get("adv_a")
         target_b = TargetRegistry.get_registry_singleton().instances.get("adv_b")
         injected_targets = {call.kwargs["adversarial_chat"] for call in factory.create.call_args_list}
         assert injected_targets == {target_a, target_b}
 
-    async def test_selected_factory_receives_create_time_prefix(self):
+    async def test_selected_factory_receives_prefix_via_with_adversarial_system_prompt_prefix(self):
         bench = self._make_bench_with_targets(
             target_names=["adv_a"],
             technique_name="future_adversarial_attack",
@@ -727,11 +728,10 @@ class TestGetAtomicAttacksCrossProduct:
         result = await _build_atomic_attacks(bench)
 
         assert len(result) == 1
-        registered_factory.create.assert_called_once()
-        assert (
-            registered_factory.create.call_args.kwargs["adversarial_system_prompt_prefix"]
-            == _get_benchmark_adversarial_guidance()
+        registered_factory.with_adversarial_system_prompt_prefix.assert_called_once_with(
+            _get_benchmark_adversarial_guidance()
         )
+        registered_factory.create.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

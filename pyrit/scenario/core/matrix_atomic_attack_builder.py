@@ -341,7 +341,6 @@ class MatrixAtomicAttackBuilder:
         name_fn: Callable[[MatrixCombo], str] | None = None,
         display_group_fn: Callable[[MatrixCombo], str] | None = None,
         technique_converters: dict[str, list[Converter]] | None = None,
-        adversarial_system_prompt_prefix: str | None = None,
         include_baseline: bool = False,
     ) -> list[AtomicAttack]:
         """
@@ -350,7 +349,11 @@ class MatrixAtomicAttackBuilder:
         Iterates technique → (adversarial target) → dataset. The caller pre-resolves
         ``technique_factories`` to exactly the techniques to build (and, by dict
         insertion order, the order to build them in), so the builder does not need the
-        full registry or the selected-technique set.
+        full registry or the selected-technique set. Callers that need to layer static
+        guidance onto a technique's adversarial prompt should call
+        ``factory.with_adversarial_system_prompt_prefix(...)`` on the relevant factories
+        before passing ``technique_factories`` in — the builder stays generic and does
+        not forward such a concept itself.
 
         Args:
             technique_factories (dict[str, AttackTechniqueFactory]): Mapping of technique
@@ -372,8 +375,6 @@ class MatrixAtomicAttackBuilder:
                 from technique name to request converters appended on top of that technique's
                 built-in converters (via ``factory.create(extra_request_converters=...)``).
                 Techniques absent from the mapping are built unchanged.
-            adversarial_system_prompt_prefix: Optional static guidance prepended to
-                each created technique's native adversarial system prompt.
             include_baseline (bool): When ``True``, prepend a baseline atomic attack built
                 from the flattened seed groups across all datasets.
 
@@ -411,7 +412,6 @@ class MatrixAtomicAttackBuilder:
                         objective_target=self._objective_target,
                         attack_scoring_config=scoring_config,
                         adversarial_chat=target_instance,
-                        adversarial_system_prompt_prefix=adversarial_system_prompt_prefix,
                         extra_request_converters=extra_request_converters,
                     )
 
