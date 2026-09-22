@@ -324,9 +324,9 @@ class TestAdversarialBenchmarkTechnique:
         local_seed = local_technique.seed_technique.seeds[0]
         assert isinstance(global_seed, SeedSimulatedConversation)
         assert isinstance(local_seed, SeedSimulatedConversation)
-        assert local_seed.adversarial_chat_system_prompt_path == global_seed.adversarial_chat_system_prompt_path
-        assert global_seed.adversarial_chat_system_prompt_prefix is None
-        assert local_seed.adversarial_chat_system_prompt_prefix == _get_benchmark_adversarial_guidance()
+        assert local_seed.adversarial_chat_system_prompt.value == (
+            f"{_get_benchmark_adversarial_guidance()}\n\n{global_seed.adversarial_chat_system_prompt.value}"
+        )
 
     def test_light_aggregate_excludes_non_light_techniques(self):
         """Techniques without the ``light`` tag must not appear in the ``light`` aggregate."""
