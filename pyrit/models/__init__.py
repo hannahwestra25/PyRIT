@@ -164,6 +164,8 @@ if TYPE_CHECKING:
         group_seeds_into_attack_groups,
         load_next_message_prompt,
         load_simulated_target_prompt,
+        resolve_prompt_source,
+        warn_prompt_path_deprecated,
     )
     from pyrit.models.target import (
         COMMON_JSON_SCHEMAS,
@@ -315,6 +317,8 @@ _LAZY_EXPORTS: dict[str, str] = {
     "SimulatedTargetSystemPromptPaths": "pyrit.models.seeds",
     "load_next_message_prompt": "pyrit.models.seeds",
     "load_simulated_target_prompt": "pyrit.models.seeds",
+    "resolve_prompt_source": "pyrit.models.seeds",
+    "warn_prompt_path_deprecated": "pyrit.models.seeds",
     "snake_case_to_class_name": "pyrit.models.identifiers",
     "sort_message_pieces": "pyrit.models.messages.message_piece",
     "StrategyResult": "pyrit.models.results.strategy_result",

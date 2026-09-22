@@ -34,8 +34,8 @@ from pyrit.models import (
     SeedPrompt,
     load_next_message_prompt,
     load_simulated_target_prompt,
+    warn_prompt_path_deprecated,
 )
-from pyrit.models.seeds.seed_simulated_conversation import _warn_prompt_path_deprecated
 from pyrit.prompt_normalizer import PromptNormalizer
 
 if TYPE_CHECKING:
@@ -85,7 +85,7 @@ async def _resolve_prompt_source_async(
     """
     if path is None:
         return prompt
-    _warn_prompt_path_deprecated(prompt=prompt, prompt_name=prompt_name, path_name=path_name)
+    warn_prompt_path_deprecated(prompt=prompt, prompt_name=prompt_name, path_name=path_name)
     return await asyncio.to_thread(load_prompt, path)
 
 
@@ -300,7 +300,8 @@ async def _generate_next_message_async(
         conversation_messages: The conversation generated so far as Messages.
         adversarial_chat: The LLM to use for generation.
         conversation_id: The conversation ID for the adversarial generation exchange.
-        next_message_system_prompt: The system prompt template.
+        next_message_system_prompt: The next-message system-prompt SeedPrompt, rendered with the
+            conversation context.
         prompt_normalizer: The normalizer the manager sends the adversarial turn through.
         memory_labels: Optional memory labels to attach to the request.
 

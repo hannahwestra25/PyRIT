@@ -105,7 +105,7 @@ def _load_compliant_simulated_target_prompt() -> SeedPrompt:
     return load_simulated_target_prompt(SimulatedTargetSystemPromptPaths.COMPLIANT.value)
 
 
-def _resolve_prompt_source(
+def resolve_prompt_source(
     *,
     prompt: SeedPrompt | None,
     path: str | Path | None,
@@ -135,11 +135,11 @@ def _resolve_prompt_source(
     """
     if path is None:
         return prompt
-    _warn_prompt_path_deprecated(prompt=prompt, prompt_name=prompt_name, path_name=path_name)
+    warn_prompt_path_deprecated(prompt=prompt, prompt_name=prompt_name, path_name=path_name)
     return load_prompt(path)
 
 
-def _warn_prompt_path_deprecated(*, prompt: SeedPrompt | None, prompt_name: str, path_name: str) -> None:
+def warn_prompt_path_deprecated(*, prompt: SeedPrompt | None, prompt_name: str, path_name: str) -> None:
     """
     Reject an ambiguous prompt source and warn that the path input is deprecated.
 
@@ -249,10 +249,10 @@ class SeedSimulatedConversation(Seed):
 
     Attributes:
         num_turns: Number of conversation turns to generate.
-        adversarial_chat_system_prompt: System prompt template for the adversarial chat.
-        simulated_target_system_prompt: System prompt template for the simulated target.
+        adversarial_chat_system_prompt: System-prompt SeedPrompt for the adversarial chat.
+        simulated_target_system_prompt: System-prompt SeedPrompt for the simulated target.
             Defaults to the compliant prompt if not specified.
-        next_message_system_prompt: Optional system prompt template for generating
+        next_message_system_prompt: Optional system-prompt SeedPrompt for generating
             an additional user message after the simulated conversation. If provided, a single
             LLM call generates a final user message that attempts to get the target to fulfill
             the objective in their next response.
@@ -336,7 +336,7 @@ class SeedSimulatedConversation(Seed):
                 continue
             if resolved is data:
                 resolved = dict(data)
-            resolved[prompt_key] = _resolve_prompt_source(
+            resolved[prompt_key] = resolve_prompt_source(
                 prompt=resolved.get(prompt_key),
                 path=resolved.pop(path_key),
                 prompt_name=f"SeedSimulatedConversation.{prompt_key}",
@@ -476,8 +476,11 @@ class SeedSimulatedConversation(Seed):
 
         """
         has_next_msg = self.next_message_system_prompt is not None
+        # ``name`` is descriptive metadata that _prompt_identity drops, so a seed rebuilt from a
+        # persisted record has none. Omit the fragment rather than print a placeholder.
+        prompt_name = self.adversarial_chat_system_prompt.name
+        adversarial = f", adversarial_prompt={prompt_name}" if prompt_name else ""
         return (
             f"<SeedSimulatedConversation(num_turns={self.num_turns}, sequence={self.sequence}, "
-            f"next_message={has_next_msg}, "
-            f"adversarial_prompt={self.adversarial_chat_system_prompt.name or '<unnamed>'})>"
+            f"next_message={has_next_msg}{adversarial})>"
         )
