@@ -313,6 +313,18 @@ class TestSeedSimulatedConversationRepr:
         assert "num_turns=5" in repr_str
         assert "my_adversarial" in repr_str
 
+    def test_repr_omits_prompt_name_when_unnamed(self):
+        """An unnamed adversarial prompt drops the fragment rather than printing a placeholder."""
+        conv = SeedSimulatedConversation(
+            adversarial_chat_system_prompt=SeedPrompt(value="test", data_type="text"),
+            num_turns=5,
+        )
+        repr_str = repr(conv)
+
+        assert "num_turns=5" in repr_str
+        assert "adversarial_prompt" not in repr_str
+        assert "None" not in repr_str
+
 
 class TestSeedSimulatedConversationLoadSimulatedTargetSystemPrompt:
     """Tests for SeedSimulatedConversation.load_simulated_target_system_prompt static method."""
