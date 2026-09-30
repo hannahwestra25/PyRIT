@@ -135,11 +135,19 @@ def test_local_storage_reads_latest_script_content(tmp_path: Path) -> None:
     assert storage.list_scripts() == {"example": "VALUE = 2\n"}
 
 
-def test_direct_python_blob_rejects_name_outside_prefix() -> None:
+def test_direct_python_blob_rejects_name_outside_prefix(tmp_path: Path) -> None:
     """Test that blobs outside the configured virtual directory are ignored."""
-    assert not CustomInitializerStorage._is_direct_python_blob(
-        blob_name="other/example.py", prefix="custom-initializers/"
-    )
+    storage = CustomInitializerStorage(source=str(tmp_path))
+
+    assert not storage._is_direct_document_blob(blob_name="other/example.py", prefix="custom-initializers/")
+
+
+def test_direct_document_blob_rejects_other_extensions(tmp_path: Path) -> None:
+    """Test that only blobs with the configured extension are listed."""
+    storage = CustomInitializerStorage(source=str(tmp_path))
+
+    assert storage._is_direct_document_blob(blob_name="example.py", prefix=None)
+    assert not storage._is_direct_document_blob(blob_name="example.json", prefix=None)
 
 
 def test_local_storage_cannot_open_blob_client(tmp_path: Path) -> None:
