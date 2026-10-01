@@ -146,6 +146,24 @@ class ScenarioPresetStorage(FileDocumentStorage):
             return None
         return StoredPreset(preset=preset, version=_document_version(content))
 
+    def get_preset_version(self, name: str) -> str | None:
+        """
+        Read the version of one stored document without parsing it.
+
+        A document that cannot be parsed is otherwise unreachable: ``list_presets`` skips
+        it, ``load_preset`` returns ``None``, and a create is refused because the document
+        exists. Exposing its version lets a caller offer to overwrite the broken file
+        instead of leaving the name permanently unusable.
+
+        Returns:
+            str | None: The document version, or ``None`` if no document is stored.
+
+        Raises:
+            ValueError: If *name* is not a legal preset name.
+        """
+        content = self._read_document(name)
+        return None if content is None else _document_version(content)
+
     def save_preset(self, *, preset: ScenarioPreset, expected_version: str | None) -> StoredPreset:
         """
         Persist one preset.
@@ -195,12 +213,15 @@ class ScenarioPresetStorage(FileDocumentStorage):
         Serialize a preset to stored JSON.
 
         Unset fields are omitted rather than written as ``null`` so a stored preset reads
-        as the set of decisions its author actually made.
+        as the set of decisions its author actually made. The name is omitted too: it is
+        the document key, and writing it would invite a hand-editor to change it and
+        expect a rename that cannot happen.
 
         Returns:
             str: JSON document content.
         """
-        return json.dumps(preset.model_dump(mode="json", exclude_none=True), indent=2, sort_keys=True) + "\n"
+        payload = preset.model_dump(mode="json", exclude_none=True, exclude={"name"})
+        return json.dumps(payload, indent=2, sort_keys=True) + "\n"
 
     @staticmethod
     def _parse_preset(*, name: str, content: str) -> ScenarioPreset | None:

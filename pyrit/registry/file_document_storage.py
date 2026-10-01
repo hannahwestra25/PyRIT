@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import logging
 from contextlib import contextmanager, suppress
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING
@@ -17,6 +18,8 @@ if TYPE_CHECKING:
     from collections.abc import Generator
 
     from azure.storage.blob import ContainerClient
+
+logger = logging.getLogger(__name__)
 
 
 class FileDocumentStorage:
@@ -31,6 +34,11 @@ class FileDocumentStorage:
     name becomes a path component in both backends, so an unvalidated name would let
     a caller read, overwrite, or delete a file outside the configured source. The
     check lives here rather than in each subclass so no document API can omit it.
+
+    Listing applies the same rule, so every name it returns can be passed back to the
+    single-document operations. Names come from the file system rather than from a
+    caller, so the source can hold files this class cannot address; those are skipped
+    with a warning rather than failing the whole listing.
 
     Subclasses supply the extension and a human-readable label for error messages,
     then expose a domain-specific API over the protected document operations.
@@ -84,16 +92,41 @@ class FileDocumentStorage:
 
     def _list_documents(self) -> dict[str, str]:
         """
-        Read every stored document.
+        Read every stored document that the single-document operations can address.
 
         Returns:
             dict[str, str]: Document content keyed by name.
         """
-        if self._is_blob:
-            return self._list_blob_documents()
+        documents = self._list_blob_documents() if self._is_blob else self._list_local_documents()
+        return {name: content for name, content in documents.items() if self._is_addressable_name(name)}
 
+    def _list_local_documents(self) -> dict[str, str]:
+        """
+        Read documents from the configured local directory.
+
+        Returns:
+            dict[str, str]: Document content keyed by file stem.
+        """
         directory = self._local_directory(create=True)
         return {path.stem: path.read_text(encoding="utf-8") for path in sorted(directory.glob(f"*{self._extension}"))}
+
+    def _is_addressable_name(self, name: str) -> bool:
+        """
+        Return whether a discovered document name is one this storage can address.
+
+        Ordinary files such as ``__init__.py`` or ``My-Script.py`` can sit alongside
+        valid documents, and a caller that fed such a name back into a read, write, or
+        delete would get a ``ValueError`` it has no way to anticipate.
+
+        Returns:
+            bool: Whether the name is a legal registry name.
+        """
+        try:
+            validate_registry_name(name)
+        except ValueError as error:
+            logger.warning(f"Ignoring stored document '{name}{self._extension}' in {self.display_source}: {error}")
+            return False
+        return True
 
     def _read_document(self, name: str) -> str | None:
         """

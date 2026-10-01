@@ -18,7 +18,7 @@ the moment a preset was saved and stop it tracking upstream changes.
 
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from pyrit.models.catalog.scenario import _validate_dataset_filter_mapping
 from pyrit.models.identifiers.class_name_utils import validate_registry_name
@@ -31,7 +31,14 @@ class ScenarioPreset(BaseModel):
     Presets own *what to test*. A launch owns *how and where* — the target,
     concurrency, retries, and labels — so those fields are absent here by design
     and the two sets are combined by union rather than by precedence.
+
+    Unknown keys are rejected rather than ignored. These documents are hand-edited, and
+    because an absent field is a meaningful state, a misspelled key would otherwise parse
+    cleanly and leave the preset silently testing the scenario default instead of the
+    value the file plainly states.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     name: str = Field(..., description="Unique preset name, used as the storage key and as the reference from scans")
     scenario_name: str = Field(..., min_length=1, description="Registered scenario this preset configures")

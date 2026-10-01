@@ -135,6 +135,19 @@ def test_local_storage_reads_latest_script_content(tmp_path: Path) -> None:
     assert storage.list_scripts() == {"example": "VALUE = 2\n"}
 
 
+def test_listing_skips_scripts_it_cannot_address(tmp_path: Path) -> None:
+    """Test that every listed name can be passed back into the single-document operations."""
+    for file_name in ["good_one.py", "My-Script.py", "__init__.py", "test-helper.py"]:
+        (tmp_path / file_name).write_text("VALUE = 1\n", encoding="utf-8")
+    storage = CustomInitializerStorage(source=str(tmp_path))
+
+    listed = storage.list_scripts()
+
+    assert sorted(listed) == ["good_one"]
+    for name in listed:
+        storage.get_script_source(name)
+
+
 def test_direct_python_blob_rejects_name_outside_prefix(tmp_path: Path) -> None:
     """Test that blobs outside the configured virtual directory are ignored."""
     storage = CustomInitializerStorage(source=str(tmp_path))

@@ -26,6 +26,16 @@ def test_preset_carries_no_storage_version() -> None:
     assert "version" not in ScenarioPreset.model_fields
 
 
+def test_init_rejects_unknown_field() -> None:
+    """Test that a misspelled key fails loudly instead of silently falling back to the default."""
+    with pytest.raises(ValueError, match="techinques"):
+        ScenarioPreset(
+            name="nightly",
+            scenario_name="foundry.red_team_agent",
+            techinques=["crescendo"],  # type: ignore[call-arg]
+        )
+
+
 @pytest.mark.parametrize("name", ["Nightly", "nightly-scan", "1nightly", "", "a" * 65])
 def test_init_rejects_invalid_registry_names(name: str) -> None:
     """Test that a preset name must be a legal registry name."""

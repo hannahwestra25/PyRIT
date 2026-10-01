@@ -350,3 +350,57 @@ def test_blob_storage_reads_missing_document_as_none() -> None:
 
     with patch("azure.storage.blob.ContainerClient.from_container_url", return_value=client):
         assert storage.load_preset("absent") is None
+
+
+def test_name_is_not_written_into_the_document(tmp_path: Path) -> None:
+    """Test that the storage key appears only in the file name, so no hand-edit can contradict it."""
+    storage = ScenarioPresetStorage(source=str(tmp_path))
+
+    storage.save_preset(preset=_make_preset(), expected_version=None)
+
+    assert "name" not in json.loads((tmp_path / "nightly.json").read_text(encoding="utf-8"))
+    loaded = storage.load_preset("nightly")
+    assert loaded is not None
+    assert loaded.preset.name == "nightly"
+
+
+def test_misspelled_key_is_skipped_not_silently_dropped(tmp_path: Path) -> None:
+    """Test that a typo in a hand-edited file is refused rather than quietly using the scenario default."""
+    storage = ScenarioPresetStorage(source=str(tmp_path))
+    (tmp_path / "nightly.json").write_text(
+        json.dumps({"scenario_name": "foundry.red_team_agent", "techinques": ["crescendo"]}),
+        encoding="utf-8",
+    )
+
+    assert storage.load_preset("nightly") is None
+    assert storage.list_presets() == {}
+
+
+def test_malformed_document_can_be_overwritten_through_its_version(tmp_path: Path) -> None:
+    """Test that a file which cannot be parsed still has a recovery path rather than burning the name."""
+    storage = ScenarioPresetStorage(source=str(tmp_path))
+    (tmp_path / "nightly.json").write_text("{not json", encoding="utf-8")
+
+    version = storage.get_preset_version("nightly")
+    assert version is not None
+
+    saved = storage.save_preset(preset=_make_preset(), expected_version=version)
+
+    assert saved.preset.name == "nightly"
+    assert storage.load_preset("nightly") is not None
+
+
+def test_get_preset_version_returns_none_for_absent_document(tmp_path: Path) -> None:
+    """Test that an absent document reports no version, so a create still reads as a create."""
+    storage = ScenarioPresetStorage(source=str(tmp_path))
+
+    assert storage.get_preset_version("nightly") is None
+
+
+def test_listing_skips_documents_it_cannot_address(tmp_path: Path) -> None:
+    """Test that a stray file whose stem is not a legal name does not fail the whole listing."""
+    storage = ScenarioPresetStorage(source=str(tmp_path))
+    storage.save_preset(preset=_make_preset(), expected_version=None)
+    (tmp_path / "My-Preset.json").write_text(json.dumps({"scenario_name": "foundry.red_team_agent"}), encoding="utf-8")
+
+    assert sorted(storage.list_presets()) == ["nightly"]
