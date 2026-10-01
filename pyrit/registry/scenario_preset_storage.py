@@ -5,14 +5,41 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 
-from pyrit.exceptions.exception_classes import ScenarioPresetConflictError
-from pyrit.models.catalog.scenario_preset import ScenarioPreset, ScenarioPresetProvenance
+from pyrit.models.catalog.scenario_preset import ScenarioPreset, ScenarioPresetProvenance, StoredPreset
 from pyrit.registry.file_document_storage import FileDocumentStorage
 
 logger = logging.getLogger(__name__)
+
+
+class ScenarioPresetConflictError(ValueError):
+    """A stored preset changed after the caller read it."""
+
+    def __init__(self, *, name: str, expected_version: str | None, actual_version: str | None) -> None:
+        """Initialize the error with the versions that failed to match."""
+        self.name = name
+        self.expected_version = expected_version
+        self.actual_version = actual_version
+        if actual_version is None:
+            detail = "it no longer exists"
+        elif expected_version is None:
+            detail = "it already exists"
+        else:
+            detail = "it was changed by someone else"
+        super().__init__(f"Scenario preset '{name}' could not be saved because {detail}. Reload it and reapply.")
+
+
+def _document_version(content: str) -> str:
+    """
+    Create an opaque version token from stored document content.
+
+    Returns:
+        str: The document-state version token.
+    """
+    return hashlib.sha256(content.encode()).hexdigest()
 
 
 class ScenarioPresetStorage(FileDocumentStorage):
@@ -22,14 +49,15 @@ class ScenarioPresetStorage(FileDocumentStorage):
     Only user presets are stored. Built-in presets come from initializer code and are
     never written here, so a file on disk always means a user authored it.
 
-    Writes are guarded by an optimistic-concurrency check on ``version``. The stored
-    version is authoritative: a caller supplies the version it edited against, and the
-    save is refused if storage has moved on.
+    Writes are guarded by an optimistic-concurrency check. A caller supplies the version
+    it read, and the save is refused unless storage still holds that version. The token
+    is a hash of the stored bytes, so it also catches a file edited by hand or by another
+    process rather than only writes made through this class.
 
     The check is read-then-write rather than a true compare-and-swap, so two saves racing
     within the same instant can both observe the same version and the later write wins.
-    It is aimed at the realistic case — a person editing a copy that went stale minutes
-    ago — not at concurrent writers. Closing that gap needs backend-specific conditional
+    It is aimed at the realistic case - a person editing a copy that went stale minutes
+    ago - not at concurrent writers. Closing that gap needs backend-specific conditional
     writes (blob ETags have no local-filesystem equivalent) and is deliberately deferred.
     """
 
@@ -48,10 +76,13 @@ class ScenarioPresetStorage(FileDocumentStorage):
 
         Returns:
             str: Local file path or Azure Blob URI for the preset.
+
+        Raises:
+            ValueError: If *name* is not a legal preset name.
         """
         return self._get_document_source(name)
 
-    def list_presets(self) -> dict[str, ScenarioPreset]:
+    def list_presets(self) -> dict[str, StoredPreset]:
         """
         Read every stored preset, skipping any that cannot be parsed.
 
@@ -59,71 +90,76 @@ class ScenarioPresetStorage(FileDocumentStorage):
         loading, so failures are logged and that preset is omitted.
 
         Returns:
-            dict[str, ScenarioPreset]: Presets keyed by name.
+            dict[str, StoredPreset]: Stored presets keyed by name.
         """
-        presets: dict[str, ScenarioPreset] = {}
+        presets: dict[str, StoredPreset] = {}
         for name, content in self._list_documents().items():
             preset = self._parse_preset(name=name, content=content)
             if preset is not None:
-                presets[preset.name] = preset
+                presets[preset.name] = StoredPreset(preset=preset, version=_document_version(content))
         return presets
 
-    def load_preset(self, name: str) -> ScenarioPreset | None:
+    def load_preset(self, name: str) -> StoredPreset | None:
         """
         Read one stored preset.
 
         Returns:
-            ScenarioPreset | None: The preset, or ``None`` if it is absent or malformed.
+            StoredPreset | None: The preset and its version, or ``None`` if it is absent
+            or malformed.
+
+        Raises:
+            ValueError: If *name* is not a legal preset name.
         """
         content = self._read_document(name)
         if content is None:
             return None
-        return self._parse_preset(name=name, content=content)
+        preset = self._parse_preset(name=name, content=content)
+        if preset is None:
+            return None
+        return StoredPreset(preset=preset, version=_document_version(content))
 
-    def save_preset(self, *, preset: ScenarioPreset, expected_version: int | None) -> ScenarioPreset:
+    def save_preset(self, *, preset: ScenarioPreset, expected_version: str | None) -> StoredPreset:
         """
-        Persist one preset, assigning its version.
+        Persist one preset.
 
-        The caller states its intent through *expected_version* rather than through the
-        version on *preset*, so creating and updating are never ambiguous and a
+        The caller states its intent through *expected_version* rather than through
+        anything on *preset*, so creating and updating are never ambiguous and a
         client-supplied version can never be trusted into storage.
+
+        A document that exists but cannot be parsed still has a version, so creating
+        over a malformed file conflicts rather than silently discarding it.
 
         Args:
             preset (ScenarioPreset): The preset to persist.
-            expected_version (int | None): ``None`` to create a preset that must not already
-                exist, or the version the edit was based on.
+            expected_version (str | None): ``None`` to create a preset that must not already
+                exist, or the version returned when the edited preset was read.
 
         Returns:
-            ScenarioPreset: The persisted preset, carrying its newly assigned version.
+            StoredPreset: The persisted preset and its new version.
 
         Raises:
             ScenarioPresetConflictError: If the stored version does not match *expected_version*.
-            ValueError: If *preset* is built-in, which is never stored.
+            ValueError: If the preset name is not a legal preset name.
         """
-        if preset.is_builtin:
-            raise ValueError(
-                f"Scenario preset '{preset.name}' is built in and cannot be saved. "
-                "Fork it under a new name to customize it."
-            )
-
-        existing = self.load_preset(preset.name)
-        actual_version = existing.version if existing is not None else None
+        existing_content = self._read_document(preset.name)
+        actual_version = None if existing_content is None else _document_version(existing_content)
         if actual_version != expected_version:
             raise ScenarioPresetConflictError(
                 name=preset.name, expected_version=expected_version, actual_version=actual_version
             )
 
-        saved = preset.model_copy(
-            update={
-                "version": 1 if existing is None else existing.version + 1,
-                "provenance": ScenarioPresetProvenance.USER,
-            }
-        )
-        self._save_document(name=saved.name, content=self._serialize_preset(saved))
-        return saved
+        saved = preset.model_copy(update={"provenance": ScenarioPresetProvenance.USER})
+        content = self._serialize_preset(saved)
+        self._save_document(name=saved.name, content=content)
+        return StoredPreset(preset=saved, version=_document_version(content))
 
     def delete_preset(self, name: str) -> None:
-        """Delete one stored preset if it exists."""
+        """
+        Delete one stored preset if it exists.
+
+        Raises:
+            ValueError: If *name* is not a legal preset name.
+        """
         self._delete_document(name)
 
     @staticmethod

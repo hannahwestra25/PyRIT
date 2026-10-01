@@ -302,39 +302,6 @@ class ScenarioPartialFailureException(PyritException, ValueError):  # noqa: N818
             self.__cause__ = self.incomplete_objectives[0][1]
 
 
-class ScenarioPresetConflictError(PyritException):
-    """
-    Exception raised when a scenario preset save loses an optimistic-concurrency check.
-
-    Carries the version the caller edited against and the version currently stored so a
-    caller can show the user what changed underneath them rather than silently overwriting.
-    """
-
-    def __init__(self, *, name: str, expected_version: int | None, actual_version: int | None) -> None:
-        """
-        Initialize a scenario preset conflict error.
-
-        Args:
-            name (str): Name of the preset that could not be saved.
-            expected_version (int | None): Version the caller based its edit on, or ``None``
-                when the caller intended to create a new preset.
-            actual_version (int | None): Version currently stored, or ``None`` when no preset
-                with that name exists.
-        """
-        self.name = name
-        self.expected_version = expected_version
-        self.actual_version = actual_version
-
-        if actual_version is None:
-            detail = f"expected version {expected_version} but it no longer exists"
-        elif expected_version is None:
-            detail = f"it already exists at version {actual_version}"
-        else:
-            detail = f"expected version {expected_version} but found {actual_version}"
-
-        super().__init__(status_code=409, message=f"Scenario preset '{name}' could not be saved: {detail}.")
-
-
 class InvalidJsonException(PyritException):
     """Exception class for blocked content errors."""
 

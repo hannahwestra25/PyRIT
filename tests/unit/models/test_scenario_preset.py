@@ -21,13 +21,17 @@ def test_init_defaults_every_optional_field_to_none() -> None:
     assert preset.description is None
 
 
-def test_init_defaults_to_user_provenance_at_version_one() -> None:
+def test_init_defaults_to_user_provenance() -> None:
     """Test the default identity of a freshly constructed preset."""
     preset = ScenarioPreset(name="nightly", scenario_name="foundry.red_team_agent")
 
-    assert preset.version == 1
     assert preset.provenance is ScenarioPresetProvenance.USER
     assert preset.is_builtin is False
+
+
+def test_preset_carries_no_storage_version() -> None:
+    """Test that storage metadata stays out of the model it describes."""
+    assert "version" not in ScenarioPreset.model_fields
 
 
 def test_is_builtin_reflects_provenance() -> None:

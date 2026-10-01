@@ -10,9 +10,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from pyrit.exceptions.exception_classes import ScenarioPresetConflictError
 from pyrit.models.catalog.scenario_preset import ScenarioPreset, ScenarioPresetProvenance
-from pyrit.registry.scenario_preset_storage import ScenarioPresetStorage
+from pyrit.registry.scenario_preset_storage import ScenarioPresetConflictError, ScenarioPresetStorage
 
 
 def _make_preset(**overrides: object) -> ScenarioPreset:
@@ -44,13 +43,13 @@ def test_local_storage_round_trips_a_preset(tmp_path: Path) -> None:
     loaded = storage.load_preset("nightly")
 
     assert loaded is not None
-    assert loaded.techniques == ["crescendo"]
-    assert loaded.dataset_names == ["harmbench"]
-    assert loaded.max_dataset_size == 25
-    assert loaded.dataset_filters == {"harm_categories": ["violence"]}
-    assert loaded.include_baseline is True
-    assert loaded.scenario_params == {"max_turns": 3}
-    assert loaded.description == "Nightly smoke suite"
+    assert loaded.preset.techniques == ["crescendo"]
+    assert loaded.preset.dataset_names == ["harmbench"]
+    assert loaded.preset.max_dataset_size == 25
+    assert loaded.preset.dataset_filters == {"harm_categories": ["violence"]}
+    assert loaded.preset.include_baseline is True
+    assert loaded.preset.scenario_params == {"max_turns": 3}
+    assert loaded.preset.description == "Nightly smoke suite"
 
 
 def test_unset_fields_round_trip_as_none_not_false(tmp_path: Path) -> None:
@@ -61,9 +60,9 @@ def test_unset_fields_round_trip_as_none_not_false(tmp_path: Path) -> None:
     loaded = storage.load_preset("nightly")
 
     assert loaded is not None
-    assert loaded.include_baseline is None
-    assert loaded.max_dataset_size is None
-    assert loaded.techniques is None
+    assert loaded.preset.include_baseline is None
+    assert loaded.preset.max_dataset_size is None
+    assert loaded.preset.techniques is None
 
     stored = json.loads((tmp_path / "nightly.json").read_text(encoding="utf-8"))
     assert "include_baseline" not in stored
@@ -78,41 +77,70 @@ def test_explicit_false_round_trips_as_false(tmp_path: Path) -> None:
     loaded = storage.load_preset("nightly")
 
     assert loaded is not None
-    assert loaded.include_baseline is False
+    assert loaded.preset.include_baseline is False
 
 
-def test_create_assigns_version_one(tmp_path: Path) -> None:
-    """Test that creating a preset starts its change counter at one."""
+def test_version_is_not_stored_inside_the_document(tmp_path: Path) -> None:
+    """Test that the conflict token lives beside the document, never inside the file it guards."""
     storage = ScenarioPresetStorage(source=str(tmp_path))
 
-    saved = storage.save_preset(preset=_make_preset(version=99), expected_version=None)
+    saved = storage.save_preset(preset=_make_preset(), expected_version=None)
 
-    assert saved.version == 1
+    assert saved.version
+    assert "version" not in json.loads((tmp_path / "nightly.json").read_text(encoding="utf-8"))
 
 
-def test_update_increments_version(tmp_path: Path) -> None:
-    """Test that each accepted save advances the change counter."""
+def test_each_save_produces_a_new_version(tmp_path: Path) -> None:
+    """Test that an accepted save supersedes the token the caller passed in."""
     storage = ScenarioPresetStorage(source=str(tmp_path))
     first = storage.save_preset(preset=_make_preset(), expected_version=None)
 
     second = storage.save_preset(preset=_make_preset(description="changed"), expected_version=first.version)
-    third = storage.save_preset(preset=_make_preset(description="again"), expected_version=second.version)
 
-    assert (first.version, second.version, third.version) == (1, 2, 3)
+    assert second.version != first.version
+    reloaded = storage.load_preset("nightly")
+    assert reloaded is not None
+    assert reloaded.version == second.version
+
+
+def test_identical_content_keeps_the_same_version(tmp_path: Path) -> None:
+    """Test that the token describes stored content, so a no-op save does not invalidate other readers."""
+    storage = ScenarioPresetStorage(source=str(tmp_path))
+    first = storage.save_preset(preset=_make_preset(), expected_version=None)
+
+    second = storage.save_preset(preset=_make_preset(), expected_version=first.version)
+
+    assert second.version == first.version
 
 
 def test_stale_version_save_is_rejected(tmp_path: Path) -> None:
     """Test that a save based on a superseded version loses the concurrency check."""
     storage = ScenarioPresetStorage(source=str(tmp_path))
-    storage.save_preset(preset=_make_preset(), expected_version=None)
-    storage.save_preset(preset=_make_preset(description="first writer"), expected_version=1)
+    created = storage.save_preset(preset=_make_preset(), expected_version=None)
+    winner = storage.save_preset(preset=_make_preset(description="first writer"), expected_version=created.version)
 
     with pytest.raises(ScenarioPresetConflictError) as error:
-        storage.save_preset(preset=_make_preset(description="second writer"), expected_version=1)
+        storage.save_preset(preset=_make_preset(description="second writer"), expected_version=created.version)
 
-    assert error.value.expected_version == 1
-    assert error.value.actual_version == 2
-    assert error.value.status_code == 409
+    assert error.value.expected_version == created.version
+    assert error.value.actual_version == winner.version
+
+
+def test_out_of_band_edit_invalidates_the_version(tmp_path: Path) -> None:
+    """Test that a file edited outside this class is detected, not silently overwritten."""
+    storage = ScenarioPresetStorage(source=str(tmp_path))
+    created = storage.save_preset(preset=_make_preset(description="original"), expected_version=None)
+    (tmp_path / "nightly.json").write_text(
+        json.dumps({"scenario_name": "foundry.red_team_agent", "description": "edited by hand"}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ScenarioPresetConflictError):
+        storage.save_preset(preset=_make_preset(description="stale client"), expected_version=created.version)
+
+    loaded = storage.load_preset("nightly")
+    assert loaded is not None
+    assert loaded.preset.description == "edited by hand"
 
 
 def test_stale_save_does_not_overwrite_the_winner(tmp_path: Path) -> None:
@@ -121,23 +149,34 @@ def test_stale_save_does_not_overwrite_the_winner(tmp_path: Path) -> None:
     storage.save_preset(preset=_make_preset(description="original"), expected_version=None)
 
     with pytest.raises(ScenarioPresetConflictError):
-        storage.save_preset(preset=_make_preset(description="clobber"), expected_version=99)
+        storage.save_preset(preset=_make_preset(description="clobber"), expected_version="not_the_stored_version")
 
     loaded = storage.load_preset("nightly")
     assert loaded is not None
-    assert loaded.description == "original"
+    assert loaded.preset.description == "original"
 
 
 def test_create_over_existing_name_is_rejected(tmp_path: Path) -> None:
     """Test that creating a preset that already exists is a conflict, not an overwrite."""
     storage = ScenarioPresetStorage(source=str(tmp_path))
-    storage.save_preset(preset=_make_preset(), expected_version=None)
+    created = storage.save_preset(preset=_make_preset(), expected_version=None)
 
     with pytest.raises(ScenarioPresetConflictError) as error:
         storage.save_preset(preset=_make_preset(description="second"), expected_version=None)
 
     assert error.value.expected_version is None
-    assert error.value.actual_version == 1
+    assert error.value.actual_version == created.version
+
+
+def test_create_over_malformed_file_is_rejected(tmp_path: Path) -> None:
+    """Test that an unreadable file still blocks a create, so hand-written content is not discarded."""
+    storage = ScenarioPresetStorage(source=str(tmp_path))
+    (tmp_path / "nightly.json").write_text("{not json", encoding="utf-8")
+
+    with pytest.raises(ScenarioPresetConflictError):
+        storage.save_preset(preset=_make_preset(), expected_version=None)
+
+    assert (tmp_path / "nightly.json").read_text(encoding="utf-8") == "{not json"
 
 
 def test_update_of_missing_preset_is_rejected(tmp_path: Path) -> None:
@@ -145,7 +184,7 @@ def test_update_of_missing_preset_is_rejected(tmp_path: Path) -> None:
     storage = ScenarioPresetStorage(source=str(tmp_path))
 
     with pytest.raises(ScenarioPresetConflictError) as error:
-        storage.save_preset(preset=_make_preset(), expected_version=3)
+        storage.save_preset(preset=_make_preset(), expected_version="some_version")
 
     assert error.value.actual_version is None
 
@@ -154,23 +193,14 @@ def test_save_forces_user_provenance(tmp_path: Path) -> None:
     """Test that stored presets are always user-owned regardless of the submitted value."""
     storage = ScenarioPresetStorage(source=str(tmp_path))
 
-    saved = storage.save_preset(preset=_make_preset(), expected_version=None)
+    saved = storage.save_preset(
+        preset=_make_preset(provenance=ScenarioPresetProvenance.BUILT_IN), expected_version=None
+    )
 
-    assert saved.provenance is ScenarioPresetProvenance.USER
+    assert saved.preset.provenance is ScenarioPresetProvenance.USER
     loaded = storage.load_preset("nightly")
     assert loaded is not None
-    assert loaded.provenance is ScenarioPresetProvenance.USER
-
-
-def test_builtin_preset_is_never_written(tmp_path: Path) -> None:
-    """Test that a built-in preset cannot be persisted to user storage."""
-    storage = ScenarioPresetStorage(source=str(tmp_path))
-    builtin = _make_preset(provenance=ScenarioPresetProvenance.BUILT_IN)
-
-    with pytest.raises(ValueError, match="built in and cannot be saved"):
-        storage.save_preset(preset=builtin, expected_version=None)
-
-    assert list(tmp_path.glob("*.json")) == []
+    assert loaded.preset.provenance is ScenarioPresetProvenance.USER
 
 
 def test_load_missing_preset_returns_none(tmp_path: Path) -> None:
@@ -198,6 +228,25 @@ def test_delete_missing_preset_is_silent(tmp_path: Path) -> None:
     storage.delete_preset("absent")
 
 
+@pytest.mark.parametrize("name", ["../victim", "..\\victim", "nested/victim", "Nightly", "night-ly", ""])
+def test_document_operations_reject_illegal_names(tmp_path: Path, name: str) -> None:
+    """Test that a name which would escape the configured source is refused on every path."""
+    source = tmp_path / "presets"
+    source.mkdir()
+    victim = tmp_path / "victim.json"
+    victim.write_text("do not touch", encoding="utf-8")
+    storage = ScenarioPresetStorage(source=str(source))
+
+    with pytest.raises(ValueError, match="Invalid registry name"):
+        storage.load_preset(name)
+    with pytest.raises(ValueError, match="Invalid registry name"):
+        storage.delete_preset(name)
+    with pytest.raises(ValueError, match="Invalid registry name"):
+        storage.get_preset_source(name)
+
+    assert victim.read_text(encoding="utf-8") == "do not touch"
+
+
 def test_malformed_preset_is_skipped_not_fatal(tmp_path: Path) -> None:
     """Test that one unparseable file does not prevent the rest of the library from loading."""
     storage = ScenarioPresetStorage(source=str(tmp_path))
@@ -214,7 +263,7 @@ def test_malformed_preset_is_skipped_not_fatal(tmp_path: Path) -> None:
 def test_document_name_overrides_payload_name(tmp_path: Path) -> None:
     """Test that the file name is authoritative, so a load and its later save agree on the key."""
     (tmp_path / "actual_key.json").write_text(
-        json.dumps({"name": "different", "scenario_name": "foundry.red_team_agent", "version": 1}),
+        json.dumps({"name": "different", "scenario_name": "foundry.red_team_agent"}),
         encoding="utf-8",
     )
     storage = ScenarioPresetStorage(source=str(tmp_path))
@@ -222,7 +271,7 @@ def test_document_name_overrides_payload_name(tmp_path: Path) -> None:
     loaded = storage.load_preset("actual_key")
 
     assert loaded is not None
-    assert loaded.name == "actual_key"
+    assert loaded.preset.name == "actual_key"
     assert sorted(storage.list_presets()) == ["actual_key"]
 
 
@@ -250,7 +299,7 @@ def test_blob_storage_rejects_untrusted_authorities(source: str) -> None:
 
 def test_blob_storage_round_trips_and_ignores_other_extensions() -> None:
     """Test container storage operations and that only JSON documents are listed."""
-    document = json.dumps({"name": "nightly", "scenario_name": "foundry.red_team_agent", "version": 4})
+    document = json.dumps({"name": "nightly", "scenario_name": "foundry.red_team_agent"})
     client = MagicMock()
     client.__enter__.return_value = client
     client.list_blobs.return_value = [
@@ -264,11 +313,12 @@ def test_blob_storage_round_trips_and_ignores_other_extensions() -> None:
 
     with patch("azure.storage.blob.ContainerClient.from_container_url", return_value=client):
         presets = storage.list_presets()
-        saved = storage.save_preset(preset=_make_preset(description="updated"), expected_version=4)
+        saved = storage.save_preset(
+            preset=_make_preset(description="updated"), expected_version=presets["nightly"].version
+        )
 
     assert sorted(presets) == ["nightly"]
-    assert presets["nightly"].version == 4
-    assert saved.version == 5
+    assert saved.version != presets["nightly"].version
     assert storage.display_source == "https://account.blob.core.windows.net/presets"
     assert client.upload_blob.call_args.kwargs["name"] == "nightly.json"
 

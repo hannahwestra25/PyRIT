@@ -55,7 +55,6 @@ class ScenarioPreset(BaseModel):
     scenario_params: dict[str, Any] | None = Field(
         None, description="Scenario-declared parameters such as template names and attempt counts"
     )
-    version: int = Field(1, ge=1, description="Monotonic change counter assigned by storage, not an address")
     provenance: ScenarioPresetProvenance = Field(
         ScenarioPresetProvenance.USER, description="Whether this preset ships with PyRIT or was authored by a user"
     )
@@ -90,3 +89,19 @@ class ScenarioPreset(BaseModel):
             dict[str, list[str]] | None: Validated filters.
         """
         return _validate_dataset_filter_mapping(value)
+
+
+class StoredPreset(BaseModel):
+    """
+    A preset together with the version of the document it was read from.
+
+    The version describes the *stored document*, not the preset, so it is paired with
+    the preset rather than carried as a field on it. Storing the token inside the file
+    it guards would let a hand-edit rewrite the very value used to detect that edit.
+
+    The token is opaque. Callers round-trip it from a read back into a write and must
+    not parse, compare, or order it.
+    """
+
+    preset: ScenarioPreset = Field(..., description="The stored preset")
+    version: str = Field(..., description="Opaque version of the document this preset was read from")

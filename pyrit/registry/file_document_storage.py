@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 from urllib.parse import unquote, urlparse
 
 from pyrit.common.azure_storage import has_sas_signature, is_azure_blob_uri, redact_url_credentials
+from pyrit.models.identifiers.class_name_utils import validate_registry_name
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -25,6 +26,11 @@ class FileDocumentStorage:
     Documents live directly under the configured source, one file per name, with a
     fixed extension. Nested paths are ignored so a virtual directory prefix behaves
     the same way in both backends.
+
+    Every operation that addresses a single document validates the name first. The
+    name becomes a path component in both backends, so an unvalidated name would let
+    a caller read, overwrite, or delete a file outside the configured source. The
+    check lives here rather than in each subclass so no document API can omit it.
 
     Subclasses supply the extension and a human-readable label for error messages,
     then expose a domain-specific API over the protected document operations.
@@ -67,7 +73,11 @@ class FileDocumentStorage:
 
         Returns:
             str: Local file path or Azure Blob URI for the document.
+
+        Raises:
+            ValueError: If *name* is not a legal registry name.
         """
+        validate_registry_name(name)
         if self._is_blob:
             return f"{self.display_source.rstrip('/')}/{name}{self._extension}"
         return str(self._local_directory() / f"{name}{self._extension}")
@@ -91,7 +101,11 @@ class FileDocumentStorage:
 
         Returns:
             str | None: Document content, or ``None`` if it does not exist.
+
+        Raises:
+            ValueError: If *name* is not a legal registry name.
         """
+        validate_registry_name(name)
         if self._is_blob:
             from azure.core.exceptions import ResourceNotFoundError
 
@@ -105,7 +119,13 @@ class FileDocumentStorage:
         return path.read_text(encoding="utf-8") if path.is_file() else None
 
     def _save_document(self, *, name: str, content: str) -> None:
-        """Persist one document, overwriting any existing content."""
+        """
+        Persist one document, overwriting any existing content.
+
+        Raises:
+            ValueError: If *name* is not a legal registry name.
+        """
+        validate_registry_name(name)
         if self._is_blob:
             with self._open_container_client() as client:
                 client.upload_blob(name=self._get_blob_name(name), data=content.encode("utf-8"), overwrite=True)
@@ -114,7 +134,13 @@ class FileDocumentStorage:
             (directory / f"{name}{self._extension}").write_text(content, encoding="utf-8")
 
     def _delete_document(self, name: str) -> None:
-        """Delete one document if it exists."""
+        """
+        Delete one document if it exists.
+
+        Raises:
+            ValueError: If *name* is not a legal registry name.
+        """
+        validate_registry_name(name)
         if self._is_blob:
             from azure.core.exceptions import ResourceNotFoundError
 

@@ -8,10 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from pyrit.exceptions.exception_classes import ScenarioPresetConflictError
 from pyrit.models.catalog.scenario_preset import ScenarioPreset, ScenarioPresetProvenance
 from pyrit.registry.scenario_preset_registry import ScenarioPresetRegistry
-from pyrit.registry.scenario_preset_storage import ScenarioPresetStorage
+from pyrit.registry.scenario_preset_storage import ScenarioPresetConflictError, ScenarioPresetStorage
 
 
 def _make_preset(**overrides: object) -> ScenarioPreset:
@@ -73,6 +72,30 @@ def test_get_preset_resolves_both_provenances(registry: ScenarioPresetRegistry) 
     assert registry.get_preset("absent") is None
 
 
+def test_get_preset_rejects_illegal_names(registry: ScenarioPresetRegistry) -> None:
+    """Test that a traversal attempt fails loudly rather than resolving to nothing."""
+    with pytest.raises(ValueError, match="Invalid registry name"):
+        registry.get_preset("../victim")
+
+
+def test_get_stored_preset_returns_the_version_needed_to_edit(registry: ScenarioPresetRegistry) -> None:
+    """Test that an editor can read a preset and the token required to save it back."""
+    saved = registry.save_preset(preset=_make_preset(), expected_version=None)
+
+    stored = registry.get_stored_preset("nightly")
+
+    assert stored is not None
+    assert stored.version == saved.version
+    registry.save_preset(preset=_make_preset(description="edited"), expected_version=stored.version)
+
+
+def test_get_stored_preset_returns_none_for_a_builtin(registry: ScenarioPresetRegistry) -> None:
+    """Test that a built-in has no stored document and therefore no editable version."""
+    registry.register_builtin(_make_preset())
+
+    assert registry.get_stored_preset("nightly") is None
+
+
 def test_saving_over_a_builtin_name_is_rejected(registry: ScenarioPresetRegistry) -> None:
     """Test that forking a built-in requires a new name."""
     registry.register_builtin(_make_preset())
@@ -97,8 +120,8 @@ def test_fork_under_a_new_name_succeeds(registry: ScenarioPresetRegistry) -> Non
         preset=_make_preset(name="builtin_suite_fork", max_dataset_size=20), expected_version=None
     )
 
-    assert forked.name == "builtin_suite_fork"
-    assert forked.max_dataset_size == 20
+    assert forked.preset.name == "builtin_suite_fork"
+    assert forked.preset.max_dataset_size == 20
     assert registry.get_preset("builtin_suite") is not None
 
 
@@ -113,17 +136,17 @@ def test_builtin_wins_collision_and_user_preset_is_skipped_with_warning(
     registry.register_builtin(_make_preset(description="shipped version"))
 
     with caplog.at_level(logging.WARNING):
-        registry.load_stored_presets()
+        listed = registry.list_presets()
 
     resolved = registry.get_preset("nightly")
     assert resolved is not None
     assert resolved.description == "shipped version"
     assert resolved.is_builtin is True
-    assert [preset.name for preset in registry.list_presets()] == ["nightly"]
+    assert [preset.name for preset in listed] == ["nightly"]
     assert "a built-in preset already uses that name" in caplog.text
 
 
-def test_load_stored_presets_keeps_non_colliding_presets(tmp_path: Path) -> None:
+def test_collision_skips_only_the_colliding_preset(tmp_path: Path) -> None:
     """Test that a collision skips only the colliding preset."""
     storage = ScenarioPresetStorage(source=str(tmp_path))
     storage.save_preset(preset=_make_preset(name="nightly"), expected_version=None)
@@ -131,7 +154,6 @@ def test_load_stored_presets_keeps_non_colliding_presets(tmp_path: Path) -> None
 
     registry = ScenarioPresetRegistry(storage=storage)
     registry.register_builtin(_make_preset(name="nightly"))
-    registry.load_stored_presets()
 
     assert [preset.name for preset in registry.list_presets()] == ["nightly", "weekly"]
     weekly = registry.get_preset("weekly")
@@ -139,14 +161,24 @@ def test_load_stored_presets_keeps_non_colliding_presets(tmp_path: Path) -> None
     assert weekly.is_builtin is False
 
 
-def test_load_stored_presets_replaces_prior_state(tmp_path: Path) -> None:
-    """Test that reloading reflects presets deleted outside the registry."""
+def test_presets_written_by_another_process_are_visible(tmp_path: Path) -> None:
+    """Test that user presets are read through, so a shared source is not served from a stale cache."""
+    registry = ScenarioPresetRegistry(storage=ScenarioPresetStorage(source=str(tmp_path)))
+    assert registry.get_preset("nightly") is None
+
+    ScenarioPresetStorage(source=str(tmp_path)).save_preset(preset=_make_preset(), expected_version=None)
+
+    assert registry.get_preset("nightly") is not None
+    assert [preset.name for preset in registry.list_presets()] == ["nightly"]
+
+
+def test_presets_deleted_by_another_process_disappear(tmp_path: Path) -> None:
+    """Test that a preset removed outside the registry stops resolving."""
     storage = ScenarioPresetStorage(source=str(tmp_path))
     registry = ScenarioPresetRegistry(storage=storage)
     registry.save_preset(preset=_make_preset(), expected_version=None)
 
     storage.delete_preset("nightly")
-    registry.load_stored_presets()
 
     assert registry.get_preset("nightly") is None
 
@@ -162,7 +194,7 @@ def test_builtin_presets_are_never_written_to_storage(tmp_path: Path) -> None:
     assert list(tmp_path.glob("*.json")) == []
 
 
-def test_save_preset_refreshes_the_in_memory_copy(registry: ScenarioPresetRegistry) -> None:
+def test_save_preset_is_immediately_visible(registry: ScenarioPresetRegistry) -> None:
     """Test that a save is visible through the registry without reloading."""
     first = registry.save_preset(preset=_make_preset(description="first"), expected_version=None)
     registry.save_preset(preset=_make_preset(description="second"), expected_version=first.version)
@@ -171,7 +203,6 @@ def test_save_preset_refreshes_the_in_memory_copy(registry: ScenarioPresetRegist
 
     assert resolved is not None
     assert resolved.description == "second"
-    assert resolved.version == 2
 
 
 def test_stale_save_propagates_conflict(registry: ScenarioPresetRegistry) -> None:
@@ -179,11 +210,11 @@ def test_stale_save_propagates_conflict(registry: ScenarioPresetRegistry) -> Non
     registry.save_preset(preset=_make_preset(), expected_version=None)
 
     with pytest.raises(ScenarioPresetConflictError):
-        registry.save_preset(preset=_make_preset(description="stale"), expected_version=99)
+        registry.save_preset(preset=_make_preset(description="stale"), expected_version="stale_version")
 
 
 def test_delete_preset_removes_from_registry_and_storage(tmp_path: Path) -> None:
-    """Test that deletion clears both the cache and the backing file."""
+    """Test that deletion clears the backing file and stops resolution."""
     storage = ScenarioPresetStorage(source=str(tmp_path))
     registry = ScenarioPresetRegistry(storage=storage)
     registry.save_preset(preset=_make_preset(), expected_version=None)
@@ -204,3 +235,17 @@ def test_configure_storage_source_switches_backend(tmp_path: Path) -> None:
     registry.save_preset(preset=_make_preset(), expected_version=None)
 
     assert (presets_dir / "nightly.json").is_file()
+
+
+def test_configure_storage_source_stops_serving_the_previous_source(tmp_path: Path) -> None:
+    """Test that repointing the source does not leave presets from the old one resolvable."""
+    first_dir = tmp_path / "first"
+    second_dir = tmp_path / "second"
+    first_dir.mkdir()
+    second_dir.mkdir()
+    registry = ScenarioPresetRegistry(storage=ScenarioPresetStorage(source=str(first_dir)))
+    registry.save_preset(preset=_make_preset(), expected_version=None)
+
+    registry.configure_storage_source(str(second_dir))
+
+    assert registry.get_preset("nightly") is None

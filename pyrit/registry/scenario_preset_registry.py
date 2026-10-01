@@ -1,14 +1,14 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
-"""In-memory registry unioning built-in and user-authored scenario presets."""
+"""Registry unioning built-in and user-authored scenario presets."""
 
 from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING
 
-from pyrit.models.catalog.scenario_preset import ScenarioPreset, ScenarioPresetProvenance
+from pyrit.models.catalog.scenario_preset import ScenarioPreset, ScenarioPresetProvenance, StoredPreset
 from pyrit.registry.scenario_preset_storage import ScenarioPresetStorage
 
 if TYPE_CHECKING:
@@ -22,8 +22,11 @@ class ScenarioPresetRegistry:
     The union of built-in and user-authored scenario presets.
 
     Presets arrive from two places. Built-in presets are registered from initializer code
-    at startup and are read-only. User presets are loaded from storage. The registry exists
-    because only it sees both, so only it can resolve a name or detect a dangling reference.
+    at startup and are read-only, so they are held in memory. User presets are read from
+    storage on each call rather than cached, because the same directory or blob container
+    is routinely shared between a notebook, the API, and a second process; a cache would
+    serve edits those callers can no longer see. The registry exists because only it sees
+    both sources, so only it can resolve a name across them.
 
     Built-in presets win on a name collision. A user preset that collides is skipped with a
     warning rather than failing startup, because the collision arises when PyRIT ships a new
@@ -41,7 +44,6 @@ class ScenarioPresetRegistry:
         """
         self._storage = storage
         self._builtin_presets: dict[str, ScenarioPreset] = {}
-        self._user_presets: dict[str, ScenarioPreset] = {}
 
     def configure_storage_source(self, source: str | None) -> None:
         """Configure the local directory or Azure Blob source for user presets."""
@@ -68,26 +70,37 @@ class ScenarioPresetRegistry:
         self._builtin_presets[registered.name] = registered
         return registered
 
-    def load_stored_presets(self) -> None:
-        """Load user presets from storage, skipping any that collide with a built-in preset."""
-        self._user_presets = {}
-        for name, preset in self._get_storage().list_presets().items():
-            if name in self._builtin_presets:
-                logger.warning(
-                    f"Skipping stored scenario preset '{name}': a built-in preset already uses that name. "
-                    "Rename the stored preset to keep using it."
-                )
-                continue
-            self._user_presets[name] = preset
-
     def get_preset(self, name: str) -> ScenarioPreset | None:
         """
         Resolve one preset by name.
 
         Returns:
             ScenarioPreset | None: The preset, or ``None`` if no preset uses that name.
+
+        Raises:
+            ValueError: If *name* is not a legal preset name.
         """
-        return self._builtin_presets.get(name) or self._user_presets.get(name)
+        builtin = self._builtin_presets.get(name)
+        if builtin is not None:
+            return builtin
+
+        stored = self._get_storage().load_preset(name)
+        return stored.preset if stored is not None else None
+
+    def get_stored_preset(self, name: str) -> StoredPreset | None:
+        """
+        Read one user preset together with the version needed to save an edit to it.
+
+        Returns:
+            StoredPreset | None: The stored preset, or ``None`` if *name* is built in or
+            no stored preset uses that name.
+
+        Raises:
+            ValueError: If *name* is not a legal preset name.
+        """
+        if name in self._builtin_presets:
+            return None
+        return self._get_storage().load_preset(name)
 
     def list_presets(self) -> list[ScenarioPreset]:
         """
@@ -96,46 +109,51 @@ class ScenarioPresetRegistry:
         Returns:
             list[ScenarioPreset]: Built-in and user presets, sorted by name.
         """
-        merged = {**self._user_presets, **self._builtin_presets}
+        merged: dict[str, ScenarioPreset] = {}
+        for name, stored in self._get_storage().list_presets().items():
+            if name in self._builtin_presets:
+                logger.warning(
+                    f"Skipping stored scenario preset '{name}': a built-in preset already uses that name. "
+                    "Rename the stored preset to keep using it."
+                )
+                continue
+            merged[name] = stored.preset
+
+        merged.update(self._builtin_presets)
         return [merged[name] for name in sorted(merged)]
 
     def is_builtin(self, name: str) -> bool:
         """Return whether *name* belongs to a built-in preset."""
         return name in self._builtin_presets
 
-    def save_preset(self, *, preset: ScenarioPreset, expected_version: int | None) -> ScenarioPreset:
+    def save_preset(self, *, preset: ScenarioPreset, expected_version: str | None) -> StoredPreset:
         """
-        Persist a user preset and refresh the in-memory copy.
+        Persist a user preset.
 
         Args:
             preset (ScenarioPreset): The preset to persist.
-            expected_version (int | None): ``None`` to create a preset that must not already
-                exist, or the version the edit was based on.
+            expected_version (str | None): ``None`` to create a preset that must not already
+                exist, or the version returned when the edited preset was read.
 
         Returns:
-            ScenarioPreset: The persisted preset, carrying its newly assigned version.
+            StoredPreset: The persisted preset and its new version.
 
         Raises:
             ScenarioPresetConflictError: If the stored version does not match *expected_version*.
-            ValueError: If *name* belongs to a built-in preset.
+            ValueError: If the name belongs to a built-in preset or is not a legal preset name.
         """
         self._reject_builtin(preset.name, action="saved")
-
-        saved = self._get_storage().save_preset(preset=preset, expected_version=expected_version)
-        self._user_presets[saved.name] = saved
-        return saved
+        return self._get_storage().save_preset(preset=preset, expected_version=expected_version)
 
     def delete_preset(self, name: str) -> None:
         """
-        Delete a user preset from storage and from the registry.
+        Delete a user preset from storage.
 
         Raises:
-            ValueError: If *name* belongs to a built-in preset.
+            ValueError: If *name* belongs to a built-in preset or is not a legal preset name.
         """
         self._reject_builtin(name, action="deleted")
-
         self._get_storage().delete_preset(name)
-        self._user_presets.pop(name, None)
 
     def _reject_builtin(self, name: str, *, action: str) -> None:
         """
