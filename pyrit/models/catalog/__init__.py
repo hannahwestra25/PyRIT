@@ -38,7 +38,7 @@ if TYPE_CHECKING:
         ScenarioRunSummary,
         ScenarioTechniqueSummary,
     )
-    from pyrit.models.catalog.scenario_preset import ScenarioPreset, ScenarioPresetProvenance, StoredPreset
+    from pyrit.models.catalog.scenario_preset import ScenarioPreset, StoredPreset
     from pyrit.models.catalog.target import TargetInstance
 
 _LAZY_EXPORTS: dict[str, str] = {
@@ -51,7 +51,6 @@ _LAZY_EXPORTS: dict[str, str] = {
     "ScenarioDatasetSummary": "pyrit.models.catalog.scenario",
     "ScenarioDefaultRunSizeEstimate": "pyrit.models.catalog.scenario",
     "ScenarioPreset": "pyrit.models.catalog.scenario_preset",
-    "ScenarioPresetProvenance": "pyrit.models.catalog.scenario_preset",
     "ScenarioRunListItem": "pyrit.models.catalog.scenario",
     "ScenarioRunSizeComponent": "pyrit.models.catalog.scenario",
     "ScenarioRunSizeEstimate": "pyrit.models.catalog.scenario",

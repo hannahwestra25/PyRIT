@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from pyrit.models.catalog.scenario_preset import ScenarioPreset, ScenarioPresetProvenance
+from pyrit.models.catalog.scenario_preset import ScenarioPreset
 from pyrit.registry.scenario_preset_storage import ScenarioPresetConflictError, ScenarioPresetStorage
 
 
@@ -189,18 +189,34 @@ def test_update_of_missing_preset_is_rejected(tmp_path: Path) -> None:
     assert error.value.actual_version is None
 
 
-def test_save_forces_user_provenance(tmp_path: Path) -> None:
-    """Test that stored presets are always user-owned regardless of the submitted value."""
-    storage = ScenarioPresetStorage(source=str(tmp_path))
+def test_default_source_is_under_the_configuration_directory(tmp_path: Path) -> None:
+    """Test that omitting the source stores presets under the PyRIT configuration directory."""
+    with patch("pyrit.common.path.CONFIGURATION_DIRECTORY_PATH", tmp_path):
+        storage = ScenarioPresetStorage()
+        storage.save_preset(preset=_make_preset(), expected_version=None)
 
-    saved = storage.save_preset(
-        preset=_make_preset(provenance=ScenarioPresetProvenance.BUILT_IN), expected_version=None
-    )
+    assert (tmp_path / "scenario_presets" / "nightly.json").is_file()
 
-    assert saved.preset.provenance is ScenarioPresetProvenance.USER
-    loaded = storage.load_preset("nightly")
-    assert loaded is not None
-    assert loaded.preset.provenance is ScenarioPresetProvenance.USER
+
+def test_presets_written_by_another_process_are_visible(tmp_path: Path) -> None:
+    """Test that reads go through to the source, so a shared directory is never served stale."""
+    reader = ScenarioPresetStorage(source=str(tmp_path))
+    assert reader.load_preset("nightly") is None
+
+    ScenarioPresetStorage(source=str(tmp_path)).save_preset(preset=_make_preset(), expected_version=None)
+
+    assert reader.load_preset("nightly") is not None
+    assert list(reader.list_presets()) == ["nightly"]
+
+
+def test_presets_deleted_by_another_process_disappear(tmp_path: Path) -> None:
+    """Test that a preset removed outside this instance stops resolving."""
+    reader = ScenarioPresetStorage(source=str(tmp_path))
+    reader.save_preset(preset=_make_preset(), expected_version=None)
+
+    ScenarioPresetStorage(source=str(tmp_path)).delete_preset("nightly")
+
+    assert reader.load_preset("nightly") is None
 
 
 def test_load_missing_preset_returns_none(tmp_path: Path) -> None:

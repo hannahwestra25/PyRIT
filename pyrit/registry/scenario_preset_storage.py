@@ -1,16 +1,20 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
-"""Storage backends for user-authored scenario presets."""
+"""Storage backends for scenario presets."""
 
 from __future__ import annotations
 
 import hashlib
 import json
 import logging
+from typing import TYPE_CHECKING
 
-from pyrit.models.catalog.scenario_preset import ScenarioPreset, ScenarioPresetProvenance, StoredPreset
+from pyrit.models.catalog.scenario_preset import ScenarioPreset, StoredPreset
 from pyrit.registry.file_document_storage import FileDocumentStorage
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -44,10 +48,11 @@ def _document_version(content: str) -> str:
 
 class ScenarioPresetStorage(FileDocumentStorage):
     """
-    Read and write user-authored scenario presets as JSON documents.
+    Read and write scenario presets as JSON documents.
 
-    Only user presets are stored. Built-in presets come from initializer code and are
-    never written here, so a file on disk always means a user authored it.
+    Storage is read through on every call rather than cached, because the same directory
+    or blob container is routinely shared between a notebook, the API, and a second
+    process; a cache would serve edits those callers can no longer see.
 
     Writes are guarded by an optimistic-concurrency check. A caller supplies the version
     it read, and the save is refused unless storage still holds that version. The token
@@ -61,14 +66,37 @@ class ScenarioPresetStorage(FileDocumentStorage):
     writes (blob ETags have no local-filesystem equivalent) and is deliberately deferred.
     """
 
-    def __init__(self, *, source: str) -> None:
+    def __init__(self, *, source: str | None = None) -> None:
         """
         Initialize storage from a local directory or Azure Blob source URI.
+
+        Args:
+            source (str | None): Local directory or Azure Blob source URI. Defaults to
+                ``scenario_presets`` under the PyRIT configuration directory.
 
         Raises:
             ValueError: If the source has an unsupported URI scheme.
         """
-        super().__init__(source=source, extension=".json", source_label="Scenario preset")
+        super().__init__(
+            source=source or str(self._get_default_storage_dir()),
+            extension=".json",
+            source_label="Scenario preset",
+        )
+
+    @staticmethod
+    def _get_default_storage_dir() -> Path:
+        """
+        Get the default directory for storing presets.
+
+        Returns:
+            Path: Path to ``~/.pyrit/scenario_presets/``, created if needed.
+        """
+        # Deferred: importing pyrit.common.path triggers pyrit __init__.py
+        from pyrit.common.path import CONFIGURATION_DIRECTORY_PATH
+
+        presets_dir = CONFIGURATION_DIRECTORY_PATH / "scenario_presets"
+        presets_dir.mkdir(parents=True, exist_ok=True)
+        return presets_dir
 
     def get_preset_source(self, name: str) -> str:
         """
@@ -148,10 +176,9 @@ class ScenarioPresetStorage(FileDocumentStorage):
                 name=preset.name, expected_version=expected_version, actual_version=actual_version
             )
 
-        saved = preset.model_copy(update={"provenance": ScenarioPresetProvenance.USER})
-        content = self._serialize_preset(saved)
-        self._save_document(name=saved.name, content=content)
-        return StoredPreset(preset=saved, version=_document_version(content))
+        content = self._serialize_preset(preset)
+        self._save_document(name=preset.name, content=content)
+        return StoredPreset(preset=preset, version=_document_version(content))
 
     def delete_preset(self, name: str) -> None:
         """
@@ -197,7 +224,7 @@ class ScenarioPresetStorage(FileDocumentStorage):
             logger.error(f"Skipping stored scenario preset '{name}': it is not a JSON object.")
             return None
 
-        fields = {**payload, "name": name, "provenance": ScenarioPresetProvenance.USER}
+        fields = {**payload, "name": name}
         try:
             return ScenarioPreset.model_validate(fields)
         except Exception:

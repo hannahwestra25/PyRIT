@@ -5,7 +5,7 @@
 
 import pytest
 
-from pyrit.models.catalog.scenario_preset import ScenarioPreset, ScenarioPresetProvenance
+from pyrit.models.catalog.scenario_preset import ScenarioPreset
 
 
 def test_init_defaults_every_optional_field_to_none() -> None:
@@ -21,28 +21,9 @@ def test_init_defaults_every_optional_field_to_none() -> None:
     assert preset.description is None
 
 
-def test_init_defaults_to_user_provenance() -> None:
-    """Test the default identity of a freshly constructed preset."""
-    preset = ScenarioPreset(name="nightly", scenario_name="foundry.red_team_agent")
-
-    assert preset.provenance is ScenarioPresetProvenance.USER
-    assert preset.is_builtin is False
-
-
 def test_preset_carries_no_storage_version() -> None:
     """Test that storage metadata stays out of the model it describes."""
     assert "version" not in ScenarioPreset.model_fields
-
-
-def test_is_builtin_reflects_provenance() -> None:
-    """Test that built-in provenance marks a preset read-only."""
-    preset = ScenarioPreset(
-        name="nightly",
-        scenario_name="foundry.red_team_agent",
-        provenance=ScenarioPresetProvenance.BUILT_IN,
-    )
-
-    assert preset.is_builtin is True
 
 
 @pytest.mark.parametrize("name", ["Nightly", "nightly-scan", "1nightly", "", "a" * 65])

@@ -16,20 +16,12 @@ to equal that default. Collapsing the two would silently pin a scenario default 
 the moment a preset was saved and stop it tracking upstream changes.
 """
 
-from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
 from pyrit.models.catalog.scenario import _validate_dataset_filter_mapping
 from pyrit.models.identifiers.class_name_utils import validate_registry_name
-
-
-class ScenarioPresetProvenance(str, Enum):
-    """Where a preset came from, which determines whether it can be edited."""
-
-    BUILT_IN = "built_in"
-    USER = "user"
 
 
 class ScenarioPreset(BaseModel):
@@ -55,14 +47,6 @@ class ScenarioPreset(BaseModel):
     scenario_params: dict[str, Any] | None = Field(
         None, description="Scenario-declared parameters such as template names and attempt counts"
     )
-    provenance: ScenarioPresetProvenance = Field(
-        ScenarioPresetProvenance.USER, description="Whether this preset ships with PyRIT or was authored by a user"
-    )
-
-    @property
-    def is_builtin(self) -> bool:
-        """Whether this preset ships with PyRIT and is therefore read-only."""
-        return self.provenance is ScenarioPresetProvenance.BUILT_IN
 
     @field_validator("name")
     @classmethod
