@@ -56,6 +56,30 @@ function initialTargetName(
 }
 
 /**
+ * Restates what the preset pins. The dialog covers the library card, so without
+ * this the operator commits to a run knowing only the preset and scenario name.
+ * Omitted fields read as scenario defaults because that is what the server does
+ * with them.
+ */
+function presetSummary(preset: ScenarioPreset): string {
+  const techniques = preset.techniques ?? []
+  const datasets = preset.dataset_names ?? []
+  const parts = [
+    techniques.length === 0
+      ? 'Scenario default techniques'
+      : `${techniques.length} technique${techniques.length === 1 ? '' : 's'}`,
+    datasets.length === 0 ? 'scenario default datasets' : datasets.join(', '),
+  ]
+  if (preset.max_dataset_size != null) {
+    parts.push(`max dataset size ${preset.max_dataset_size}`)
+  }
+  if (preset.include_baseline != null) {
+    parts.push(preset.include_baseline ? 'baseline included' : 'baseline excluded')
+  }
+  return parts.join(' · ')
+}
+
+/**
  * Collects the launch-owned fields a preset deliberately omits, then asks the
  * server to merge them with the stored preset. Resolution stays server-side so
  * the browser never reimplements the preset-to-run mapping.
@@ -116,9 +140,18 @@ export default function LaunchPresetDialog({
           <DialogBody>
             <DialogTitle>Launch {preset.name}</DialogTitle>
             <DialogContent className={styles.body}>
-              <Text className={styles.scenarioLine} size={200}>
-                Runs <strong>{preset.scenario_name}</strong> with this preset&apos;s saved configuration.
-              </Text>
+              <div className={styles.summary}>
+                <Text className={styles.scenarioLine} size={200}>
+                  Runs <strong>{preset.scenario_name}</strong> with this preset&apos;s saved configuration.
+                </Text>
+                <Text
+                  className={styles.scenarioLine}
+                  size={200}
+                  data-testid="launch-preset-summary"
+                >
+                  {presetSummary(preset)}
+                </Text>
+              </div>
               {error && (
                 <MessageBar intent="error">
                   <MessageBarBody>{error}</MessageBarBody>

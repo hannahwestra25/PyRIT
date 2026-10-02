@@ -6,6 +6,11 @@ export const useLaunchPresetDialogStyles = makeStyles({
     flexDirection: 'column',
     gap: tokens.spacingVerticalM,
   },
+  summary: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: tokens.spacingVerticalXXS,
+  },
   scenarioLine: {
     color: tokens.colorNeutralForeground3,
   },

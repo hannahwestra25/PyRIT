@@ -48,6 +48,7 @@ const ADVERSARIAL_TARGET: TargetInstance = makeTarget({
 })
 
 interface RenderOptions {
+  preset?: ScenarioPreset
   defaultObjectiveTarget?: TargetInstance | null
   defaultAdversarialTarget?: TargetInstance | null
   labels?: Record<string, string>
@@ -56,6 +57,7 @@ interface RenderOptions {
 const onDismiss = jest.fn()
 
 function renderDialog({
+  preset = PRESET,
   defaultObjectiveTarget = OBJECTIVE_TARGET,
   defaultAdversarialTarget = null,
   labels = {},
@@ -64,7 +66,7 @@ function renderDialog({
     <FluentProvider theme={webLightTheme}>
       <MemoryRouter>
         <LaunchPresetDialog
-          preset={PRESET}
+          preset={preset}
           targets={[OBJECTIVE_TARGET, ADVERSARIAL_TARGET]}
           defaultObjectiveTarget={defaultObjectiveTarget}
           defaultAdversarialTarget={defaultAdversarialTarget}
@@ -83,6 +85,37 @@ beforeEach(() => {
 })
 
 describe('LaunchPresetDialog', () => {
+  it('reports scenario defaults for the fields the preset leaves unset', () => {
+    renderDialog()
+
+    expect(screen.getByTestId('launch-preset-summary')).toHaveTextContent(
+      '1 technique · scenario default datasets',
+    )
+  })
+
+  it('summarizes the configuration the preset pins', () => {
+    renderDialog({
+      preset: {
+        name: 'nightly_probe',
+        scenario_name: 'foundry.red_team_agent',
+        techniques: ['crescendo', 'flip'],
+        dataset_names: ['harmbench', 'advbench'],
+        max_dataset_size: 25,
+        include_baseline: true,
+      },
+    })
+
+    expect(screen.getByTestId('launch-preset-summary')).toHaveTextContent(
+      '2 techniques · harmbench, advbench · max dataset size 25 · baseline included',
+    )
+  })
+
+  it('distinguishes an excluded baseline from an included one', () => {
+    renderDialog({ preset: { ...PRESET, include_baseline: false } })
+
+    expect(screen.getByTestId('launch-preset-summary')).toHaveTextContent('baseline excluded')
+  })
+
   it('resolves the preset server-side and navigates to the started run', async () => {
     const user = userEvent.setup()
     renderDialog({ labels: { op: 'nightly' } })
