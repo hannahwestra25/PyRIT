@@ -21,6 +21,8 @@ import ScenarioHistory from './components/History/ScenarioHistory'
 import ScenarioCatalog from './components/Scenarios/ScenarioCatalog'
 import ScenarioDetail from './components/Scenarios/ScenarioDetail'
 import ScenarioRunPage from './components/Scenarios/ScenarioRunPage'
+import ScenarioPresetEditor from './components/ScenarioPresets/ScenarioPresetEditor'
+import ScenarioPresetLibrary from './components/ScenarioPresets/ScenarioPresetLibrary'
 import FeedbackDialog from './components/Feedback/FeedbackDialog'
 import type { HistoryFilters } from './components/History/historyFilters'
 import { ConnectionBanner } from './components/ConnectionBanner'
@@ -674,6 +676,19 @@ function AppContent({ operatorAlias }: { operatorAlias: string | null }) {
               </Route>
               <Route path="/targets" element={<Navigate to="/registry/targets" replace />} />
               <Route path="/scanner" element={<ScenarioCatalog />} />
+              <Route
+                path="/scanner/presets"
+                element={
+                  <ScenarioPresetLibrary
+                    targets={registry.targets}
+                    defaultObjectiveTarget={targetDefaults.objectiveTarget}
+                    defaultAdversarialTarget={targetDefaults.adversarialTarget}
+                    labels={globalLabels}
+                  />
+                }
+              />
+              <Route path="/scanner/presets/new" element={<ScenarioPresetEditor mode="create" />} />
+              <Route path="/scanner/presets/:presetName/edit" element={<ScenarioPresetEditor mode="edit" />} />
               <Route
                 path="/scanner/:scenarioName"
                 element={
