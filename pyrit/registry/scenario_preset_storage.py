@@ -36,14 +36,14 @@ class ScenarioPresetConflictError(ValueError):
         super().__init__(f"Scenario preset '{name}' could not be saved because {detail}. Reload it and reapply.")
 
 
-def _document_version(content: str) -> str:
+def _document_version(content: bytes) -> str:
     """
     Create an opaque version token from stored document content.
 
     Returns:
         str: The document-state version token.
     """
-    return hashlib.sha256(content.encode()).hexdigest()
+    return hashlib.sha256(content).hexdigest()
 
 
 class ScenarioPresetStorage(FileDocumentStorage):
@@ -114,8 +114,8 @@ class ScenarioPresetStorage(FileDocumentStorage):
         """
         Read every stored preset, skipping any that cannot be parsed.
 
-        A malformed or hand-edited file must not prevent the rest of the library from
-        loading, so failures are logged and that preset is omitted.
+        A malformed, unreadable, or hand-edited file must not prevent the rest of the
+        library from loading, so failures are logged and that preset is omitted.
 
         Returns:
             dict[str, StoredPreset]: Stored presets keyed by name.
@@ -138,7 +138,7 @@ class ScenarioPresetStorage(FileDocumentStorage):
         Raises:
             ValueError: If *name* is not a legal preset name.
         """
-        content = self._read_document(name)
+        content = self._read_document_bytes(name)
         if content is None:
             return None
         preset = self._parse_preset(name=name, content=content)
@@ -153,7 +153,8 @@ class ScenarioPresetStorage(FileDocumentStorage):
         A document that cannot be parsed is otherwise unreachable: ``list_presets`` skips
         it, ``load_preset`` returns ``None``, and a create is refused because the document
         exists. Exposing its version lets a caller offer to overwrite the broken file
-        instead of leaving the name permanently unusable.
+        instead of leaving the name permanently unusable. The document is never decoded
+        here, so a file that is not even valid text can still be replaced.
 
         Returns:
             str | None: The document version, or ``None`` if no document is stored.
@@ -161,7 +162,7 @@ class ScenarioPresetStorage(FileDocumentStorage):
         Raises:
             ValueError: If *name* is not a legal preset name.
         """
-        content = self._read_document(name)
+        content = self._read_document_bytes(name)
         return None if content is None else _document_version(content)
 
     def save_preset(self, *, preset: ScenarioPreset, expected_version: str | None) -> StoredPreset:
@@ -187,7 +188,7 @@ class ScenarioPresetStorage(FileDocumentStorage):
             ScenarioPresetConflictError: If the stored version does not match *expected_version*.
             ValueError: If the preset name is not a legal preset name.
         """
-        existing_content = self._read_document(preset.name)
+        existing_content = self._read_document_bytes(preset.name)
         actual_version = None if existing_content is None else _document_version(existing_content)
         if actual_version != expected_version:
             raise ScenarioPresetConflictError(
@@ -208,7 +209,7 @@ class ScenarioPresetStorage(FileDocumentStorage):
         self._delete_document(name)
 
     @staticmethod
-    def _serialize_preset(preset: ScenarioPreset) -> str:
+    def _serialize_preset(preset: ScenarioPreset) -> bytes:
         """
         Serialize a preset to stored JSON.
 
@@ -218,13 +219,13 @@ class ScenarioPresetStorage(FileDocumentStorage):
         expect a rename that cannot happen.
 
         Returns:
-            str: JSON document content.
+            bytes: Encoded JSON document content.
         """
         payload = preset.model_dump(mode="json", exclude_none=True, exclude={"name"})
-        return json.dumps(payload, indent=2, sort_keys=True) + "\n"
+        return (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8")
 
     @staticmethod
-    def _parse_preset(*, name: str, content: str) -> ScenarioPreset | None:
+    def _parse_preset(*, name: str, content: bytes) -> ScenarioPreset | None:
         """
         Parse one stored preset document.
 
@@ -236,7 +237,13 @@ class ScenarioPresetStorage(FileDocumentStorage):
             ScenarioPreset | None: The parsed preset, or ``None`` if it is malformed.
         """
         try:
-            payload = json.loads(content)
+            text = content.decode("utf-8")
+        except UnicodeDecodeError:
+            logger.warning(f"Skipping stored scenario preset '{name}': it is not valid UTF-8 text.")
+            return None
+
+        try:
+            payload = json.loads(text)
         except ValueError:
             logger.exception(f"Skipping stored scenario preset '{name}': it is not valid JSON.")
             return None

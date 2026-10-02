@@ -3,7 +3,9 @@
 
 """Tests for scenario preset storage."""
 
+import hashlib
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -404,3 +406,121 @@ def test_listing_skips_documents_it_cannot_address(tmp_path: Path) -> None:
     (tmp_path / "My-Preset.json").write_text(json.dumps({"scenario_name": "foundry.red_team_agent"}), encoding="utf-8")
 
     assert sorted(storage.list_presets()) == ["nightly"]
+
+
+def test_document_that_is_not_text_does_not_hide_valid_presets(tmp_path: Path) -> None:
+    """Test that a file which is not UTF-8 is skipped rather than failing the whole listing."""
+    storage = ScenarioPresetStorage(source=str(tmp_path))
+    storage.save_preset(preset=_make_preset(), expected_version=None)
+    (tmp_path / "broken.json").write_bytes(b"\xff\xfe not utf-8")
+
+    assert sorted(storage.list_presets()) == ["nightly"]
+    assert storage.load_preset("broken") is None
+
+
+def test_unreadable_document_with_an_ignorable_name_is_never_read(tmp_path: Path) -> None:
+    """Test that a name the storage would refuse is skipped before its bytes are ever touched."""
+    storage = ScenarioPresetStorage(source=str(tmp_path))
+    storage.save_preset(preset=_make_preset(), expected_version=None)
+    (tmp_path / "My-Preset.json").write_bytes(b"\xff")
+
+    assert sorted(storage.list_presets()) == ["nightly"]
+
+
+def test_version_is_readable_for_a_document_that_is_not_text(tmp_path: Path) -> None:
+    """Test that the recovery path reaches a file too broken to decode, not just too broken to parse."""
+    storage = ScenarioPresetStorage(source=str(tmp_path))
+    (tmp_path / "nightly.json").write_bytes(b"\xff\xfe not utf-8")
+
+    version = storage.get_preset_version("nightly")
+    assert version is not None
+
+    storage.save_preset(preset=_make_preset(), expected_version=version)
+
+    loaded = storage.load_preset("nightly")
+    assert loaded is not None
+
+
+def test_version_matches_the_bytes_on_disk(tmp_path: Path) -> None:
+    """Test that the token describes stored bytes, so a later read cannot disagree with the save."""
+    storage = ScenarioPresetStorage(source=str(tmp_path))
+
+    saved = storage.save_preset(preset=_make_preset(), expected_version=None)
+
+    assert saved.version == hashlib.sha256((tmp_path / "nightly.json").read_bytes()).hexdigest()
+    assert storage.get_preset_version("nightly") == saved.version
+
+
+def test_failed_write_preserves_the_previous_preset(tmp_path: Path) -> None:
+    """Test that a write that dies partway leaves the stored preset readable instead of empty."""
+    storage = ScenarioPresetStorage(source=str(tmp_path))
+    first = storage.save_preset(preset=_make_preset(description="first"), expected_version=None)
+
+    def fail(source: object, target: object) -> None:
+        raise OSError(28, "No space left on device")
+
+    with patch("os.replace", fail):
+        with pytest.raises(OSError):
+            storage.save_preset(preset=_make_preset(description="second"), expected_version=first.version)
+
+    loaded = storage.load_preset("nightly")
+    assert loaded is not None
+    assert loaded.preset.description == "first"
+    assert loaded.version == first.version
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["nightly.json"]
+
+
+def test_a_reader_sees_the_previous_document_until_the_write_completes(tmp_path: Path) -> None:
+    """Test that an update never truncates the destination, so a reader sees the old or new document."""
+    storage = ScenarioPresetStorage(source=str(tmp_path))
+    first = storage.save_preset(preset=_make_preset(description="first"), expected_version=None)
+    observed: list[str] = []
+    listed: list[list[str]] = []
+    real_replace = os.replace
+
+    def observe_then_replace(source: object, target: object) -> None:
+        observed.append((tmp_path / "nightly.json").read_text(encoding="utf-8"))
+        listed.append(sorted(path.name for path in tmp_path.glob("*.json")))
+        real_replace(source, target)  # type: ignore[arg-type]
+
+    with patch("os.replace", observe_then_replace):
+        storage.save_preset(preset=_make_preset(description="second"), expected_version=first.version)
+
+    assert json.loads(observed[0])["description"] == "first"
+    assert listed == [["nightly.json"]]
+    loaded = storage.load_preset("nightly")
+    assert loaded is not None
+    assert loaded.preset.description == "second"
+
+
+def test_blob_listing_skips_a_document_that_is_not_text() -> None:
+    """Test that one undecodable blob does not hide every other stored preset."""
+    document = json.dumps({"scenario_name": "foundry.red_team_agent"}).encode("utf-8")
+    client = MagicMock()
+    client.__enter__.return_value = client
+    client.list_blobs.return_value = [SimpleNamespace(name="broken.json"), SimpleNamespace(name="nightly.json")]
+    client.download_blob.side_effect = lambda blob_name: SimpleNamespace(
+        readall=lambda: b"\xff\xfe" if blob_name == "broken.json" else document
+    )
+    storage = ScenarioPresetStorage(source="https://account.blob.core.windows.net/presets?sig=secret")
+
+    with patch("azure.storage.blob.ContainerClient.from_container_url", return_value=client):
+        presets = storage.list_presets()
+
+    assert sorted(presets) == ["nightly"]
+
+
+def test_blob_listing_does_not_download_a_name_it_would_refuse() -> None:
+    """Test that an ignorable blob name is filtered before the download that could fail on it."""
+    document = json.dumps({"scenario_name": "foundry.red_team_agent"}).encode("utf-8")
+    client = MagicMock()
+    client.__enter__.return_value = client
+    client.list_blobs.return_value = [SimpleNamespace(name="My-Preset.json"), SimpleNamespace(name="nightly.json")]
+    client.download_blob.return_value.readall.return_value = document
+    storage = ScenarioPresetStorage(source="https://account.blob.core.windows.net/presets?sig=secret")
+
+    with patch("azure.storage.blob.ContainerClient.from_container_url", return_value=client):
+        presets = storage.list_presets()
+
+    assert sorted(presets) == ["nightly"]
+    assert [call.args[0] for call in client.download_blob.call_args_list] == ["nightly.json"]

@@ -6,6 +6,8 @@
 from __future__ import annotations
 
 import logging
+import os
+import tempfile
 from contextlib import contextmanager, suppress
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING
@@ -35,10 +37,18 @@ class FileDocumentStorage:
     a caller read, overwrite, or delete a file outside the configured source. The
     check lives here rather than in each subclass so no document API can omit it.
 
-    Listing applies the same rule, so every name it returns can be passed back to the
-    single-document operations. Names come from the file system rather than from a
-    caller, so the source can hold files this class cannot address; those are skipped
-    with a warning rather than failing the whole listing.
+    Listing applies the same rule before it reads anything, so every name it returns can
+    be passed back to the single-document operations. Names come from the file system
+    rather than from a caller, so the source can hold files this class cannot address or
+    cannot read; those are skipped with a warning rather than failing the whole listing.
+
+    Documents are read and written as raw bytes. Decoding belongs to the subclasses,
+    which know how to report a document they cannot interpret and can skip just that one.
+    Bytes also keep what a caller hashes identical to what is stored, which text mode
+    would not: it rewrites line endings per platform.
+
+    Local writes stage the content beside the destination and move it into place, so an
+    interrupted write leaves the previous document intact rather than truncating it.
 
     Subclasses supply the extension and a human-readable label for error messages,
     then expose a domain-specific API over the protected document operations.
@@ -90,25 +100,35 @@ class FileDocumentStorage:
             return f"{self.display_source.rstrip('/')}/{name}{self._extension}"
         return str(self._local_directory() / f"{name}{self._extension}")
 
-    def _list_documents(self) -> dict[str, str]:
+    def _list_documents(self) -> dict[str, bytes]:
         """
         Read every stored document that the single-document operations can address.
 
-        Returns:
-            dict[str, str]: Document content keyed by name.
-        """
-        documents = self._list_blob_documents() if self._is_blob else self._list_local_documents()
-        return {name: content for name, content in documents.items() if self._is_addressable_name(name)}
-
-    def _list_local_documents(self) -> dict[str, str]:
-        """
-        Read documents from the configured local directory.
+        A name is checked before its content is read, so a file this class cannot address
+        is never opened and cannot fail the listing on its way out.
 
         Returns:
-            dict[str, str]: Document content keyed by file stem.
+            dict[str, bytes]: Document content keyed by name.
+        """
+        return self._list_blob_documents() if self._is_blob else self._list_local_documents()
+
+    def _list_local_documents(self) -> dict[str, bytes]:
+        """
+        Read addressable documents from the configured local directory.
+
+        Returns:
+            dict[str, bytes]: Document content keyed by file stem.
         """
         directory = self._local_directory(create=True)
-        return {path.stem: path.read_text(encoding="utf-8") for path in sorted(directory.glob(f"*{self._extension}"))}
+        documents: dict[str, bytes] = {}
+        for path in sorted(directory.glob(f"*{self._extension}")):
+            if not self._is_addressable_name(path.stem):
+                continue
+            try:
+                documents[path.stem] = path.read_bytes()
+            except OSError as error:
+                logger.warning(f"Skipping unreadable document '{path.name}' in {self.display_source}: {error}")
+        return documents
 
     def _is_addressable_name(self, name: str) -> bool:
         """
@@ -128,12 +148,12 @@ class FileDocumentStorage:
             return False
         return True
 
-    def _read_document(self, name: str) -> str | None:
+    def _read_document_bytes(self, name: str) -> bytes | None:
         """
-        Read one document.
+        Read the raw bytes of one document.
 
         Returns:
-            str | None: Document content, or ``None`` if it does not exist.
+            bytes | None: Document content, or ``None`` if it does not exist.
 
         Raises:
             ValueError: If *name* is not a legal registry name.
@@ -144,16 +164,16 @@ class FileDocumentStorage:
 
             with self._open_container_client() as client:
                 try:
-                    return client.download_blob(self._get_blob_name(name)).readall().decode("utf-8")
+                    return client.download_blob(self._get_blob_name(name)).readall()
                 except ResourceNotFoundError:
                     return None
 
         path = self._local_directory() / f"{name}{self._extension}"
-        return path.read_text(encoding="utf-8") if path.is_file() else None
+        return path.read_bytes() if path.is_file() else None
 
-    def _save_document(self, *, name: str, content: str) -> None:
+    def _save_document(self, *, name: str, content: bytes) -> None:
         """
-        Persist one document, overwriting any existing content.
+        Persist one document, replacing any existing content.
 
         Raises:
             ValueError: If *name* is not a legal registry name.
@@ -161,10 +181,37 @@ class FileDocumentStorage:
         validate_registry_name(name)
         if self._is_blob:
             with self._open_container_client() as client:
-                client.upload_blob(name=self._get_blob_name(name), data=content.encode("utf-8"), overwrite=True)
+                client.upload_blob(name=self._get_blob_name(name), data=content, overwrite=True)
         else:
             directory = self._local_directory(create=True)
-            (directory / f"{name}{self._extension}").write_text(content, encoding="utf-8")
+            self._replace_file(path=directory / f"{name}{self._extension}", content=content)
+
+    @staticmethod
+    def _replace_file(*, path: Path, content: bytes) -> None:
+        """
+        Write *content* to *path* without destroying what is already there on failure.
+
+        Writing in place truncates the destination before the new content lands, so an
+        interrupted write would leave the stored document empty and a concurrent reader
+        could observe a half-written one. Staging the content in a sibling temporary file
+        and moving it over the destination keeps the previous document readable until the
+        new one is complete. The temporary file does not carry the document extension, so
+        a crash between the two steps cannot leave something that listing would pick up.
+
+        Raises:
+            OSError: If the document could not be written.
+        """
+        descriptor, temporary_name = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp")
+        temporary_path = Path(temporary_name)
+        try:
+            with os.fdopen(descriptor, "wb") as file:
+                file.write(content)
+                file.flush()
+                os.fsync(file.fileno())
+            os.replace(temporary_path, path)
+        except BaseException:
+            temporary_path.unlink(missing_ok=True)
+            raise
 
     def _delete_document(self, name: str) -> None:
         """
@@ -195,14 +242,16 @@ class FileDocumentStorage:
             directory.mkdir(parents=True, exist_ok=True)
         return directory
 
-    def _list_blob_documents(self) -> dict[str, str]:
+    def _list_blob_documents(self) -> dict[str, bytes]:
         """
-        Read documents from the configured Azure Blob container.
+        Read addressable documents from the configured Azure Blob container.
 
         Returns:
-            dict[str, str]: Document content keyed by blob stem.
+            dict[str, bytes]: Document content keyed by blob stem.
         """
-        documents: dict[str, str] = {}
+        from azure.core.exceptions import AzureError
+
+        documents: dict[str, bytes] = {}
         with self._open_container_client() as client:
             prefix = f"{self._blob_prefix}/" if self._blob_prefix else None
             blobs = client.list_blobs(name_starts_with=prefix) if prefix else client.list_blobs()
@@ -210,8 +259,13 @@ class FileDocumentStorage:
                 blob.name for blob in blobs if self._is_direct_document_blob(blob_name=blob.name, prefix=prefix)
             )
             for blob_name in blob_names:
-                relative_name = blob_name.removeprefix(prefix or "")
-                documents[PurePosixPath(relative_name).stem] = client.download_blob(blob_name).readall().decode("utf-8")
+                name = PurePosixPath(blob_name.removeprefix(prefix or "")).stem
+                if not self._is_addressable_name(name):
+                    continue
+                try:
+                    documents[name] = client.download_blob(blob_name).readall()
+                except AzureError as error:
+                    logger.warning(f"Skipping unreadable document '{blob_name}' in {self.display_source}: {error}")
         return documents
 
     def _parse_blob_source(self) -> tuple[str, str]:
