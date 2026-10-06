@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from pyrit.auth import ensure_async_token_provider
+from pyrit.common.auth_mode import AuthMode
 from pyrit.prompt_target.openai.openai_target import OpenAITarget
 
 
@@ -42,6 +43,7 @@ def _build_target(
     endpoint: str = "https://test.openai.azure.com/openai/v1",
     api_key: str | Callable | None = "test-key",
     env_vars: dict[str, str] | None = None,
+    auth_mode: AuthMode = "api_key",
 ) -> _ConcreteOpenAITarget:
     """Helper to build a _ConcreteOpenAITarget with controlled env."""
     env = {"TEST_MODEL": "gpt-4", "TEST_ENDPOINT": endpoint}
@@ -52,6 +54,7 @@ def _build_target(
             model_name="gpt-4",
             endpoint=endpoint,
             api_key=api_key,
+            auth_mode=auth_mode,
         )
 
 
@@ -120,6 +123,31 @@ class TestOpenAITargetAuthResolution:
         """When both param and env var are set, the param wins."""
         target = _build_target(api_key="param-key", env_vars={"TEST_API_KEY": "env-key"})
         assert target._api_key == "param-key"
+
+    def test_identity_auth_mode_ignores_env_var_key(self):
+        """An explicit identity choice must not be downgraded to the key in the environment."""
+        mock_auth = AsyncMock(return_value="entra-token")
+        with patch("pyrit.auth.openai_auth.get_azure_openai_auth", return_value=mock_auth):
+            target = _build_target(
+                api_key=None,
+                env_vars={"TEST_API_KEY": "env-key"},
+                auth_mode="identity",
+            )
+        assert target._api_key is mock_auth
+
+    def test_identity_auth_mode_ignores_explicit_key(self):
+        mock_auth = AsyncMock(return_value="entra-token")
+        with patch("pyrit.auth.openai_auth.get_azure_openai_auth", return_value=mock_auth):
+            target = _build_target(api_key="param-key", auth_mode="identity")
+        assert target._api_key is mock_auth
+
+    def test_identity_auth_mode_non_azure_endpoint_raises(self):
+        with pytest.raises(ValueError, match="Identity-based authentication requires a recognized Azure"):
+            _build_target(
+                endpoint="https://api.openai.com/v1",
+                api_key=None,
+                auth_mode="identity",
+            )
 
 
 class TestEnsureAsyncTokenProvider:

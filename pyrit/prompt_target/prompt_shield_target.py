@@ -68,6 +68,7 @@ class PromptShieldTarget(PromptTarget):
         *,
         endpoint: str | None = None,
         api_key: str | Callable[[], str] | None = None,
+        auth_mode: AuthMode = "api_key",
         api_version: str | None = "2024-09-01",
         field: PromptShieldEntryField | None = None,
         max_requests_per_minute: int | None = None,
@@ -87,6 +88,11 @@ class PromptShieldTarget(PromptTarget):
                 token provider, pass one from pyrit.auth
                 (e.g., get_azure_token_provider('https://cognitiveservices.azure.com/.default')).
                 Defaults to the `API_KEY_ENVIRONMENT_VARIABLE` environment variable.
+            auth_mode (AuthMode, Optional): Explicitly selects how to authenticate. ``"identity"``
+                mints a Microsoft Entra ID token for the endpoint and ignores ``api_key`` and the
+                `API_KEY_ENVIRONMENT_VARIABLE` environment variable entirely; it requires a
+                recognized Azure Content Safety endpoint. Defaults to ``"api_key"``, which resolves
+                the key as described above.
             api_version (str, Optional): The version of the Azure Content Safety API. Defaults to "2024-09-01".
             field (PromptShieldEntryField, Optional): If "userPrompt", all input is sent to the userPrompt field.
                 If "documents", all input is sent to the documents field. If None, the input is parsed to separate
@@ -98,8 +104,9 @@ class PromptShieldTarget(PromptTarget):
                 this target instance. Defaults to None.
 
         Raises:
-            ValueError: If the endpoint value is not provided, or if no API key is
-                provided for a non-Azure Content Safety endpoint.
+            ValueError: If the endpoint value is not provided, if identity auth is requested for
+                an endpoint that is not a recognized Azure Content Safety endpoint, or if no API key
+                is provided for a non-Azure Content Safety endpoint.
         """
         endpoint_value = default_values.get_required_value(
             env_var_name=self.ENDPOINT_URI_ENVIRONMENT_VARIABLE, passed_value=endpoint
@@ -117,7 +124,17 @@ class PromptShieldTarget(PromptTarget):
         # Resolve authentication: an explicit key or token-provider callable, the
         # env var, or — for a recognized Azure Content Safety endpoint with no key —
         # an Entra ID token provider minted for the endpoint (identity-based auth).
-        if api_key is not None and callable(api_key):
+        # Identity is an explicit caller choice, so it must never be silently downgraded
+        # to a key that merely happens to be present in the environment.
+        if auth_mode == "identity":
+            if not is_azure_openai_endpoint(endpoint_value):
+                raise ValueError(
+                    "Identity-based authentication requires a recognized Azure Content Safety endpoint "
+                    f"(*.cognitiveservices.azure.com), but got '{endpoint_value}'. Use api_key authentication "
+                    "for this endpoint, or pass your own token provider callable as api_key."
+                )
+            self._api_key = get_azure_token_provider(get_default_azure_scope(endpoint_value))
+        elif api_key is not None and callable(api_key):
             self._api_key = api_key
         else:
             api_key_value = default_values.get_non_required_value(
@@ -135,6 +152,19 @@ class PromptShieldTarget(PromptTarget):
                 )
 
         self._force_entry_field: PromptShieldEntryField = field
+
+    @classmethod
+    def get_auth_mode_parameters(cls, *, auth_mode: AuthMode) -> dict[str, object]:
+        """
+        Preserve explicit authentication intent through target construction.
+
+        Args:
+            auth_mode (AuthMode): Authentication mode selected by the caller.
+
+        Returns:
+            dict[str, object]: Constructor parameters that enforce the mode.
+        """
+        return {"auth_mode": auth_mode}
 
     def _build_identifier(self) -> ComponentIdentifier:
         """

@@ -727,8 +727,75 @@ class TestCreateTargetEntraAuth:
                 auth_mode="identity",
             )
 
-            with pytest.raises(ValueError, match="non-Azure endpoints"):
+            with pytest.raises(ValueError, match="Identity-based authentication requires a recognized Azure"):
                 await service.create_target_async(request=request)
+
+    async def test_create_openai_target_with_identity_ignores_env_api_key(self, sqlite_instance) -> None:
+        """Regression: a key in the environment must not override an explicit identity choice."""
+
+        with patch.dict(os.environ, {"OPENAI_CHAT_KEY": "sk-SECRET-FROM-DOTENV"}):
+            with patch(
+                "pyrit.auth.openai_auth.get_azure_openai_auth",
+                return_value=_test_token_provider,
+            ):
+                service = TargetService()
+
+                request = CreateTargetRequest(
+                    type="OpenAIChatTarget",
+                    params={
+                        "endpoint": "https://test.openai.azure.com/",
+                        "model_name": "gpt-4o",
+                    },
+                    auth_mode="identity",
+                )
+
+                result = await service.create_target_async(request=request)
+
+                target_obj = service.get_target_object(target_registry_name=result.target_registry_name)
+                assert target_obj is not None
+                assert target_obj._api_key is _test_token_provider  # type: ignore[attr-defined]
+
+    async def test_create_azureml_target_with_identity_ignores_env_api_key(self, sqlite_instance) -> None:
+        """Regression: AZURE_ML_KEY must not override an explicit identity choice."""
+
+        with patch.dict(os.environ, {"AZURE_ML_KEY": "key-from-dotenv"}):
+            with patch(
+                "pyrit.prompt_target.azure_ml_chat_target.get_azure_async_token_provider",
+                return_value=_test_token_provider,
+            ):
+                service = TargetService()
+
+                request = CreateTargetRequest(
+                    type="AzureMLChatTarget",
+                    params={"endpoint": "https://my-aml.region.inference.ml.azure.com/score"},
+                    auth_mode="identity",
+                )
+
+                result = await service.create_target_async(request=request)
+
+                target_obj = service.get_target_object(target_registry_name=result.target_registry_name)
+                assert target_obj is not None
+                assert target_obj._api_key_provider is _test_token_provider  # type: ignore[attr-defined]
+                assert target_obj._api_key == ""  # type: ignore[attr-defined]
+
+    async def test_create_target_with_api_key_mode_does_not_pass_auth_mode(self, sqlite_instance) -> None:
+        """api_key requests keep the historical params exactly, including the env-var fallback."""
+        with patch.dict(os.environ, {"OPENAI_CHAT_KEY": "sk-from-env"}):
+            service = TargetService()
+
+            request = CreateTargetRequest(
+                type="OpenAIChatTarget",
+                params={
+                    "endpoint": "https://test.openai.azure.com/",
+                    "model_name": "gpt-4o",
+                },
+            )
+
+            result = await service.create_target_async(request=request)
+
+            target_obj = service.get_target_object(target_registry_name=result.target_registry_name)
+            assert target_obj is not None
+            assert target_obj._api_key == "sk-from-env"  # type: ignore[attr-defined]
 
     async def test_create_target_identity_unsupported_type_raises(self, sqlite_instance) -> None:
         """Identity-based auth is only supported for targets that declare it."""

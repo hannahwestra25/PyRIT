@@ -4,10 +4,11 @@
 import abc
 import logging
 from collections.abc import Mapping, Sequence
-from typing import Any, ClassVar, Literal, final
+from typing import Any, ClassVar, final
 
 from pyrit.common.async_compatibility import legacy_sync_override
 from pyrit.common.attack_result_scope import get_current_attack_result_id
+from pyrit.common.auth_mode import AuthMode
 from pyrit.common.deprecation import print_deprecation_message
 from pyrit.memory import CentralMemory, MemoryInterface
 from pyrit.message_normalizer import MessageListNormalizer
@@ -34,12 +35,9 @@ from pyrit.prompt_target.common.target_trace_config import TargetTraceConfig, ta
 
 logger = logging.getLogger(__name__)
 
-# Authentication modes a target can expose to target type discovery and creation APIs.
-# ``api_key`` passes a key (from params or the target's env var); ``identity``
-# omits the key so the target authenticates itself via an ambient Azure identity
-# (e.g. minting a Microsoft Entra ID token for its own endpoint, or falling back
-# to ``DefaultAzureCredential``).
-AuthMode = Literal["api_key", "identity"]
+# ``AuthMode`` is imported above (and re-exported from this module for backward
+# compatibility); it is canonically defined in ``pyrit.common.auth_mode`` so
+# ``pyrit.auth`` resolvers can consume it without depending on the target layer.
 
 
 class PromptTarget(Identifiable):

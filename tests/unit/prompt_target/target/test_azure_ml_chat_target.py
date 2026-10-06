@@ -76,6 +76,51 @@ def test_no_key_recognized_aml_endpoint_auto_mints_entra(patch_central_database)
     assert target._api_key == ""
 
 
+def test_identity_auth_mode_ignores_env_key(patch_central_database):
+    """An explicit identity choice must not be downgraded to the AZURE_ML_KEY env var."""
+
+    async def _provider() -> str:
+        return "aml-entra-token"
+
+    with (
+        patch.dict(os.environ, {AzureMLChatTarget.api_key_environment_variable: "key-from-dotenv"}),
+        patch(
+            "pyrit.prompt_target.azure_ml_chat_target.get_azure_async_token_provider",
+            return_value=_provider,
+        ),
+    ):
+        target = AzureMLChatTarget(
+            endpoint="https://my-aml.region.inference.ml.azure.com/score",
+            auth_mode="identity",
+        )
+
+    assert target._api_key_provider is _provider
+    assert target._api_key == ""
+
+
+def test_identity_auth_mode_ignores_explicit_key(patch_central_database):
+    async def _provider() -> str:
+        return "aml-entra-token"
+
+    with patch(
+        "pyrit.prompt_target.azure_ml_chat_target.get_azure_async_token_provider",
+        return_value=_provider,
+    ):
+        target = AzureMLChatTarget(
+            endpoint="https://my-aml.region.inference.ml.azure.com/score",
+            api_key="key-passed-anyway",
+            auth_mode="identity",
+        )
+
+    assert target._api_key_provider is _provider
+    assert target._api_key == ""
+
+
+def test_identity_auth_mode_non_aml_endpoint_raises(patch_central_database):
+    with pytest.raises(ValueError, match="Identity-based authentication requires a recognized Azure ML"):
+        AzureMLChatTarget(endpoint="http://aml-test-endpoint.com", auth_mode="identity")
+
+
 def test_no_key_non_aml_endpoint_raises(patch_central_database):
     """With no key and an endpoint that is not a recognized AML host, the target
     refuses to mint a bearer token."""

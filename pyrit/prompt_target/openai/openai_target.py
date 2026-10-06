@@ -87,6 +87,7 @@ class OpenAITarget(PromptTarget):
         model_name: str | None = None,
         endpoint: str | None = None,
         api_key: str | Callable[[], str | Awaitable[str]] | None = None,
+        auth_mode: AuthMode = "api_key",
         headers: str | None = None,
         max_requests_per_minute: int | None = None,
         httpx_client_kwargs: dict[str, Any] | None = None,
@@ -108,6 +109,11 @@ class OpenAITarget(PromptTarget):
                 (e.g., get_azure_openai_auth(endpoint) for async, or get_azure_token_provider(scope) for sync).
                 Synchronous token providers are automatically wrapped to work with async clients.
                 Defaults to the target-specific API key environment variable.
+            auth_mode (AuthMode, Optional): Explicitly selects how to authenticate. ``"identity"``
+                authenticates with a Microsoft Entra ID token for the endpoint and ignores ``api_key``
+                and its environment variable entirely; it requires a recognized Azure OpenAI /
+                AI Foundry endpoint. Defaults to ``"api_key"``, which resolves the key as described
+                above.
             headers (str, Optional): Extra headers of the endpoint (JSON).
             max_requests_per_minute (int, Optional): Number of requests the target can handle per
                 minute before hitting a rate limit. The number of requests sent to the target
@@ -122,8 +128,10 @@ class OpenAITarget(PromptTarget):
                 this target instance. If None, uses the class-level defaults. Defaults to None.
 
         Raises:
-            ValueError: If no API key is provided (via parameter or environment variable) and the
-                endpoint is not a recognized Azure OpenAI / AI Foundry endpoint.
+            ValueError: If identity auth is requested for an endpoint that is not a recognized
+                Azure OpenAI / AI Foundry endpoint, or if no API key is provided (via parameter or
+                environment variable) and the endpoint is not a recognized Azure OpenAI /
+                AI Foundry endpoint.
         """
         self._headers: dict[str, str] = {}
         self._httpx_client_kwargs = httpx_client_kwargs or {}
@@ -157,9 +165,23 @@ class OpenAITarget(PromptTarget):
             endpoint=endpoint_value,
             api_key=api_key,
             api_key_environment_variable=self.api_key_environment_variable,
+            auth_mode=auth_mode,
         )
 
         self._initialize_openai_client()
+
+    @classmethod
+    def get_auth_mode_parameters(cls, *, auth_mode: AuthMode) -> dict[str, object]:
+        """
+        Preserve explicit authentication intent through target construction.
+
+        Args:
+            auth_mode (AuthMode): Authentication mode selected by the caller.
+
+        Returns:
+            dict[str, object]: Constructor parameters that enforce the mode.
+        """
+        return {"auth_mode": auth_mode}
 
     @staticmethod
     def _parse_request_headers(value: object) -> dict[str, str]:

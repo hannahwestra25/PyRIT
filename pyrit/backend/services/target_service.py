@@ -16,7 +16,7 @@ import asyncio
 import logging
 import uuid
 from functools import lru_cache
-from typing import Any, Literal
+from typing import Any, cast
 
 from pyrit.backend.mappers.target_mappers import target_object_to_instance
 from pyrit.backend.models.common import PaginationInfo
@@ -27,6 +27,7 @@ from pyrit.backend.models.targets import (
     TargetTypeResponse,
 )
 from pyrit.common import REQUIRED_VALUE
+from pyrit.common.auth_mode import AUTH_MODES, AuthMode
 from pyrit.models.catalog.target import TargetInstance
 from pyrit.models.parameter import Parameter
 from pyrit.registry import TargetRegistry
@@ -41,6 +42,9 @@ _ENV_BACKED_REQUIRED_PARAMETERS: dict[str, frozenset[str]] = {
     "HuggingFaceChatTarget": frozenset({"hf_access_token"}),
     "PromptShieldTarget": frozenset({"endpoint"}),
 }
+
+# Constructor parameter through which a target accepts an explicit auth mode.
+_AUTH_MODE_PARAM = "auth_mode"
 
 
 class TargetService:
@@ -138,7 +142,7 @@ class TargetService:
         return self._registry.instances.get(target_registry_name)
 
     @staticmethod
-    def _get_supported_auth_modes(auth_modes: tuple[str, ...]) -> list[Literal["api_key", "identity"]]:
+    def _get_supported_auth_modes(auth_modes: tuple[str, ...]) -> list[AuthMode]:
         """
         Validate and narrow registry authentication modes for the type response.
 
@@ -146,17 +150,16 @@ class TargetService:
             auth_modes (tuple[str, ...]): Authentication modes declared by a target class.
 
         Returns:
-            list[Literal["api_key", "identity"]]: Validated authentication modes.
+            list[AuthMode]: Validated authentication modes.
 
         Raises:
             ValueError: If a target class declares an unsupported authentication mode.
         """
-        supported_auth_modes: list[Literal["api_key", "identity"]] = []
+        supported_auth_modes: list[AuthMode] = []
         for auth_mode in auth_modes:
-            if auth_mode == "api_key" or auth_mode == "identity":
-                supported_auth_modes.append(auth_mode)
-                continue
-            raise ValueError(f"Unsupported target authentication mode: {auth_mode!r}")
+            if auth_mode not in AUTH_MODES:
+                raise ValueError(f"Unsupported target authentication mode: {auth_mode!r}")
+            supported_auth_modes.append(cast("AuthMode", auth_mode))
         return supported_auth_modes
 
     def _project_target_parameters(self, *, target_type: str, parameters: tuple[Parameter, ...]) -> list[Parameter]:
@@ -223,7 +226,10 @@ class TargetService:
         request-level auth contract: for ``identity`` it confirms the target
         supports it and omits the api_key plus any registry-flagged
         identity-conflicting parameters so the target validates its own
-        endpoint and authenticates itself. The response is built before the
+        endpoint and authenticates itself. The selected mode is also passed
+        explicitly to targets that accept it, via
+        ``get_auth_mode_parameters``, so the choice is explicit rather than
+        inferred from a missing key. The response is built before the
         target is registered, so a failed request leaves no registered target.
 
         Args:
@@ -249,7 +255,8 @@ class TargetService:
         if request.auth_mode == "identity":
             if "identity" not in target_cls.supported_auth_modes:
                 raise ValueError(f"Target type '{request.type}' does not support identity-based authentication.")
-            # Omit any api_key so the target validates its own endpoint and authenticates itself.
+            # Omitting the key alone is ambiguous — every auth resolver reads the api-key env var
+            # when no key is passed — so also state the choice explicitly where the target accepts it.
             params.pop("api_key", None)
             # Omit any other parameter the registry metadata marks as conflicting with
             # identity-based auth (e.g. AzureBlobStorageTarget's sas_token), so a caller
