@@ -6,6 +6,7 @@
 import pytest
 
 from pyrit.models.catalog.scenario_preset import ScenarioPreset
+from pyrit.models.request_limits import MAX_IDENTIFIER_LENGTH, MAX_ITEMS
 
 
 def test_init_defaults_every_optional_field_to_none() -> None:
@@ -84,3 +85,27 @@ def test_include_baseline_distinguishes_unset_from_false() -> None:
     assert unset.include_baseline is None
     assert disabled.include_baseline is False
     assert unset.include_baseline != disabled.include_baseline
+
+
+def test_init_rejects_a_preset_too_large_to_launch() -> None:
+    """Test that the stored preset enforces the same request limits the launch request does."""
+    with pytest.raises(ValueError):
+        ScenarioPreset(
+            name="nightly",
+            scenario_name="foundry.red_team_agent",
+            techniques=[f"technique_{index}" for index in range(MAX_ITEMS + 1)],
+        )
+
+    with pytest.raises(ValueError):
+        ScenarioPreset(
+            name="nightly",
+            scenario_name="foundry.red_team_agent",
+            dataset_names=["x" * (MAX_IDENTIFIER_LENGTH + 1)],
+        )
+
+    with pytest.raises(ValueError):
+        ScenarioPreset(
+            name="nightly",
+            scenario_name="foundry.red_team_agent",
+            scenario_params={f"param_{index}": index for index in range(MAX_ITEMS + 1)},
+        )

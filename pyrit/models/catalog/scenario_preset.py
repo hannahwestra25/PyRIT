@@ -16,11 +16,16 @@ to equal that default. Collapsing the two would silently pin a scenario default 
 the moment a preset was saved and stop it tracking upstream changes.
 """
 
-from typing import Any
-
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from pyrit.models.catalog.scenario import _validate_dataset_filter_mapping
+from pyrit.models.catalog.scenario import (
+    _RequestFilters,
+    _RequestName,
+    _RequestNames,
+    _RequestParams,
+    _RequestTechniques,
+    _validate_dataset_filter_mapping,
+)
 from pyrit.models.identifiers.class_name_utils import validate_registry_name
 
 
@@ -41,17 +46,17 @@ class ScenarioPreset(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(..., description="Unique preset name, used as the storage key and as the reference from scans")
-    scenario_name: str = Field(..., min_length=1, description="Registered scenario this preset configures")
+    scenario_name: _RequestName = Field(..., min_length=1, description="Registered scenario this preset configures")
     description: str | None = Field(None, description="Human-readable summary of what this preset tests")
-    techniques: list[str] | None = Field(None, description="Technique names; None uses the scenario default")
-    dataset_names: list[str] | None = Field(None, description="Dataset names; None uses the scenario default")
+    techniques: _RequestTechniques | None = Field(None, description="Technique names; None uses the scenario default")
+    dataset_names: _RequestNames | None = Field(None, description="Dataset names; None uses the scenario default")
     max_dataset_size: int | None = Field(None, ge=1, description="Maximum selected logical seed groups")
-    dataset_filters: dict[str, list[str]] | None = Field(
+    dataset_filters: _RequestFilters | None = Field(
         None,
         description="Dataset seed filters keyed by field. Accepted keys: harm_categories, data_types.",
     )
     include_baseline: bool | None = Field(None, description="Override the scenario baseline default")
-    scenario_params: dict[str, Any] | None = Field(
+    scenario_params: _RequestParams | None = Field(
         None, description="Scenario-declared parameters such as template names and attempt counts"
     )
 
