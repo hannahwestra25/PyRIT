@@ -106,6 +106,7 @@ class FileDocumentStorage:
     """
 
     LOCK_SUFFIX: str = ".lock"
+    LOCK_BREAKER_SUFFIX: str = ".breaking"
     LOCK_TIMEOUT_SECONDS: float = 10.0
     LOCK_STALE_SECONDS: float = 60.0
     LOCK_POLL_SECONDS: float = 0.05
@@ -446,21 +447,71 @@ class FileDocumentStorage:
         """
         Remove a lock left behind by a writer that died before releasing it.
 
+        The age check and the removal run under a second exclusive file, so only one writer
+        can break a given lock. Without that, two writers seeing the same stale lock would
+        both unlink: the first would take a fresh lock and the second would delete it, and
+        both would proceed to write believing they held it.
+
         Returns:
             bool: Whether a stale lock was removed.
+        """
+        if self._stale_lock_age(lock_path) is None:
+            return False
+        breaker_path = lock_path.with_name(f"{lock_path.name}{self.LOCK_BREAKER_SUFFIX}")
+        try:
+            descriptor = os.open(breaker_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            self._discard_abandoned_breaker(breaker_path)
+            return False
+        except OSError:
+            return False
+        os.close(descriptor)
+        try:
+            # Re-checked while holding the breaker, because the lock seen above may since
+            # have been released and retaken by a writer that is still running.
+            held_seconds = self._stale_lock_age(lock_path)
+            if held_seconds is None:
+                return False
+            try:
+                lock_path.unlink()
+            except OSError:
+                return False
+            logger.warning(
+                f"Removed stale lock {lock_path.name} held for {held_seconds:.0f}s by a writer that stopped."
+            )
+            return True
+        finally:
+            with suppress(OSError):
+                breaker_path.unlink(missing_ok=True)
+
+    def _stale_lock_age(self, lock_path: Path) -> float | None:
+        """
+        Report how long a lock has been held once it is past the stale threshold.
+
+        Returns:
+            float | None: Seconds the lock has been held, or None if it is gone or still fresh.
         """
         try:
             held_seconds = time.time() - lock_path.stat().st_mtime
         except OSError:
-            return False
-        if held_seconds < self.LOCK_STALE_SECONDS:
-            return False
+            return None
+        return held_seconds if held_seconds >= self.LOCK_STALE_SECONDS else None
+
+    def _discard_abandoned_breaker(self, breaker_path: Path) -> None:
+        """
+        Remove a breaker file left behind by a writer that died while breaking a lock.
+
+        Breaking a lock spans a stat and an unlink, so a breaker older than the stale
+        threshold can only be an orphan. Two writers discarding it at once is harmless,
+        since the breaker grants no access on its own and is taken exclusively.
+        """
         try:
-            lock_path.unlink()
+            if time.time() - breaker_path.stat().st_mtime < self.LOCK_STALE_SECONDS:
+                return
         except OSError:
-            return False
-        logger.warning(f"Removed stale lock {lock_path.name} held for {held_seconds:.0f}s by a writer that stopped.")
-        return True
+            return
+        with suppress(OSError):
+            breaker_path.unlink()
 
     @staticmethod
     def _replace_file(*, path: Path, content: bytes) -> None:
