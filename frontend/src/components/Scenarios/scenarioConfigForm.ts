@@ -72,23 +72,20 @@ export function parseDatasetNames(datasetOverride: string): string[] {
     .filter((entry) => entry.length > 0)
 }
 
+/**
+ * The scenario's own declared dataset cap, or `''` when it declares none and when the
+ * scenario sizes itself by prompt generation instead. Read from the scenario's declared
+ * limit rather than counted from the seeds this deployment happens to have loaded, so the
+ * value means the same thing everywhere.
+ */
 export function defaultMaxDatasetSize(scenario: RegisteredScenario): string {
-  const datasets = scenario.default_run_size.datasets
-  if (datasets.length === 0) {
-    return ''
-  }
+  const limit = scenario.default_run_size.dataset_limit
+  return limit.state === 'value' ? String(limit.value) : ''
+}
 
-  for (const dataset of datasets) {
-    if (dataset.configured_caps.length === 0) {
-      return ''
-    }
-  }
-
-  const selectedGroupCount = datasets.reduce(
-    (total, dataset) => total + dataset.selected_seed_group_count,
-    0,
-  )
-  return selectedGroupCount > 0 ? String(selectedGroupCount) : ''
+/** A scenario sized by prompt generation has no dataset cap to set. */
+export function datasetSizeNotApplicable(scenario: RegisteredScenario): boolean {
+  return scenario.default_run_size.dataset_limit.state === 'not_applicable'
 }
 
 export function uniqueTechniqueOptions(scenario: RegisteredScenario): TechniqueOptions {

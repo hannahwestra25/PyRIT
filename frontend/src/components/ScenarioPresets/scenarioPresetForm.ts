@@ -62,9 +62,10 @@ export function unknownPresetTechniques(
 
 /**
  * Starting state for a preset that pins nothing yet. Identical to the launch form's
- * except the dataset cap stays blank: that default is derived from how many seeds
- * *this* deployment happens to have loaded, so prefilling it would pin a local
- * number onto a document meant to be portable.
+ * except the dataset cap stays blank. Unlike the technique and baseline controls, a
+ * number input can represent "unset" directly, so the editor uses blank to mean
+ * "track the scenario" rather than prefilling the default and comparing it back out.
+ * The scenario's own cap is still shown as hint text beneath the field.
  */
 export function initialPresetConfigState(scenario: RegisteredScenario): ScenarioConfigFormState {
   return { ...initialScenarioConfigState(scenario), maxDatasetSize: '' }

@@ -57,6 +57,7 @@ import { ScenarioRunEstimateDetails } from './ScenarioRunEstimate'
 import ScenarioTechniqueSelector from './ScenarioTechniqueSelector'
 import {
   buildScenarioConfig,
+  datasetSizeNotApplicable,
   defaultMaxDatasetSize,
   dynamicScenarioParameters,
   parseDatasetNames,
@@ -82,7 +83,6 @@ function targetOptionLabel(target: TargetInstance): string {
     ? `${target.target_registry_name} (${modelName})`
     : target.target_registry_name
 }
-
 
 
 type LoadStatus = 'loading' | 'success' | 'not-found' | 'error'
@@ -127,18 +127,19 @@ function estimateFromState(state: ScenarioRunEstimateState): ScenarioRunEstimate
 function formatAtomicAttackCount(state: ScenarioRunEstimateState): string {
   const estimate = estimateFromState(state)
   if (!estimate) {
-    return state.status === 'loading' ? 'Calculating...' : 'Unavailable'
+    return state.status === 'loading' ? 'Calculating...' : 'Unknown'
   }
+  const prefix = estimate.approximate ? 'About ' : ''
   if (estimate.total !== null) {
-    return estimate.total.toLocaleString()
+    return `${estimate.approximate ? 'Up to ' : ''}${estimate.total.toLocaleString()}`
   }
   if (estimate.minimum != null && estimate.maximum != null) {
     return estimate.minimum === estimate.maximum
-      ? estimate.minimum.toLocaleString()
-      : `${estimate.minimum.toLocaleString()}-${estimate.maximum.toLocaleString()}`
+      ? `${prefix}${estimate.minimum.toLocaleString()}`
+      : `${prefix}${estimate.minimum.toLocaleString()}-${estimate.maximum.toLocaleString()}`
   }
   if (estimate.minimum != null) {
-    return `At least ${estimate.minimum.toLocaleString()}`
+    return `At least ${prefix.toLowerCase()}${estimate.minimum.toLocaleString()}`
   }
   if (estimate.maximum != null) {
     return `Up to ${estimate.maximum.toLocaleString()}`
@@ -293,6 +294,8 @@ interface ScenarioDetailProps {
   defaultObjectiveTarget: TargetInstance | null
   defaultAdversarialTarget: TargetInstance | null
   labels: Record<string, string>
+  /** False while the current generation's server defaults are still loading. */
+  defaultsReady?: boolean
   onNavigate: (view: ViewName) => void
 }
 
@@ -313,6 +316,7 @@ function ScenarioDetailContent({
   targets,
   defaultObjectiveTarget,
   defaultAdversarialTarget,
+  defaultsReady = false,
   labels,
   onNavigate,
 }: ScenarioDetailContentProps) {
@@ -419,6 +423,7 @@ function ScenarioDetailContent({
       defaultObjectiveTarget={defaultObjectiveTarget}
       defaultAdversarialTarget={defaultAdversarialTarget}
       labels={labels}
+      defaultsReady={defaultsReady}
       onNavigate={onNavigate}
     />
   )
@@ -430,6 +435,8 @@ interface ScenarioLaunchFormProps {
   defaultObjectiveTarget: TargetInstance | null
   defaultAdversarialTarget: TargetInstance | null
   labels: Record<string, string>
+  /** False while the current generation's server defaults are still loading. */
+  defaultsReady?: boolean
   onNavigate: (view: ViewName) => void
 }
 
@@ -439,6 +446,7 @@ function ScenarioLaunchForm({
   defaultObjectiveTarget,
   defaultAdversarialTarget,
   labels,
+  defaultsReady = false,
   onNavigate,
 }: ScenarioLaunchFormProps) {
   const runtime = useRuntime()
@@ -529,6 +537,9 @@ function ScenarioLaunchForm({
     && maxDatasetSize !== configuredDefaultMaxDatasetSize
     ? maxDatasetSize
     : ''
+  const datasetSizeLabel = datasetSizeNotApplicable(scenario)
+    ? 'Not applicable'
+    : maxDatasetSize.trim() || configuredDefaultMaxDatasetSize || 'Scenario default'
   const estimateResult = useMemo(
     () => buildEstimateRequest({
       scenario,
@@ -699,7 +710,7 @@ function ScenarioLaunchForm({
   }
 
   const handleLaunchConfirmed = async (): Promise<void> => {
-    if (isSubmittingRef.current || !runtime.ready || staleSelection || unavailableSelection) {
+    if (isSubmittingRef.current || !runtime.ready || !defaultsReady || staleSelection || unavailableSelection) {
       return
     }
 
@@ -959,9 +970,7 @@ function ScenarioLaunchForm({
                 <div className={styles.costEstimateRow}>
                   <dt>Dataset size</dt>
                   <dd>
-                    {maxDatasetSizeOverride.trim()
-                      || configuredDefaultMaxDatasetSize
-                      || 'Not configured'}
+                    {datasetSizeLabel}
                   </dd>
                 </div>
                 <div className={styles.costEstimateRow}>
@@ -1000,7 +1009,7 @@ function ScenarioLaunchForm({
                 className={styles.launchButton}
                 appearance="primary"
                 type="submit"
-                disabled={!runtime.ready || staleSelection || unavailableSelection || submitting || techniqueSelectionInvalid}
+                disabled={!runtime.ready || !defaultsReady || staleSelection || unavailableSelection || submitting || techniqueSelectionInvalid}
                 data-testid="launch-scenario-btn"
               >
                 Launch scan
@@ -1056,7 +1065,7 @@ function ScenarioLaunchForm({
                           </Text>
                           <Text size={200} className={styles.hint}>
                             {previewDatasets.length > 0 ? 'Custom override' : 'Scenario defaults'}
-                            {maxDatasetSize.trim() ? ` - capped at ${maxDatasetSize.trim()} each` : ''}
+                            {` - dataset size: ${datasetSizeLabel}`}
                           </Text>
                         </div>
                       </dd>
@@ -1120,7 +1129,7 @@ function ScenarioLaunchForm({
                   </Button>
                   <Button
                     appearance="primary"
-                    disabled={submitting}
+                    disabled={submitting || !runtime.ready || !defaultsReady}
                     onClick={() => void handleLaunchConfirmed()}
                     data-testid="confirm-launch-scenario-btn"
                   >

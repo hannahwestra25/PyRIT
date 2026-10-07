@@ -388,6 +388,26 @@ describe('ScenarioPresetEditor edit mode', () => {
     expect(mockUpdate).not.toHaveBeenCalled()
   })
 
+  it('cannot pin a dataset cap on a scenario that sizes itself by prompt generation', async () => {
+    const generativeScenario = makeScenario({
+      default_run_size: {
+        dataset_size: { kind: 'indeterminate', detail: 'Generated at run time.' },
+        dataset_limit: { state: 'not_applicable' },
+        estimated_attack_count: null,
+        components: [],
+        datasets: [],
+        note: null,
+      },
+    })
+    mockGetScenario.mockResolvedValue(generativeScenario)
+    renderEdit()
+
+    expect(await screen.findByTestId('max-dataset-size-input')).toBeDisabled()
+    expect(
+      screen.getByText('This scenario uses prompt-generation limits instead of a dataset size limit.'),
+    ).toBeInTheDocument()
+  })
+
   it('leaves the editor without saving when cancelled', async () => {
     const user = userEvent.setup()
     renderEdit()

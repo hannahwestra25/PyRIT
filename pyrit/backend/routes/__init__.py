@@ -21,6 +21,7 @@ if TYPE_CHECKING:
         media,
         scenario_presets,
         scenarios,
+        scorers,
         targets,
         version,
     )
@@ -35,6 +36,7 @@ _LAZY_EXPORTS: dict[str, str | tuple[str, str | None]] = {
     "media": ("pyrit.backend.routes.media", None),
     "scenario_presets": ("pyrit.backend.routes.scenario_presets", None),
     "scenarios": ("pyrit.backend.routes.scenarios", None),
+    "scorers": ("pyrit.backend.routes.scorers", None),
     "targets": ("pyrit.backend.routes.targets", None),
     "version": ("pyrit.backend.routes.version", None),
 }

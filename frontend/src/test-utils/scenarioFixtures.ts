@@ -33,6 +33,8 @@ export function makeScenario(overrides: Partial<RegisteredScenario> = {}): Regis
     uses_default_adversarial_target: true,
     supported_parameters: [],
     default_run_size: {
+      dataset_size: { kind: 'indeterminate', detail: 'Default sizing is unavailable.' },
+      dataset_limit: { state: 'scenario_default' },
       estimated_attack_count: null,
       components: [],
       datasets: [],

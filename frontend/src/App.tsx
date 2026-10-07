@@ -127,6 +127,7 @@ interface LoadedAttack {
   labels: Record<string, string> | null
   operator: string | null
   target: TargetInfo | null
+  targetUnbound?: boolean
   createdTarget?: TargetInstance
   relatedConversationIds: string[]
   objective: string
@@ -135,6 +136,13 @@ interface LoadedAttack {
   humanScore: BackendScore | null
   lastResponseMessagePieceId: string | null
   status: AttackLoadStatus
+}
+
+interface ServerDefaults {
+  generation: string
+  revision: number
+  labels: Record<string, string>
+  error: string | null
 }
 
 function ConnectionBannerContainer() {
@@ -160,7 +168,7 @@ function ConnectionBannerContainer() {
 }
 
 function AppContent({ operatorAlias }: { operatorAlias: string | null }) {
-  const { generation } = useRuntime()
+  const { generation, ready } = useRuntime()
   const navigate = useNavigate()
   const [isNavigatingToCreatedAttack, startCreatedAttackTransition] = useTransition()
   const location = useLocation()
@@ -212,7 +220,14 @@ function AppContent({ operatorAlias }: { operatorAlias: string | null }) {
     }
   }, [generation])
 
-  const [defaultLabels, setDefaultLabels] = useState<Record<string, string>>(DEFAULT_GLOBAL_LABELS)
+  const [serverDefaults, setServerDefaults] = useState<ServerDefaults | null>(null)
+  const [defaultsRevision, setDefaultsRevision] = useState(0)
+  const defaultLabels = serverDefaults?.labels ?? DEFAULT_GLOBAL_LABELS
+  const defaultsCurrent = serverDefaults !== null
+    && serverDefaults.generation === generation
+    && serverDefaults.revision === defaultsRevision
+  const defaultsError = defaultsCurrent ? serverDefaults.error : null
+  const defaultsReady = defaultsCurrent && !defaultsError
   const globalLabels = useMemo<Record<string, string>>(() => Object.fromEntries(
     Object.entries({
       ...defaultLabels,
@@ -291,32 +306,42 @@ function AppContent({ operatorAlias }: { operatorAlias: string | null }) {
 
   // User choices remain separate, so a late response cannot replace an edit.
   useEffect(() => {
+    if (!ready) return
     let ignore = false
 
-    async function initLabels() {
+    async function initLabels(): Promise<void> {
       try {
         const data = await versionApi.getVersion()
         if (ignore) return
-        setDefaultLabels({ ...DEFAULT_GLOBAL_LABELS, ...data.default_labels })
+        setServerDefaults({
+          generation,
+          revision: defaultsRevision,
+          labels: { ...DEFAULT_GLOBAL_LABELS, ...data.default_labels },
+          error: null,
+        })
         if (data.display || data.version) {
-          if (!ignore) setAppVersion(data.display ?? data.version ?? '')
+          setAppVersion(data.display ?? data.version ?? '')
         }
-      } catch {
-        /* version fetch handled elsewhere */
+      } catch (error: unknown) {
+        if (ignore) return
+        setServerDefaults((previous) => ({
+          generation,
+          revision: defaultsRevision,
+          labels: previous?.labels ?? DEFAULT_GLOBAL_LABELS,
+          error: toApiError(error).detail,
+        }))
       }
-
     }
 
-    initLabels()
+    void initLabels()
     return () => { ignore = true }
-  }, [])
+  }, [generation, ready, defaultsRevision])
 
   // Hydrate loadedAttack from the routed attack id. Depends on routeAttackId
   // ONLY, so switching conversations within an attack never refetches.
   useEffect(() => {
     if (!routeAttackId) {
       // Intentional cleanup of async-sourced state, not a derivable render value.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setLoadedAttack(null)
       validatedConversationForAttack.current = null
       return
@@ -356,6 +381,7 @@ function AppContent({ operatorAlias }: { operatorAlias: string | null }) {
           labels: attack.labels ?? {},
           operator: attack.operator ?? null,
           target: attack.target ?? null,
+          targetUnbound: attack.target_unbound === true,
           relatedConversationIds: attack.related_conversations
             ? attack.related_conversations
                 .filter((reference) => reference.conversation_type === 'pruned')
@@ -415,9 +441,16 @@ function AppContent({ operatorAlias }: { operatorAlias: string | null }) {
     attackTarget: readyAttack?.target ?? null,
     attackTargetSource: readyAttack?.targetSource ?? 'persisted',
     createdTarget: readyAttack?.createdTarget,
+    targetUnbound: readyAttack?.targetUnbound,
     createdTargetGeneration: readyAttack?.targetGeneration,
   })
-  const activeTarget = routeAttackId ? resolvedChatTarget : draftTarget
+  const [unboundTarget, setUnboundTarget] = useState<{ attackId: string; target: TargetReference | null } | null>(null)
+  const selectedUnboundTarget = !registry.loading && !registry.error
+    && unboundTarget?.attackId === routeAttackId && unboundTarget?.target
+    ? resolveTargetReference(unboundTarget.target, registry.targets) : null
+  const activeTarget = targetResolutionStatus === 'unbound'
+    ? selectedUnboundTarget
+    : routeAttackId ? resolvedChatTarget : draftTarget
   const activeConversationId = readyAttack
     ? routeConversationId ?? readyAttack.mainConversationId
     : null
@@ -456,11 +489,11 @@ function AppContent({ operatorAlias }: { operatorAlias: string | null }) {
     arId: string,
     convId: string,
     objective?: string,
-    selectedTarget?: TargetInstance,
+    selectedTarget?: TargetInstance | null,
   ) => {
     // Seed the freshly-created attack synchronously and tell the loader to skip
     // its next fetch for this id, so the attack opens without a redundant load.
-    const createdTarget = selectedTarget ?? activeTarget
+    const createdTarget = selectedTarget === undefined ? activeTarget : selectedTarget
     const target: TargetInfo | null = createdTarget
       ? {
           target_type: targetType(createdTarget),
@@ -483,6 +516,7 @@ function AppContent({ operatorAlias }: { operatorAlias: string | null }) {
       labels: null,
       operator: null,
       target,
+      targetUnbound: createdTarget === null,
       createdTarget: createdTarget ?? undefined,
       relatedConversationIds: [],
       objective: objective ?? '',
@@ -513,6 +547,12 @@ function AppContent({ operatorAlias }: { operatorAlias: string | null }) {
       current && current.id === attack.attack_result_id
         ? {
             ...current,
+            target: attack.target ?? null,
+            targetUnbound: attack.target_unbound === true,
+            targetSource: 'persisted',
+            relatedConversationIds: (attack.related_conversations ?? [])
+              .filter((reference) => reference.conversation_type === 'pruned')
+              .map((reference) => reference.conversation_id),
             objective: attack.objective ?? '',
             outcome: attack.outcome ?? 'undetermined',
             automatedScore: attack.automated_score ?? null,
@@ -558,9 +598,12 @@ function AppContent({ operatorAlias }: { operatorAlias: string | null }) {
       targetsLoading={registry.loading}
       targetsError={registry.error}
       onRefreshTargets={registry.refresh}
-      onSelectTarget={(target: TargetInstance | null) => setDraftSession((current) => ({
-        ...current, target: target ? targetReference(target) : null,
-      }))}
+      onSelectTarget={(target: TargetInstance | null) => {
+        if (readyAttack?.targetUnbound) {
+          setUnboundTarget({ attackId: readyAttack.id, target: target ? targetReference(target) : null })
+        }
+        else setDraftSession((current) => ({ ...current, target: target ? targetReference(target) : null }))
+      }}
       defaultBranchTarget={targetDefaults.objectiveTarget}
       attackResultId={readyAttack ? readyAttack.id : null}
       conversationId={readyAttack ? readyAttack.mainConversationId : null}
@@ -571,6 +614,7 @@ function AppContent({ operatorAlias }: { operatorAlias: string | null }) {
       onHumanScoreChange={handleHumanScoreChange}
       onAttackChange={handleAttackChange}
       labels={globalLabels}
+      defaultsReady={defaultsReady}
       onNavigate={handleNavigate}
       attackOperator={readyAttack ? readyAttack.operator : null}
       attackTarget={readyAttack ? readyAttack.target : null}
@@ -614,6 +658,21 @@ function AppContent({ operatorAlias }: { operatorAlias: string | null }) {
             operatorReadOnly={Boolean(operatorAlias)}
             toolbarRef={setChatToolbarContainer}
           >
+            {ready && !defaultsReady && (
+              <MessageBar intent={defaultsError ? 'error' : 'info'}>
+                <MessageBarBody>
+                  {defaultsError
+                    ? `Could not load default labels. ${defaultsError}`
+                    : 'Loading default labels.'}
+                  {' '}New attacks and scans are unavailable until default labels are loaded.
+                  {defaultsError && (
+                    <Button onClick={() => setDefaultsRevision((revision: number) => revision + 1)}>
+                      Retry default labels
+                    </Button>
+                  )}
+                </MessageBarBody>
+              </MessageBar>
+            )}
             {preferenceError && (
               <MessageBar intent="warning">
                 <MessageBarBody>{preferenceError}</MessageBarBody>
@@ -704,6 +763,7 @@ function AppContent({ operatorAlias }: { operatorAlias: string | null }) {
                     defaultObjectiveTarget={targetDefaults.objectiveTarget}
                     defaultAdversarialTarget={targetDefaults.adversarialTarget}
                     labels={globalLabels}
+                    defaultsReady={defaultsReady}
                     onNavigate={handleNavigate}
                   />
                 }

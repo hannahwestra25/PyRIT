@@ -3,6 +3,7 @@ import { Field, Input } from '@fluentui/react-components'
 import type { RegisteredScenario } from '@/types'
 
 import { useScenarioDatasetFieldsStyles } from './ScenarioDatasetFields.styles'
+import { datasetSizeNotApplicable } from './scenarioConfigForm'
 
 interface ScenarioDatasetFieldsProps {
   scenario: RegisteredScenario
@@ -34,6 +35,7 @@ export default function ScenarioDatasetFields({
   onDataTypesFilterChange,
 }: ScenarioDatasetFieldsProps) {
   const styles = useScenarioDatasetFieldsStyles()
+  const notApplicable = datasetSizeNotApplicable(scenario)
 
   return (
     <>
@@ -52,16 +54,18 @@ export default function ScenarioDatasetFields({
       </Field>
       <Field
         label="Max dataset size"
-        hint={configuredDefaultMaxDatasetSize
+        hint={notApplicable
+          ? 'This scenario uses prompt-generation limits instead of a dataset size limit.'
+          : configuredDefaultMaxDatasetSize
           ? `The scenario default is ${configuredDefaultMaxDatasetSize}. Edit it to override the default.`
-          : 'Enter a positive integer to limit the selected dataset size.'}
+          : 'Enter a positive integer to limit the selected dataset size. Leave empty to use scenario defaults.'}
       >
         <Input
           className={styles.numberInput}
           type="number"
           min={1}
           value={maxDatasetSize}
-          disabled={disabled}
+          disabled={disabled || notApplicable}
           onChange={(_, data) => onMaxDatasetSizeChange(data.value)}
           data-testid="max-dataset-size-input"
         />

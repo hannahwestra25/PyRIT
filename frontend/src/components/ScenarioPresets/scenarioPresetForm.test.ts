@@ -1,4 +1,8 @@
-import { buildScenarioConfig, initialScenarioConfigState } from '@/components/Scenarios/scenarioConfigForm'
+import {
+  buildScenarioConfig,
+  defaultMaxDatasetSize,
+  initialScenarioConfigState,
+} from '@/components/Scenarios/scenarioConfigForm'
 import { makeScenario } from '@/test-utils/scenarioFixtures'
 import type { Parameter, ScenarioPreset } from '@/types'
 
@@ -23,6 +27,8 @@ function makePreset(overrides: Partial<ScenarioPreset> = {}): ScenarioPreset {
 function makeCappedScenario() {
   return makeScenario({
     default_run_size: {
+      dataset_size: { kind: 'bounded', value: 40 },
+      dataset_limit: { state: 'value', value: 40 },
       estimated_attack_count: 40,
       components: [],
       datasets: [{
@@ -39,7 +45,6 @@ function makeCappedScenario() {
 }
 
 const IDENTITY = { name: 'nightly_probe', scenarioName: 'foundry.red_team_agent', description: '' }
-
 const ITERATION_PARAMETER: Parameter = {
   name: 'max_turns',
   type_name: 'int',
@@ -102,8 +107,33 @@ describe('unknownPresetTechniques', () => {
   })
 })
 
+describe('defaultMaxDatasetSize', () => {
+  it('reads the cap the scenario declares rather than counting loaded seeds', () => {
+    expect(defaultMaxDatasetSize(makeCappedScenario())).toBe('40')
+  })
+
+  it('offers no default when the scenario sizes itself by prompt generation', () => {
+    const scenario = makeScenario({
+      default_run_size: {
+        dataset_size: { kind: 'indeterminate', detail: 'Generated at run time.' },
+        dataset_limit: { state: 'not_applicable' },
+        estimated_attack_count: null,
+        components: [],
+        datasets: [],
+        note: null,
+      },
+    })
+
+    expect(defaultMaxDatasetSize(scenario)).toBe('')
+  })
+
+  it('offers no default when the scenario declares none', () => {
+    expect(defaultMaxDatasetSize(makeScenario())).toBe('')
+  })
+})
+
 describe('initialPresetConfigState', () => {
-  it('leaves the dataset cap blank where the launch form prefills the deployment-derived default', () => {
+  it('leaves the dataset cap blank where the launch form prefills the scenario default', () => {
     const scenario = makeCappedScenario()
 
     expect(initialScenarioConfigState(scenario).maxDatasetSize).toBe('40')
