@@ -157,6 +157,20 @@ function matchesDefault(value: unknown, fallback: unknown): boolean {
   return JSON.stringify(value) === JSON.stringify(fallback)
 }
 
+/**
+ * Compares technique selections as sets, because the two sides are ordered differently:
+ * the selector appends in click order while the scenario lists its defaults in registry
+ * order, and the backend resolves either through a set. A structural compare would treat
+ * a reorder as an edit and pin the whole default list, costing the preset its tracking.
+ */
+function matchesTechniques(value: string[], fallback: string[]): boolean {
+  if (value.length !== fallback.length) {
+    return false
+  }
+  const sortedFallback = [...fallback].sort()
+  return [...value].sort().every((name, index) => name === sortedFallback[index])
+}
+
 function presetScenarioParams(
   config: ScenarioConfigFields,
   { scenario, previous }: PresetWriteContext,
@@ -192,7 +206,7 @@ export function configToPreset(
   if (trimmedDescription.length > 0) {
     preset.description = trimmedDescription
   }
-  if (previous?.techniques != null || !matchesDefault(config.techniques, defaults.techniques)) {
+  if (previous?.techniques != null || !matchesTechniques(config.techniques, defaults.techniques)) {
     preset.techniques = config.techniques
   }
   // A forbidden baseline renders the checkbox disabled and forced off, so the form value

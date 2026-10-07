@@ -338,6 +338,34 @@ describe('configToPreset', () => {
     expect(roundTripped.include_baseline).toBe(true)
   })
 
+  it('pins nothing when the default techniques come back in a different order', () => {
+    const scenario = makeScenario({
+      all_techniques: ['default_technique', 'crescendo'],
+      default_techniques: ['default_technique', 'crescendo'],
+    })
+    const preset = configToPreset(
+      IDENTITY,
+      buildConfig({ techniques: ['crescendo', 'default_technique'], includeBaseline: true }),
+      { scenario, previous: null },
+    )
+
+    expect(preset).toEqual({ name: IDENTITY.name, scenario_name: IDENTITY.scenarioName })
+  })
+
+  it('still pins techniques when the selection swaps a member rather than reordering', () => {
+    const scenario = makeScenario({
+      all_techniques: ['default_technique', 'crescendo', 'flip'],
+      default_techniques: ['default_technique', 'crescendo'],
+    })
+    const preset = configToPreset(
+      IDENTITY,
+      buildConfig({ techniques: ['crescendo', 'flip'], includeBaseline: true }),
+      { scenario, previous: null },
+    )
+
+    expect(preset.techniques).toEqual(['crescendo', 'flip'])
+  })
+
   it('preserves a stored baseline pin the forbidden policy hides from the form', () => {
     const scenario = makeScenario({ baseline_policy: 'forbidden' })
     const original = makePreset({ include_baseline: true })
