@@ -223,14 +223,14 @@ class TargetService:
         reference resolution, and construction are owned by the
         ``TargetRegistry``. Endpoint trust and identity token minting are owned
         by the target classes themselves. This service only enforces the
-        request-level auth contract: for ``identity`` it confirms the target
-        supports it and omits the api_key plus any registry-flagged
-        identity-conflicting parameters so the target validates its own
-        endpoint and authenticates itself. The selected mode is also passed
-        explicitly to targets that accept it, via
-        ``get_auth_mode_parameters``, so the choice is explicit rather than
-        inferred from a missing key. The response is built before the
-        target is registered, so a failed request leaves no registered target.
+        request-level auth contract: it rejects an ``auth_mode`` smuggled through
+        ``params``, and for ``identity`` it confirms the target supports it and
+        omits the api_key plus any registry-flagged identity-conflicting
+        parameters so the target validates its own endpoint and authenticates
+        itself. The request-level ``auth_mode`` is authoritative and is forwarded
+        via ``get_auth_mode_parameters`` to targets that accept it, so the choice
+        is explicit rather than inferred from a missing key. The response is built
+        before the target is registered, so a failed request leaves no registered target.
 
         Args:
             request: The create target request with type, params, and auth_mode.
@@ -239,8 +239,9 @@ class TargetService:
             TargetInstance with the new target's details.
 
         Raises:
-            ValueError: If the target type is not registered or identity auth is
-                requested but unsupported by the target type. Construction errors
+            ValueError: If the target type is not registered, ``params`` carries an
+                ``auth_mode`` that conflicts with the request-level choice, or identity
+                auth is requested but unsupported by the target type. Construction errors
                 (unknown params, incompatible inner targets, unrecognized identity
                 endpoints) are raised by the registry / target classes.
         """
@@ -251,6 +252,15 @@ class TargetService:
 
         target_cls = self._registry.get_class(request.type)
         params: dict[str, Any] = dict(request.params)
+
+        # auth_mode is also a constructor parameter, so the registry would otherwise accept it
+        # inside params as a second, competing channel that bypasses the checks below.
+        params_auth_mode = params.get(_AUTH_MODE_PARAM)
+        if params_auth_mode is not None and params_auth_mode != request.auth_mode:
+            raise ValueError(
+                f"Conflicting authentication modes: request auth_mode is '{request.auth_mode}' but "
+                f"params['{_AUTH_MODE_PARAM}'] is '{params_auth_mode}'. Set the request-level auth_mode only."
+            )
 
         if request.auth_mode == "identity":
             if "identity" not in target_cls.supported_auth_modes:
@@ -266,6 +276,7 @@ class TargetService:
                 for parameter in metadata.parameters:
                     if parameter.identity_conflicting:
                         params.pop(parameter.name, None)
+
         params.update(target_cls.get_auth_mode_parameters(auth_mode=request.auth_mode))
 
         # LEGACY COMPATIBILITY: The current configuration UI omits the name.
