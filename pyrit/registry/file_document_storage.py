@@ -5,9 +5,11 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import tempfile
+import time
 from contextlib import contextmanager, suppress
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING
@@ -22,6 +24,38 @@ if TYPE_CHECKING:
     from azure.storage.blob import ContainerClient
 
 logger = logging.getLogger(__name__)
+
+
+class DocumentConflictError(ValueError):
+    """A stored document changed after the caller read it."""
+
+    def __init__(
+        self,
+        *,
+        name: str,
+        expected_version: str | None,
+        actual_version: str | None,
+        label: str = "Document",
+    ) -> None:
+        """
+        Initialize the error with the versions that failed to match.
+
+        Args:
+            name (str): The document name the write addressed.
+            expected_version (str | None): The version the caller believed was stored.
+            actual_version (str | None): The version storage actually held.
+            label (str): Human-readable noun for the stored document. Defaults to "Document".
+        """
+        self.name = name
+        self.expected_version = expected_version
+        self.actual_version = actual_version
+        if actual_version is None:
+            detail = "it no longer exists"
+        elif expected_version is None:
+            detail = "it already exists"
+        else:
+            detail = "it was changed by someone else"
+        super().__init__(f"{label} '{name}' could not be saved because {detail}. Reload it and reapply.")
 
 
 class FileDocumentStorage:
@@ -50,9 +84,31 @@ class FileDocumentStorage:
     Local writes stage the content beside the destination and move it into place, so an
     interrupted write leaves the previous document intact rather than truncating it.
 
+    Conditional writes go through ``_save_document_conditional``, which refuses a write
+    whose stored state no longer matches the version the caller read. Atomic replacement
+    and conditional writing solve different problems: replacement stops a reader seeing a
+    half-written document, while the version check stops a second writer silently
+    discarding the first writer's edit. Each backend enforces the check with its own
+    primitive, so the comparison and the write cannot be separated by another writer:
+
+    - Blob creates upload with ``overwrite=False`` and updates send the ETag read moments
+      earlier as an ``If-Match`` precondition, both evaluated by the service.
+    - Local writes hold an exclusive lock file for the whole read-compare-replace
+      sequence, which serializes every writer that goes through this class, including
+      ones in other processes.
+
+    The local guarantee is cooperative: it binds writers using this class, not someone
+    editing the file directly. That case is covered instead by the version itself, which
+    hashes stored bytes and so changes under any edit, whoever made it.
+
     Subclasses supply the extension and a human-readable label for error messages,
     then expose a domain-specific API over the protected document operations.
     """
+
+    LOCK_SUFFIX: str = ".lock"
+    LOCK_TIMEOUT_SECONDS: float = 10.0
+    LOCK_STALE_SECONDS: float = 60.0
+    LOCK_POLL_SECONDS: float = 0.05
 
     def __init__(self, *, source: str, extension: str, source_label: str) -> None:
         """
@@ -70,6 +126,7 @@ class FileDocumentStorage:
         """
         self._source = source
         self._extension = extension
+        self._source_label = source_label
         self._is_blob = is_azure_blob_uri(source)
         if not self._is_blob and urlparse(source).scheme and not Path(source).drive:
             raise ValueError(
@@ -185,6 +242,225 @@ class FileDocumentStorage:
         else:
             directory = self._local_directory(create=True)
             self._replace_file(path=directory / f"{name}{self._extension}", content=content)
+
+    @staticmethod
+    def _compute_version(content: bytes) -> str:
+        """
+        Create an opaque version token from stored document content.
+
+        The token hashes the stored bytes rather than recording writes made through this
+        class, so an edit made by hand or by another tool invalidates it too.
+
+        Returns:
+            str: The document-state version token.
+        """
+        return hashlib.sha256(content).hexdigest()
+
+    def _conflict_error(
+        self, *, name: str, expected_version: str | None, actual_version: str | None
+    ) -> DocumentConflictError:
+        """
+        Build the error raised when a conditional write is refused.
+
+        Subclasses override this to surface a domain-specific error type without
+        reimplementing the comparison that detects the conflict.
+
+        Returns:
+            DocumentConflictError: The error describing the version mismatch.
+        """
+        return DocumentConflictError(
+            name=name,
+            expected_version=expected_version,
+            actual_version=actual_version,
+            label=self._source_label,
+        )
+
+    def _save_document_conditional(self, *, name: str, content: bytes, expected_version: str | None) -> str:
+        """
+        Persist one document only while storage still holds *expected_version*.
+
+        Args:
+            name (str): The document name to write.
+            content (bytes): The content to store.
+            expected_version (str | None): ``None`` to create a document that must not
+                already exist, or the version read before the content was edited.
+
+        Returns:
+            str: The version token for the newly stored content.
+
+        Raises:
+            DocumentConflictError: If the stored version does not match *expected_version*.
+            ValueError: If *name* is not a legal registry name.
+            TimeoutError: If a local write could not acquire the document lock.
+        """
+        validate_registry_name(name)
+        if self._is_blob:
+            return self._save_blob_conditional(name=name, content=content, expected_version=expected_version)
+        return self._save_local_conditional(name=name, content=content, expected_version=expected_version)
+
+    def _save_local_conditional(self, *, name: str, content: bytes, expected_version: str | None) -> str:
+        """
+        Write a local document while holding the lock that covers its version check.
+
+        Returns:
+            str: The version token for the newly stored content.
+
+        Raises:
+            DocumentConflictError: If the stored version does not match *expected_version*.
+            TimeoutError: If the document lock could not be acquired.
+        """
+        path = self._local_directory(create=True) / f"{name}{self._extension}"
+        with self._local_document_lock(path):
+            stored = path.read_bytes() if path.is_file() else None
+            actual_version = None if stored is None else self._compute_version(stored)
+            if actual_version != expected_version:
+                raise self._conflict_error(name=name, expected_version=expected_version, actual_version=actual_version)
+            self._replace_file(path=path, content=content)
+        return self._compute_version(content)
+
+    def _save_blob_conditional(self, *, name: str, content: bytes, expected_version: str | None) -> str:
+        """
+        Write a blob behind a precondition the service evaluates, not an unconditional overwrite.
+
+        Returns:
+            str: The version token for the newly stored content.
+
+        Raises:
+            DocumentConflictError: If the stored version does not match *expected_version*.
+        """
+        from azure.core import MatchConditions
+        from azure.core.exceptions import ResourceExistsError, ResourceModifiedError, ResourceNotFoundError
+
+        blob_name = self._get_blob_name(name)
+        with self._open_container_client() as client:
+            try:
+                if expected_version is None:
+                    client.upload_blob(name=blob_name, data=content, overwrite=False)
+                else:
+                    etag = self._read_unmodified_blob_etag(
+                        client=client, blob_name=blob_name, name=name, expected_version=expected_version
+                    )
+                    client.upload_blob(
+                        name=blob_name,
+                        data=content,
+                        overwrite=True,
+                        etag=etag,
+                        match_condition=MatchConditions.IfNotModified,
+                    )
+            except (ResourceExistsError, ResourceModifiedError, ResourceNotFoundError):
+                raise self._conflict_error(
+                    name=name,
+                    expected_version=expected_version,
+                    actual_version=self._read_blob_version(client=client, blob_name=blob_name),
+                ) from None
+        return self._compute_version(content)
+
+    def _read_unmodified_blob_etag(
+        self, *, client: ContainerClient, blob_name: str, name: str, expected_version: str
+    ) -> str:
+        """
+        Read the ETag of a blob that still holds *expected_version*.
+
+        The ETag is only a race guard: the version the caller holds is compared first, so
+        the public token stays the content hash on both backends.
+
+        Returns:
+            str: The ETag to send as the write precondition.
+
+        Raises:
+            DocumentConflictError: If the blob is absent or no longer holds that version.
+        """
+        from azure.core.exceptions import ResourceNotFoundError
+
+        try:
+            downloader = client.download_blob(blob_name)
+        except ResourceNotFoundError:
+            raise self._conflict_error(name=name, expected_version=expected_version, actual_version=None) from None
+        actual_version = self._compute_version(downloader.readall())
+        if actual_version != expected_version:
+            raise self._conflict_error(name=name, expected_version=expected_version, actual_version=actual_version)
+        return downloader.properties.etag
+
+    def _read_blob_version(self, *, client: ContainerClient, blob_name: str) -> str | None:
+        """
+        Read the stored version of one blob.
+
+        Returns:
+            str | None: The version token, or ``None`` if the blob does not exist.
+        """
+        from azure.core.exceptions import ResourceNotFoundError
+
+        try:
+            return self._compute_version(client.download_blob(blob_name).readall())
+        except ResourceNotFoundError:
+            return None
+
+    @contextmanager
+    def _local_document_lock(self, path: Path) -> Generator[None, None, None]:
+        """
+        Hold an exclusive lock covering one document for the duration of the block.
+
+        The lock is a sibling file created exclusively, so it excludes writers in other
+        processes as well as other threads. It does not carry the document extension, so
+        listing never sees it.
+
+        Yields:
+            None: Control while the lock is held.
+
+        Raises:
+            TimeoutError: If the lock could not be acquired.
+        """
+        lock_path = path.with_name(f".{path.name}{self.LOCK_SUFFIX}")
+        self._acquire_document_lock(lock_path)
+        try:
+            yield
+        finally:
+            with suppress(OSError):
+                lock_path.unlink(missing_ok=True)
+
+    def _acquire_document_lock(self, lock_path: Path) -> None:
+        """
+        Create the lock file, waiting for whoever holds it to release it.
+
+        Raises:
+            TimeoutError: If the lock is still held when the wait budget runs out.
+        """
+        deadline = time.monotonic() + self.LOCK_TIMEOUT_SECONDS
+        while True:
+            try:
+                descriptor = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            except FileExistsError:
+                if self._clear_stale_lock(lock_path):
+                    continue
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(
+                        f"Timed out waiting to write '{lock_path.name}'; another writer still holds it."
+                    ) from None
+                time.sleep(self.LOCK_POLL_SECONDS)
+                continue
+            with os.fdopen(descriptor, "w") as lock_file:
+                lock_file.write(str(os.getpid()))
+            return
+
+    def _clear_stale_lock(self, lock_path: Path) -> bool:
+        """
+        Remove a lock left behind by a writer that died before releasing it.
+
+        Returns:
+            bool: Whether a stale lock was removed.
+        """
+        try:
+            held_seconds = time.time() - lock_path.stat().st_mtime
+        except OSError:
+            return False
+        if held_seconds < self.LOCK_STALE_SECONDS:
+            return False
+        try:
+            lock_path.unlink()
+        except OSError:
+            return False
+        logger.warning(f"Removed stale lock {lock_path.name} held for {held_seconds:.0f}s by a writer that stopped.")
+        return True
 
     @staticmethod
     def _replace_file(*, path: Path, content: bytes) -> None:

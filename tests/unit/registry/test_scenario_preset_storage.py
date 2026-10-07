@@ -6,6 +6,7 @@
 import hashlib
 import json
 import os
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -524,3 +525,162 @@ def test_blob_listing_does_not_download_a_name_it_would_refuse() -> None:
 
     assert sorted(presets) == ["nightly"]
     assert [call.args[0] for call in client.download_blob.call_args_list] == ["nightly.json"]
+
+
+def test_a_second_writer_cannot_enter_while_a_save_is_in_flight(tmp_path: Path) -> None:
+    """Test that the version check and the write cannot be separated by a competing writer."""
+    storage = ScenarioPresetStorage(source=str(tmp_path))
+    first = storage.save_preset(preset=_make_preset(description="first"), expected_version=None)
+    competitor = ScenarioPresetStorage(source=str(tmp_path))
+    refusals: list[str] = []
+    real_replace_file = ScenarioPresetStorage._replace_file
+
+    def replace_once_a_competitor_has_tried(*, path: Path, content: bytes) -> None:
+        with pytest.raises(TimeoutError) as error:
+            competitor.save_preset(preset=_make_preset(description="racer"), expected_version=first.version)
+        refusals.append(str(error.value))
+        real_replace_file(path=path, content=content)
+
+    with patch.object(ScenarioPresetStorage, "LOCK_TIMEOUT_SECONDS", 0.1):
+        with patch.object(ScenarioPresetStorage, "_replace_file", staticmethod(replace_once_a_competitor_has_tried)):
+            storage.save_preset(preset=_make_preset(description="second"), expected_version=first.version)
+
+    assert len(refusals) == 1
+    loaded = storage.load_preset("nightly")
+    assert loaded is not None
+    assert loaded.preset.description == "second"
+
+
+def test_a_completed_save_releases_its_lock(tmp_path: Path) -> None:
+    """Test that a save leaves nothing behind that would block the next writer."""
+    storage = ScenarioPresetStorage(source=str(tmp_path))
+
+    storage.save_preset(preset=_make_preset(), expected_version=None)
+
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["nightly.json"]
+
+
+def test_a_lock_held_by_a_live_writer_is_respected(tmp_path: Path) -> None:
+    """Test that a lock younger than the stale window is waited for rather than stolen."""
+    storage = ScenarioPresetStorage(source=str(tmp_path))
+    held_lock = tmp_path / ".nightly.json.lock"
+    held_lock.write_text("4242", encoding="utf-8")
+
+    with patch.object(ScenarioPresetStorage, "LOCK_TIMEOUT_SECONDS", 0.1):
+        with pytest.raises(TimeoutError, match="nightly.json.lock"):
+            storage.save_preset(preset=_make_preset(), expected_version=None)
+
+    assert held_lock.read_text(encoding="utf-8") == "4242"
+    assert storage.load_preset("nightly") is None
+
+
+def test_a_lock_left_by_a_dead_writer_is_reclaimed(tmp_path: Path) -> None:
+    """Test that a writer that died holding the lock does not make a preset permanently unwritable."""
+    storage = ScenarioPresetStorage(source=str(tmp_path))
+    first = storage.save_preset(preset=_make_preset(description="first"), expected_version=None)
+    abandoned_lock = tmp_path / ".nightly.json.lock"
+    abandoned_lock.write_text("4242", encoding="utf-8")
+    abandoned = time.time() - (ScenarioPresetStorage.LOCK_STALE_SECONDS + 60)
+    os.utime(abandoned_lock, (abandoned, abandoned))
+
+    saved = storage.save_preset(preset=_make_preset(description="second"), expected_version=first.version)
+
+    assert saved.preset.description == "second"
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["nightly.json"]
+
+
+def test_lock_files_are_not_listed_as_presets(tmp_path: Path) -> None:
+    """Test that the lock taken during a write can never be read back as a stored preset."""
+    storage = ScenarioPresetStorage(source=str(tmp_path))
+    storage.save_preset(preset=_make_preset(), expected_version=None)
+    (tmp_path / ".nightly.json.lock").write_text("4242", encoding="utf-8")
+
+    assert sorted(storage.list_presets()) == ["nightly"]
+
+
+def test_blob_update_is_conditional_on_the_version_that_was_read() -> None:
+    """Test that a blob update asks the service to reject a write over content that moved."""
+    from azure.core import MatchConditions
+
+    document = json.dumps({"scenario_name": "foundry.red_team_agent"}).encode("utf-8")
+    client = MagicMock()
+    client.__enter__.return_value = client
+    client.download_blob.return_value.readall.return_value = document
+    client.download_blob.return_value.properties.etag = '"0x8DCAFE"'
+    storage = ScenarioPresetStorage(source="https://account.blob.core.windows.net/presets?sig=secret")
+
+    with patch("azure.storage.blob.ContainerClient.from_container_url", return_value=client):
+        storage.save_preset(
+            preset=_make_preset(description="updated"),
+            expected_version=hashlib.sha256(document).hexdigest(),
+        )
+
+    assert client.upload_blob.call_args.kwargs["etag"] == '"0x8DCAFE"'
+    assert client.upload_blob.call_args.kwargs["match_condition"] is MatchConditions.IfNotModified
+
+
+def test_blob_create_refuses_to_overwrite_a_document_another_writer_just_created() -> None:
+    """Test that a container create cannot clobber a preset that appeared after the check."""
+    from azure.core.exceptions import ResourceExistsError
+
+    document = json.dumps({"scenario_name": "foundry.red_team_agent"}).encode("utf-8")
+    client = MagicMock()
+    client.__enter__.return_value = client
+    client.upload_blob.side_effect = ResourceExistsError("exists")
+    client.download_blob.return_value.readall.return_value = document
+    storage = ScenarioPresetStorage(source="https://account.blob.core.windows.net/presets?sig=secret")
+
+    with patch("azure.storage.blob.ContainerClient.from_container_url", return_value=client):
+        with pytest.raises(ScenarioPresetConflictError, match="it already exists") as error:
+            storage.save_preset(preset=_make_preset(), expected_version=None)
+
+    assert client.upload_blob.call_args.kwargs["overwrite"] is False
+    assert error.value.actual_version == hashlib.sha256(document).hexdigest()
+
+
+def test_blob_update_rejected_by_the_service_is_reported_as_a_conflict() -> None:
+    """Test that losing the precondition race surfaces as a conflict, not a raw Azure error."""
+    from azure.core.exceptions import ResourceModifiedError
+
+    document = json.dumps({"scenario_name": "foundry.red_team_agent"}).encode("utf-8")
+    client = MagicMock()
+    client.__enter__.return_value = client
+    client.download_blob.return_value.readall.return_value = document
+    client.upload_blob.side_effect = ResourceModifiedError("changed")
+    storage = ScenarioPresetStorage(source="https://account.blob.core.windows.net/presets?sig=secret")
+
+    with patch("azure.storage.blob.ContainerClient.from_container_url", return_value=client):
+        with pytest.raises(ScenarioPresetConflictError, match="changed by someone else"):
+            storage.save_preset(preset=_make_preset(), expected_version=hashlib.sha256(document).hexdigest())
+
+
+def test_blob_update_of_changed_content_never_reaches_upload() -> None:
+    """Test that a stale container update is refused before any write is attempted."""
+    document = json.dumps({"scenario_name": "foundry.red_team_agent"}).encode("utf-8")
+    client = MagicMock()
+    client.__enter__.return_value = client
+    client.download_blob.return_value.readall.return_value = document
+    storage = ScenarioPresetStorage(source="https://account.blob.core.windows.net/presets?sig=secret")
+
+    with patch("azure.storage.blob.ContainerClient.from_container_url", return_value=client):
+        with pytest.raises(ScenarioPresetConflictError, match="changed by someone else"):
+            storage.save_preset(preset=_make_preset(), expected_version="stale_version")
+
+    client.upload_blob.assert_not_called()
+
+
+def test_blob_update_of_a_deleted_document_is_a_conflict() -> None:
+    """Test that updating a blob someone else removed reports the deletion instead of recreating it."""
+    from azure.core.exceptions import ResourceNotFoundError
+
+    client = MagicMock()
+    client.__enter__.return_value = client
+    client.download_blob.side_effect = ResourceNotFoundError("missing")
+    storage = ScenarioPresetStorage(source="https://account.blob.core.windows.net/presets?sig=secret")
+
+    with patch("azure.storage.blob.ContainerClient.from_container_url", return_value=client):
+        with pytest.raises(ScenarioPresetConflictError, match="no longer exists") as error:
+            storage.save_preset(preset=_make_preset(), expected_version="some_version")
+
+    assert error.value.actual_version is None
+    client.upload_blob.assert_not_called()

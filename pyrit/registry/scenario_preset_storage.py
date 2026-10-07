@@ -5,13 +5,12 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 from typing import TYPE_CHECKING
 
 from pyrit.models.catalog.scenario_preset import ScenarioPreset, StoredPreset
-from pyrit.registry.file_document_storage import FileDocumentStorage
+from pyrit.registry.file_document_storage import DocumentConflictError, FileDocumentStorage
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -19,31 +18,17 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class ScenarioPresetConflictError(ValueError):
+class ScenarioPresetConflictError(DocumentConflictError):
     """A stored preset changed after the caller read it."""
 
     def __init__(self, *, name: str, expected_version: str | None, actual_version: str | None) -> None:
         """Initialize the error with the versions that failed to match."""
-        self.name = name
-        self.expected_version = expected_version
-        self.actual_version = actual_version
-        if actual_version is None:
-            detail = "it no longer exists"
-        elif expected_version is None:
-            detail = "it already exists"
-        else:
-            detail = "it was changed by someone else"
-        super().__init__(f"Scenario preset '{name}' could not be saved because {detail}. Reload it and reapply.")
-
-
-def _document_version(content: bytes) -> str:
-    """
-    Create an opaque version token from stored document content.
-
-    Returns:
-        str: The document-state version token.
-    """
-    return hashlib.sha256(content).hexdigest()
+        super().__init__(
+            name=name,
+            expected_version=expected_version,
+            actual_version=actual_version,
+            label="Scenario preset",
+        )
 
 
 class ScenarioPresetStorage(FileDocumentStorage):
@@ -55,15 +40,9 @@ class ScenarioPresetStorage(FileDocumentStorage):
     process; a cache would serve edits those callers can no longer see.
 
     Writes are guarded by an optimistic-concurrency check. A caller supplies the version
-    it read, and the save is refused unless storage still holds that version. The token
-    is a hash of the stored bytes, so it also catches a file edited by hand or by another
-    process rather than only writes made through this class.
-
-    The check is read-then-write rather than a true compare-and-swap, so two saves racing
-    within the same instant can both observe the same version and the later write wins.
-    It is aimed at the realistic case - a person editing a copy that went stale minutes
-    ago - not at concurrent writers. Closing that gap needs backend-specific conditional
-    writes (blob ETags have no local-filesystem equivalent) and is deliberately deferred.
+    it read, and the save is refused unless storage still holds that version. Enforcing
+    that check without a window for a second writer to slip through is the shared
+    storage layer's job, so this class only serializes, validates, and names documents.
     """
 
     def __init__(self, *, source: str | None = None) -> None:
@@ -124,7 +103,7 @@ class ScenarioPresetStorage(FileDocumentStorage):
         for name, content in self._list_documents().items():
             preset = self._parse_preset(name=name, content=content)
             if preset is not None:
-                presets[preset.name] = StoredPreset(preset=preset, version=_document_version(content))
+                presets[preset.name] = StoredPreset(preset=preset, version=self._compute_version(content))
         return presets
 
     def load_preset(self, name: str) -> StoredPreset | None:
@@ -144,7 +123,7 @@ class ScenarioPresetStorage(FileDocumentStorage):
         preset = self._parse_preset(name=name, content=content)
         if preset is None:
             return None
-        return StoredPreset(preset=preset, version=_document_version(content))
+        return StoredPreset(preset=preset, version=self._compute_version(content))
 
     def get_preset_version(self, name: str) -> str | None:
         """
@@ -163,7 +142,7 @@ class ScenarioPresetStorage(FileDocumentStorage):
             ValueError: If *name* is not a legal preset name.
         """
         content = self._read_document_bytes(name)
-        return None if content is None else _document_version(content)
+        return None if content is None else self._compute_version(content)
 
     def save_preset(self, *, preset: ScenarioPreset, expected_version: str | None) -> StoredPreset:
         """
@@ -187,17 +166,11 @@ class ScenarioPresetStorage(FileDocumentStorage):
         Raises:
             ScenarioPresetConflictError: If the stored version does not match *expected_version*.
             ValueError: If the preset name is not a legal preset name.
+            TimeoutError: If a local write could not acquire the document lock.
         """
-        existing_content = self._read_document_bytes(preset.name)
-        actual_version = None if existing_content is None else _document_version(existing_content)
-        if actual_version != expected_version:
-            raise ScenarioPresetConflictError(
-                name=preset.name, expected_version=expected_version, actual_version=actual_version
-            )
-
         content = self._serialize_preset(preset)
-        self._save_document(name=preset.name, content=content)
-        return StoredPreset(preset=preset, version=_document_version(content))
+        version = self._save_document_conditional(name=preset.name, content=content, expected_version=expected_version)
+        return StoredPreset(preset=preset, version=version)
 
     def delete_preset(self, name: str) -> None:
         """
@@ -207,6 +180,17 @@ class ScenarioPresetStorage(FileDocumentStorage):
             ValueError: If *name* is not a legal preset name.
         """
         self._delete_document(name)
+
+    def _conflict_error(
+        self, *, name: str, expected_version: str | None, actual_version: str | None
+    ) -> ScenarioPresetConflictError:
+        """
+        Report a refused write as a preset conflict.
+
+        Returns:
+            ScenarioPresetConflictError: The error describing the version mismatch.
+        """
+        return ScenarioPresetConflictError(name=name, expected_version=expected_version, actual_version=actual_version)
 
     @staticmethod
     def _serialize_preset(preset: ScenarioPreset) -> bytes:
