@@ -108,6 +108,21 @@ target3 = OpenAIChatTarget(
 #    ```bash
 #    az login
 #    ```
+#
+# ### Choosing Entra auth explicitly
+#
+# By default a target resolves its credential in this order: a token provider callable passed as `api_key`, an explicit `api_key` string, the target's API key environment variable, and finally — for recognized Azure endpoints only — an Entra token. That last step is a *fallback*, so it is skipped whenever a key happens to be set in your `.env`.
+#
+# Pass `auth_mode="identity"` when you want Entra auth regardless of what is in the environment. It skips the key and the environment variable entirely, and raises a `ValueError` if the endpoint is not a recognized Azure endpoint rather than minting a token for an unknown host.
+#
+# ```python
+# target = OpenAIChatTarget(
+#     endpoint=os.environ["OPENAI_CHAT_ENDPOINT"],
+#     auth_mode="identity",
+# )
+# ```
+#
+# `auth_mode` defaults to `"api_key"`, which preserves the resolution order above. It is supported by the OpenAI targets, `AzureMLChatTarget`, and `PromptShieldTarget`.
 
 # %% [markdown]
 # ## Choosing a database
