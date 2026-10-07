@@ -1,10 +1,12 @@
-import { buildScenarioConfig } from '@/components/Scenarios/scenarioConfigForm'
+import { buildScenarioConfig, initialScenarioConfigState } from '@/components/Scenarios/scenarioConfigForm'
 import { makeScenario } from '@/test-utils/scenarioFixtures'
 import type { Parameter, ScenarioPreset } from '@/types'
 
 import {
   configToPreset,
+  initialPresetConfigState,
   presetToConfigState,
+  uneditableScenarioParams,
   unknownPresetTechniques,
   validatePresetName,
 } from './scenarioPresetForm'
@@ -17,12 +19,41 @@ function makePreset(overrides: Partial<ScenarioPreset> = {}): ScenarioPreset {
   }
 }
 
+/** A scenario whose dataset cap resolves to a concrete number, i.e. one this deployment could pin. */
+function makeCappedScenario() {
+  return makeScenario({
+    default_run_size: {
+      estimated_attack_count: 40,
+      components: [],
+      datasets: [{
+        name: 'harmbench',
+        kind: 'dataset',
+        logical_seed_group_count: 400,
+        selected_seed_group_count: 40,
+        configured_caps: [{ label: 'cap', count: 40, configured_on: 'dataset', dataset_name: 'harmbench' }],
+        selection_note: null,
+      }],
+      note: null,
+    },
+  })
+}
+
+const IDENTITY = { name: 'nightly_probe', scenarioName: 'foundry.red_team_agent', description: '' }
+
 const ITERATION_PARAMETER: Parameter = {
   name: 'max_turns',
-  type: 'int',
+  type_name: 'int',
   required: false,
-  default: 5,
+  default: '5',
   description: 'Turn budget.',
+}
+
+const CONCURRENCY_PARAMETER: Parameter = {
+  name: 'max_concurrency',
+  type_name: 'int',
+  required: false,
+  default: '1',
+  description: 'Owned by the launch form, never rendered as a preset field.',
 }
 
 describe('validatePresetName', () => {
@@ -63,11 +94,38 @@ describe('unknownPresetTechniques', () => {
     expect(unknownPresetTechniques(scenario, preset)).toEqual(['retired_attack'])
   })
 
-  it('treats an aggregate technique as unavailable because it is not selectable', () => {
+  it('accepts an aggregate technique, which the server allows but the selector has no checkbox for', () => {
     const scenario = makeScenario({ aggregate_techniques: ['all', 'default'] })
     const preset = makePreset({ techniques: ['all'] })
 
-    expect(unknownPresetTechniques(scenario, preset)).toEqual(['all'])
+    expect(unknownPresetTechniques(scenario, preset)).toEqual([])
+  })
+})
+
+describe('initialPresetConfigState', () => {
+  it('leaves the dataset cap blank where the launch form prefills the deployment-derived default', () => {
+    const scenario = makeCappedScenario()
+
+    expect(initialScenarioConfigState(scenario).maxDatasetSize).toBe('40')
+    expect(initialPresetConfigState(scenario).maxDatasetSize).toBe('')
+  })
+})
+
+describe('uneditableScenarioParams', () => {
+  it('returns nothing when the preset stores no parameters', () => {
+    expect(uneditableScenarioParams(makeScenario(), makePreset())).toEqual({})
+    expect(uneditableScenarioParams(makeScenario(), null)).toEqual({})
+  })
+
+  it('names the stored keys that have no field, whether undeclared or owned by the launch form', () => {
+    const scenario = makeScenario({
+      supported_parameters: [ITERATION_PARAMETER, CONCURRENCY_PARAMETER],
+    })
+    const preset = makePreset({
+      scenario_params: { max_turns: 9, retired_knob: 'x', max_concurrency: 4 },
+    })
+
+    expect(uneditableScenarioParams(scenario, preset)).toEqual({ retired_knob: 'x', max_concurrency: 4 })
   })
 })
 
@@ -119,6 +177,19 @@ describe('presetToConfigState', () => {
     expect(state.techniques).toEqual(['default_technique'])
   })
 
+  it('keeps a pinned aggregate technique that the selector renders no checkbox for', () => {
+    const scenario = makeScenario({ aggregate_techniques: ['all', 'default'] })
+    const state = presetToConfigState(scenario, makePreset({ techniques: ['all'] }))
+
+    expect(state.techniques).toEqual(['all'])
+  })
+
+  it('leaves the dataset cap blank when the preset omits it, even where the scenario has one', () => {
+    const state = presetToConfigState(makeCappedScenario(), makePreset())
+
+    expect(state.maxDatasetSize).toBe('')
+  })
+
   it('keeps baseline off when the scenario forbids it, whatever the preset stored', () => {
     const scenario = makeScenario({ baseline_policy: 'forbidden' })
     const state = presetToConfigState(scenario, makePreset({ include_baseline: true }))
@@ -157,32 +228,153 @@ describe('configToPreset', () => {
   }
 
   it('omits a blank description rather than storing an empty string', () => {
+    const scenario = makeScenario()
     const preset = configToPreset(
-      { name: 'nightly_probe', scenarioName: 'foundry.red_team_agent', description: '   ' },
+      { ...IDENTITY, description: '   ' },
       buildConfig(),
+      { scenario, previous: null },
     )
 
     expect(preset).not.toHaveProperty('description')
   })
 
   it('trims a description it does keep', () => {
+    const scenario = makeScenario()
     const preset = configToPreset(
-      { name: 'nightly_probe', scenarioName: 'foundry.red_team_agent', description: '  nightly  ' },
+      { ...IDENTITY, description: '  nightly  ' },
       buildConfig(),
+      { scenario, previous: null },
     )
 
     expect(preset.description).toBe('nightly')
   })
 
-  it('carries only the scenario-owned keys the config produced', () => {
-    const preset = configToPreset(
-      { name: 'nightly_probe', scenarioName: 'foundry.red_team_agent', description: '' },
-      buildConfig(),
-    )
+  it('carries only the fields the operator moved off the scenario default', () => {
+    const scenario = makeScenario()
+    const preset = configToPreset(IDENTITY, buildConfig(), { scenario, previous: null })
 
     expect(Object.keys(preset).sort()).toEqual(
       ['include_baseline', 'name', 'scenario_name', 'techniques'],
     )
+  })
+
+  it('pins nothing when a new preset leaves every scenario-owned field alone', () => {
+    const scenario = makeScenario()
+    const state = initialPresetConfigState(scenario)
+    const preset = configToPreset(
+      IDENTITY,
+      buildConfig({
+        techniques: state.techniques,
+        includeBaseline: state.includeBaseline,
+        maxDatasetSize: state.maxDatasetSize,
+      }),
+      { scenario, previous: null },
+    )
+
+    expect(preset).toEqual({ name: IDENTITY.name, scenario_name: IDENTITY.scenarioName })
+  })
+
+  it('leaves unpinned fields unset when an unrelated edit round-trips a sparse preset', () => {
+    const scenario = makeCappedScenario()
+    const original = makePreset({ description: 'Nightly smoke test.' })
+    const state = presetToConfigState(scenario, original)
+
+    const roundTripped = configToPreset(
+      { ...IDENTITY, description: 'Edited.' },
+      buildConfig({
+        techniques: state.techniques,
+        includeBaseline: state.includeBaseline,
+        datasetOverride: state.datasetOverride,
+        maxDatasetSize: state.maxDatasetSize,
+      }),
+      { scenario, previous: original },
+    )
+
+    expect(roundTripped).toEqual({ ...original, description: 'Edited.' })
+  })
+
+  it('keeps a field the preset already pinned even where it equals the scenario default', () => {
+    const scenario = makeScenario()
+    const original = makePreset({ techniques: ['default_technique'], include_baseline: true })
+    const state = presetToConfigState(scenario, original)
+
+    const roundTripped = configToPreset(
+      IDENTITY,
+      buildConfig({ techniques: state.techniques, includeBaseline: state.includeBaseline }),
+      { scenario, previous: original },
+    )
+
+    expect(roundTripped.techniques).toEqual(['default_technique'])
+    expect(roundTripped.include_baseline).toBe(true)
+  })
+
+  it('preserves a stored baseline pin the forbidden policy hides from the form', () => {
+    const scenario = makeScenario({ baseline_policy: 'forbidden' })
+    const original = makePreset({ include_baseline: true })
+    const state = presetToConfigState(scenario, original)
+
+    const roundTripped = configToPreset(
+      IDENTITY,
+      buildConfig({ includeBaseline: state.includeBaseline }),
+      { scenario, previous: original },
+    )
+
+    expect(roundTripped.include_baseline).toBe(true)
+  })
+
+  it('pins no baseline for a new preset the scenario forbids one on', () => {
+    const scenario = makeScenario({ baseline_policy: 'forbidden' })
+    const preset = configToPreset(IDENTITY, buildConfig(), { scenario, previous: null })
+
+    expect(preset).not.toHaveProperty('include_baseline')
+  })
+
+  it('omits a dynamic parameter left at its declared default', () => {
+    const scenario = makeScenario({ supported_parameters: [ITERATION_PARAMETER] })
+    const preset = configToPreset(
+      IDENTITY,
+      buildConfig({
+        dynamicParameters: [ITERATION_PARAMETER],
+        scenarioParamValues: { max_turns: '5' },
+      }),
+      { scenario, previous: null },
+    )
+
+    expect(preset).not.toHaveProperty('scenario_params')
+  })
+
+  it('pins a dynamic parameter the operator moved off its declared default', () => {
+    const scenario = makeScenario({ supported_parameters: [ITERATION_PARAMETER] })
+    const preset = configToPreset(
+      IDENTITY,
+      buildConfig({
+        dynamicParameters: [ITERATION_PARAMETER],
+        scenarioParamValues: { max_turns: '9' },
+      }),
+      { scenario, previous: null },
+    )
+
+    expect(preset.scenario_params).toEqual({ max_turns: 9 })
+  })
+
+  it('carries stored parameters this editor renders no control for', () => {
+    const scenario = makeScenario({ supported_parameters: [ITERATION_PARAMETER] })
+    const original = makePreset({
+      scenario_params: { max_turns: 5, retired_knob: 'x', max_concurrency: 4 },
+    })
+    const state = presetToConfigState(scenario, original)
+
+    const roundTripped = configToPreset(
+      IDENTITY,
+      buildConfig({
+        techniques: state.techniques,
+        dynamicParameters: [ITERATION_PARAMETER],
+        scenarioParamValues: state.scenarioParamValues,
+      }),
+      { scenario, previous: original },
+    )
+
+    expect(roundTripped.scenario_params).toEqual({ max_turns: 5, retired_knob: 'x', max_concurrency: 4 })
   })
 
   it('round-trips a fully populated preset back through the form state', () => {
@@ -197,7 +389,7 @@ describe('configToPreset', () => {
     const state = presetToConfigState(scenario, original)
 
     const roundTripped = configToPreset(
-      { name: original.name, scenarioName: original.scenario_name, description: '' },
+      IDENTITY,
       buildConfig({
         techniques: state.techniques,
         includeBaseline: state.includeBaseline,
@@ -206,6 +398,7 @@ describe('configToPreset', () => {
         harmCategoriesFilter: state.harmCategoriesFilter,
         dataTypesFilter: state.dataTypesFilter,
       }),
+      { scenario, previous: original },
     )
 
     expect(roundTripped).toEqual(original)

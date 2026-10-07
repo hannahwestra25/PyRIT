@@ -89,7 +89,9 @@ class RuntimeLifecycle:
         self.app.state.allow_custom_initializers = config.allow_custom_initializers
         registry = await asyncio.to_thread(InitializerRegistry.get_registry_singleton)
         registry.configure_custom_scripts_source(config.custom_initializers_source)
-        get_scenario_preset_service().configure_source(config.scenario_presets_source)
+        # Constructing the storage creates the default preset directory when no source is
+        # configured, so it stays off the event loop.
+        await asyncio.to_thread(get_scenario_preset_service().configure_source, config.scenario_presets_source)
 
     def _publish(self, config: ConfigurationLoader) -> None:
         self.app.state.configured_initializers = [

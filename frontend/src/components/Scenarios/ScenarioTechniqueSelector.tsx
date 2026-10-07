@@ -67,14 +67,14 @@ export default function ScenarioTechniqueSelector({
     const memberNames = new Set(
       members.filter((technique) => !technique.isBaseline).map((technique) => technique.name),
     )
-    const selected = new Set(selectedTechniques)
-    for (const name of memberNames) {
-      if (shouldSelect) selected.add(name)
-      else selected.delete(name)
-    }
-    onTechniquesChange(
-      techniqueOptions.map((technique) => technique.name).filter((name) => selected.has(name)),
-    )
+    // Derived from the current selection rather than rebuilt from the rendered options, so a
+    // selection with no checkbox of its own — a preset pinning an aggregate technique such as
+    // `all` — survives a tag toggle instead of being silently dropped.
+    const retained = selectedTechniques.filter((name) => shouldSelect || !memberNames.has(name))
+    const added = shouldSelect
+      ? [...memberNames].filter((name) => !selectedTechniques.includes(name))
+      : []
+    onTechniquesChange([...retained, ...added])
     if (members.some((technique) => technique.isBaseline)) {
       onIncludeBaselineChange(shouldSelect)
     }

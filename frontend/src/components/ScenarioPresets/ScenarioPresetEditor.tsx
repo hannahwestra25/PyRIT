@@ -22,7 +22,6 @@ import {
   buildScenarioConfig,
   defaultMaxDatasetSize,
   dynamicScenarioParameters,
-  initialScenarioConfigState,
   uniqueTechniqueOptions,
   type ScenarioConfigFormState,
 } from '@/components/Scenarios/scenarioConfigForm'
@@ -36,7 +35,9 @@ import { useScenarioPresetEditorStyles } from './ScenarioPresetEditor.styles'
 import { PRESETS_ROUTE } from './presetRoutes'
 import {
   configToPreset,
+  initialPresetConfigState,
   presetToConfigState,
+  uneditableScenarioParams,
   unknownPresetTechniques,
   validatePresetName,
 } from './scenarioPresetForm'
@@ -147,7 +148,7 @@ function ScenarioPresetEditorContent({ mode, presetName }: ScenarioPresetEditorC
     try {
       const full = await scenariosApi.getScenario(nextScenarioName)
       setScenario(full)
-      setConfig(initialScenarioConfigState(full))
+      setConfig(initialPresetConfigState(full))
     } catch (err) {
       setSaveError(toApiError(err).detail)
     } finally {
@@ -162,6 +163,10 @@ function ScenarioPresetEditorContent({ mode, presetName }: ScenarioPresetEditorC
   const techniqueOptions = useMemo(
     () => (scenario ? uniqueTechniqueOptions(scenario).techniques : []),
     [scenario],
+  )
+  const carriedScenarioParams = useMemo(
+    () => (scenario ? Object.keys(uneditableScenarioParams(scenario, loaded?.preset ?? null)) : []),
+    [loaded, scenario],
   )
 
   const updateConfig = (patch: Partial<ScenarioConfigFormState>): void => {
@@ -212,6 +217,7 @@ function ScenarioPresetEditorContent({ mode, presetName }: ScenarioPresetEditorC
     const preset = configToPreset(
       { name: trimmedName, scenarioName: scenario.scenario_name, description },
       built.config,
+      { scenario, previous: loaded?.preset ?? null },
     )
 
     setSaving(true)
@@ -287,7 +293,16 @@ function ScenarioPresetEditorContent({ mode, presetName }: ScenarioPresetEditorC
           <MessageBar intent="warning" data-testid="dropped-techniques-warning">
             <MessageBarBody>
               This preset pins techniques this deployment does not offer
-              ({droppedTechniques.join(', ')}). Saving will drop them.
+              ({droppedTechniques.join(', ')}). Saving replaces them with the techniques
+              selected below.
+            </MessageBarBody>
+          </MessageBar>
+        )}
+        {carriedScenarioParams.length > 0 && (
+          <MessageBar intent="info" data-testid="carried-params-notice">
+            <MessageBarBody>
+              This preset carries parameters this editor has no field for
+              ({carriedScenarioParams.join(', ')}). They are preserved as-is on save.
             </MessageBarBody>
           </MessageBar>
         )}

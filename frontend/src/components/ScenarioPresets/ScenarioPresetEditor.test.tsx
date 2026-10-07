@@ -98,7 +98,7 @@ describe('ScenarioPresetEditor create mode', () => {
     expect(screen.getByTestId('save-preset-btn')).toBeDisabled()
   })
 
-  it('creates a preset from the chosen scenario and name', async () => {
+  it('creates a preset that pins nothing the operator left at the scenario default', async () => {
     const user = userEvent.setup()
     renderCreate()
 
@@ -112,11 +112,28 @@ describe('ScenarioPresetEditor create mode', () => {
     await waitFor(() => expect(mockCreate).toHaveBeenCalledWith({
       name: 'nightly_probe',
       scenario_name: 'foundry.red_team_agent',
-      techniques: ['default_technique'],
-      include_baseline: true,
     }))
     expect(mockUpdate).not.toHaveBeenCalled()
     expect(mockNavigate).toHaveBeenCalledWith('/scanner/presets')
+  })
+
+  it('pins a technique selection the operator moved off the scenario default', async () => {
+    const user = userEvent.setup()
+    renderCreate()
+
+    await user.type(await screen.findByTestId('preset-name-input'), 'nightly_probe')
+    await user.click(screen.getByTestId('preset-scenario-select'))
+    await user.click(await screen.findByRole('option', { name: 'foundry.red_team_agent' }))
+
+    await user.click(await screen.findByTestId('technique-crescendo'))
+    await waitFor(() => expect(screen.getByTestId('save-preset-btn')).toBeEnabled())
+    await user.click(screen.getByTestId('save-preset-btn'))
+
+    await waitFor(() => expect(mockCreate).toHaveBeenCalledWith({
+      name: 'nightly_probe',
+      scenario_name: 'foundry.red_team_agent',
+      techniques: ['default_technique', 'crescendo'],
+    }))
   })
 
   it('rejects a name the server pattern would reject, without calling the API', async () => {
@@ -248,6 +265,29 @@ describe('ScenarioPresetEditor edit mode', () => {
     expect(await screen.findByTestId('dropped-techniques-warning')).toHaveTextContent(
       'retired_attack',
     )
+  })
+
+  it('keeps a pinned aggregate technique when a tag toggle changes the selection', async () => {
+    const user = userEvent.setup()
+    mockGet.mockResolvedValue({
+      preset: { ...STORED_PRESET, techniques: ['all'] },
+      version: 'v1',
+      issues: [],
+    })
+
+    renderEdit()
+
+    expect(await screen.findByTestId('technique-crescendo')).not.toBeChecked()
+    expect(screen.queryByTestId('dropped-techniques-warning')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Select Multi-turn techniques' }))
+    await user.click(screen.getByTestId('save-preset-btn'))
+
+    await waitFor(() => expect(mockUpdate).toHaveBeenCalledWith(
+      'nightly_probe',
+      expect.objectContaining({ techniques: ['all', 'crescendo'] }),
+      'v1',
+    ))
   })
 
   it('reports a missing preset as not found', async () => {
@@ -406,6 +446,28 @@ describe('ScenarioPresetEditor dynamic parameters', () => {
     await waitFor(() => expect(mockUpdate).toHaveBeenCalledWith(
       'nightly_probe',
       expect.objectContaining({ scenario_params: { max_turns: 9 } }),
+      'v1',
+    ))
+  })
+
+  it('preserves and surfaces stored parameters this editor renders no field for', async () => {
+    const user = userEvent.setup()
+    mockGetScenario.mockResolvedValue(SCENARIO_WITH_PARAM)
+    mockGet.mockResolvedValue({
+      preset: { ...STORED_PRESET, scenario_params: { max_turns: 5, max_concurrency: 4 } },
+      version: 'v1',
+      issues: [],
+    })
+
+    renderEdit()
+
+    expect(await screen.findByTestId('carried-params-notice')).toHaveTextContent('max_concurrency')
+
+    await user.click(screen.getByTestId('save-preset-btn'))
+
+    await waitFor(() => expect(mockUpdate).toHaveBeenCalledWith(
+      'nightly_probe',
+      expect.objectContaining({ scenario_params: { max_turns: 5, max_concurrency: 4 } }),
       'v1',
     ))
   })

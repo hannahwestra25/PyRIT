@@ -59,9 +59,11 @@ class ScenarioPresetService:
         storage = self._get_storage()
         stored = await asyncio.to_thread(storage.list_presets)
 
-        items = [
-            await self._to_response_async(stored_preset) for _, stored_preset in sorted(stored.items(), key=_by_name)
-        ]
+        items = list(
+            await asyncio.gather(
+                *(self._to_response_async(stored_preset) for _, stored_preset in sorted(stored.items(), key=_by_name))
+            )
+        )
         return ScenarioPresetListResponse(source=storage.display_source, items=items)
 
     async def get_preset_async(self, *, name: str) -> ScenarioPresetResponse | None:
