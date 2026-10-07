@@ -16,7 +16,7 @@ import asyncio
 import logging
 import uuid
 from functools import lru_cache
-from typing import Any, cast
+from typing import Any
 
 from pyrit.backend.mappers.target_mappers import target_object_to_instance
 from pyrit.backend.models.common import PaginationInfo
@@ -159,7 +159,7 @@ class TargetService:
         for auth_mode in auth_modes:
             if auth_mode not in AUTH_MODES:
                 raise ValueError(f"Unsupported target authentication mode: {auth_mode!r}")
-            supported_auth_modes.append(cast("AuthMode", auth_mode))
+            supported_auth_modes.append(auth_mode)
         return supported_auth_modes
 
     def _project_target_parameters(self, *, target_type: str, parameters: tuple[Parameter, ...]) -> list[Parameter]:
