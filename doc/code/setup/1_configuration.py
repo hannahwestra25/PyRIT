@@ -122,7 +122,7 @@ target3 = OpenAIChatTarget(
 # )
 # ```
 #
-# `auth_mode` defaults to `"api_key"`, which preserves the resolution order above. It is supported by the OpenAI targets, `AzureMLChatTarget`, and `PromptShieldTarget`.
+# On the OpenAI targets, `AzureMLChatTarget`, and `PromptShieldTarget`, `auth_mode` defaults to `"api_key"`, which preserves the resolution order above. `AzureBlobStorageTarget` accepts the same `auth_mode="identity"` to bypass its SAS token sources; it defaults to selecting a credential automatically.
 
 # %% [markdown]
 # ## Choosing a database
