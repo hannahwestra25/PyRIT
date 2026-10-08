@@ -6,7 +6,6 @@
 import hashlib
 import json
 import os
-import time
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -14,6 +13,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from pyrit.models.catalog.scenario_preset import ScenarioPreset
+from pyrit.registry.file_document_storage import _release_exclusive_lock, _try_acquire_exclusive_lock
 from pyrit.registry.scenario_preset_storage import ScenarioPresetConflictError, ScenarioPresetStorage
 
 
@@ -468,7 +468,7 @@ def test_failed_write_preserves_the_previous_preset(tmp_path: Path) -> None:
     assert loaded is not None
     assert loaded.preset.description == "first"
     assert loaded.version == first.version
-    assert sorted(path.name for path in tmp_path.iterdir()) == ["nightly.json"]
+    assert list(tmp_path.glob("*.tmp")) == []
 
 
 def test_a_reader_sees_the_previous_document_until_the_write_completes(tmp_path: Path) -> None:
@@ -554,23 +554,29 @@ def test_a_second_writer_cannot_enter_while_a_save_is_in_flight(tmp_path: Path) 
 def test_a_completed_save_releases_its_lock(tmp_path: Path) -> None:
     """Test that a save leaves nothing behind that would block the next writer."""
     storage = ScenarioPresetStorage(source=str(tmp_path))
+    first = storage.save_preset(preset=_make_preset(description="first"), expected_version=None)
 
-    storage.save_preset(preset=_make_preset(), expected_version=None)
+    with patch.object(ScenarioPresetStorage, "LOCK_TIMEOUT_SECONDS", 0.1):
+        saved = storage.save_preset(preset=_make_preset(description="second"), expected_version=first.version)
 
-    assert sorted(path.name for path in tmp_path.iterdir()) == ["nightly.json"]
+    assert saved.preset.description == "second"
 
 
 def test_a_lock_held_by_a_live_writer_is_respected(tmp_path: Path) -> None:
-    """Test that a lock younger than the stale window is waited for rather than stolen."""
+    """Test that a writer still holding the lock is waited for rather than overridden."""
     storage = ScenarioPresetStorage(source=str(tmp_path))
     held_lock = tmp_path / ".nightly.json.lock"
-    held_lock.write_text("4242", encoding="utf-8")
+    descriptor = os.open(held_lock, os.O_CREAT | os.O_RDWR)
+    assert _try_acquire_exclusive_lock(descriptor)
 
-    with patch.object(ScenarioPresetStorage, "LOCK_TIMEOUT_SECONDS", 0.1):
-        with pytest.raises(TimeoutError, match="nightly.json.lock"):
-            storage.save_preset(preset=_make_preset(), expected_version=None)
+    try:
+        with patch.object(ScenarioPresetStorage, "LOCK_TIMEOUT_SECONDS", 0.1):
+            with pytest.raises(TimeoutError, match="nightly.json.lock"):
+                storage.save_preset(preset=_make_preset(), expected_version=None)
+    finally:
+        _release_exclusive_lock(descriptor)
+        os.close(descriptor)
 
-    assert held_lock.read_text(encoding="utf-8") == "4242"
     assert storage.load_preset("nightly") is None
 
 
@@ -578,51 +584,13 @@ def test_a_lock_left_by_a_dead_writer_is_reclaimed(tmp_path: Path) -> None:
     """Test that a writer that died holding the lock does not make a preset permanently unwritable."""
     storage = ScenarioPresetStorage(source=str(tmp_path))
     first = storage.save_preset(preset=_make_preset(description="first"), expected_version=None)
-    abandoned_lock = tmp_path / ".nightly.json.lock"
-    abandoned_lock.write_text("4242", encoding="utf-8")
-    abandoned = time.time() - (ScenarioPresetStorage.LOCK_STALE_SECONDS + 60)
-    os.utime(abandoned_lock, (abandoned, abandoned))
-
-    saved = storage.save_preset(preset=_make_preset(description="second"), expected_version=first.version)
-
-    assert saved.preset.description == "second"
-    assert sorted(path.name for path in tmp_path.iterdir()) == ["nightly.json"]
-
-
-def test_a_stale_lock_is_left_alone_while_another_writer_breaks_it(tmp_path: Path) -> None:
-    """Test that only one writer may break a given stale lock, so two cannot both enter the write."""
-    storage = ScenarioPresetStorage(source=str(tmp_path))
-    abandoned_lock = tmp_path / ".nightly.json.lock"
-    abandoned_lock.write_text("4242", encoding="utf-8")
-    abandoned = time.time() - (ScenarioPresetStorage.LOCK_STALE_SECONDS + 60)
-    os.utime(abandoned_lock, (abandoned, abandoned))
-    breaker = tmp_path / ".nightly.json.lock.breaking"
-    breaker.write_text("5353", encoding="utf-8")
+    # A writer that died leaves the file behind but not the lock, which the kernel released.
+    (tmp_path / ".nightly.json.lock").write_text("4242", encoding="utf-8")
 
     with patch.object(ScenarioPresetStorage, "LOCK_TIMEOUT_SECONDS", 0.1):
-        with pytest.raises(TimeoutError, match="nightly.json.lock"):
-            storage.save_preset(preset=_make_preset(), expected_version=None)
+        saved = storage.save_preset(preset=_make_preset(description="second"), expected_version=first.version)
 
-    assert abandoned_lock.read_text(encoding="utf-8") == "4242"
-    assert breaker.read_text(encoding="utf-8") == "5353"
-    assert storage.load_preset("nightly") is None
-
-
-def test_a_breaker_left_by_a_dead_writer_does_not_block_reclamation(tmp_path: Path) -> None:
-    """Test that a writer that died while breaking a lock does not make a preset permanently unwritable."""
-    storage = ScenarioPresetStorage(source=str(tmp_path))
-    abandoned_lock = tmp_path / ".nightly.json.lock"
-    abandoned_lock.write_text("4242", encoding="utf-8")
-    breaker = tmp_path / ".nightly.json.lock.breaking"
-    breaker.write_text("5353", encoding="utf-8")
-    abandoned = time.time() - (ScenarioPresetStorage.LOCK_STALE_SECONDS + 60)
-    for stranded in (abandoned_lock, breaker):
-        os.utime(stranded, (abandoned, abandoned))
-
-    saved = storage.save_preset(preset=_make_preset(description="recovered"), expected_version=None)
-
-    assert saved.preset.description == "recovered"
-    assert sorted(path.name for path in tmp_path.iterdir()) == ["nightly.json"]
+    assert saved.preset.description == "second"
 
 
 def test_lock_files_are_not_listed_as_presets(tmp_path: Path) -> None:

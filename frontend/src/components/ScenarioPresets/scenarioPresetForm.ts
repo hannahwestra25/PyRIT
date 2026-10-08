@@ -45,9 +45,20 @@ function presetSelectableTechniques(scenario: RegisteredScenario): Set<string> {
 }
 
 /**
- * Techniques the preset pins that this deployment's scenario no longer offers.
- * The editor cannot render a checkbox for them, so saving would silently drop
- * them — surfacing the names lets the operator decide instead.
+ * Mirrors the server-side technique-token grammar (`pyrit/scenario/core/_technique_tokens.py`):
+ * a technique name optionally followed by colon-separated modifiers, as in
+ * `role_play:converter.translation_spanish`. Only the technique name is matched against the
+ * scenario's techniques, so a modifier does not make a known technique look unknown.
+ */
+function techniqueBaseName(token: string): string {
+  const separator = token.indexOf(':')
+  return separator === -1 ? token : token.slice(0, separator)
+}
+
+/**
+ * Techniques the preset pins that this deployment's scenario does not define. The editor
+ * surfaces them so the operator knows the preset will not run here; it carries them through
+ * untouched rather than rewriting the document on an unrelated edit.
  */
 export function unknownPresetTechniques(
   scenario: RegisteredScenario,
@@ -57,7 +68,7 @@ export function unknownPresetTechniques(
     return []
   }
   const available = presetSelectableTechniques(scenario)
-  return preset.techniques.filter((name) => !available.has(name))
+  return preset.techniques.filter((token) => !available.has(techniqueBaseName(token)))
 }
 
 /**
@@ -92,6 +103,11 @@ export function uneditableScenarioParams(
  * Expands a stored preset into editable form state. Fields the preset omits
  * mean "use the scenario default", so they fall back to the same initial state
  * the launch form starts from.
+ *
+ * Every pinned technique is kept, including tokens the selector renders no checkbox for —
+ * an aggregate, a converter-qualified token, or a technique this deployment dropped. The
+ * selector shows those as dismissible tags; filtering them here would replace the whole
+ * selection with this scenario's defaults the moment an operator edited the description.
  */
 export function presetToConfigState(
   scenario: RegisteredScenario,
@@ -99,10 +115,9 @@ export function presetToConfigState(
 ): ScenarioConfigFormState {
   const defaults = initialPresetConfigState(scenario)
   const filters = preset.dataset_filters ?? {}
-  const available = presetSelectableTechniques(scenario)
-  const pinned = preset.techniques?.filter((name) => available.has(name))
+  const pinned = preset.techniques ?? []
   return {
-    techniques: pinned && pinned.length > 0 ? pinned : defaults.techniques,
+    techniques: pinned.length > 0 ? pinned : defaults.techniques,
     includeBaseline: scenario.baseline_policy === 'forbidden'
       ? false
       : preset.include_baseline ?? defaults.includeBaseline,

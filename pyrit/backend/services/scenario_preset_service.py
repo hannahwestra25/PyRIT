@@ -18,7 +18,12 @@ from pyrit.backend.models.scenario_presets import (
 )
 from pyrit.backend.services.scenario_service import get_scenario_service
 from pyrit.models.catalog import RegisteredScenario, RunScenarioRequest, ScenarioPreset, StoredPreset
-from pyrit.registry import ScenarioPresetStorage
+from pyrit.registry import ConverterRegistry, ScenarioPresetStorage
+from pyrit.scenario.core import (
+    CONVERTER_MODIFIER_PREFIX,
+    converter_name_from_modifier,
+    parse_technique_token,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -228,30 +233,68 @@ def _by_name(item: tuple[str, StoredPreset]) -> str:
     return item[0]
 
 
+def _technique_issues(*, names: list[str], description: str) -> list[PresetIssue]:
+    """
+    Build the at-most-one issue describing a kind of unresolvable technique reference.
+
+    Args:
+        names (list[str]): The offending names, possibly with repeats.
+        description (str): What is wrong with them, phrased to read before a name list.
+
+    Returns:
+        list[PresetIssue]: A single issue, or an empty list when nothing was offending.
+    """
+    if not names:
+        return []
+    return [PresetIssue(field="techniques", message=f"{description}: {', '.join(sorted(set(names)))}.")]
+
+
 def _unknown_technique_issues(*, preset: ScenarioPreset, scenario: RegisteredScenario) -> list[PresetIssue]:
     """
-    Report techniques the scenario does not expose.
+    Report techniques and converter modifiers this deployment cannot resolve.
+
+    Tokens are parsed with the same grammar the launch path uses, because comparing a
+    whole token against the scenario's technique names would report a runnable preset
+    such as ``role_play:converter.translation_spanish`` as broken.
 
     Args:
         preset (ScenarioPreset): The preset to check.
         scenario (RegisteredScenario): The registered scenario it names.
 
     Returns:
-        list[PresetIssue]: One issue naming every unknown technique, or an empty list.
+        list[PresetIssue]: One issue per kind of unresolvable reference, or an empty list.
     """
     if not preset.techniques:
         return []
 
     known = set(scenario.all_techniques) | set(scenario.aggregate_techniques)
-    unknown = [technique for technique in preset.techniques if technique not in known]
-    if not unknown:
-        return []
+    registered_converters = ConverterRegistry.get_registry_singleton().instances
+    unknown_techniques: list[str] = []
+    unknown_converters: list[str] = []
+    malformed_modifiers: list[str] = []
+
+    for token in preset.techniques:
+        base_name, modifiers = parse_technique_token(token)
+        if base_name not in known:
+            unknown_techniques.append(base_name)
+        for modifier in modifiers:
+            converter_name = converter_name_from_modifier(modifier)
+            if converter_name is None:
+                malformed_modifiers.append(modifier)
+            elif registered_converters.get(converter_name) is None:
+                unknown_converters.append(converter_name)
 
     return [
-        PresetIssue(
-            field="techniques",
-            message=f"Scenario '{scenario.scenario_name}' does not define: {', '.join(sorted(unknown))}.",
-        )
+        *_technique_issues(
+            names=unknown_techniques, description=f"Scenario '{scenario.scenario_name}' does not define"
+        ),
+        *_technique_issues(
+            names=unknown_converters, description="This deployment has no registered converter named"
+        ),
+        *_technique_issues(
+            names=malformed_modifiers,
+            description=f"Technique modifiers must use the '{CONVERTER_MODIFIER_PREFIX}' prefix; got",
+        ),
     ]
 
 

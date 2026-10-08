@@ -35,11 +35,13 @@ import { useLaunchPresetDialogStyles } from './LaunchPresetDialog.styles'
 
 interface LaunchPresetDialogProps {
   preset: ScenarioPreset
+  version: string
   targets: TargetInstance[]
   defaultObjectiveTarget: TargetInstance | null
   defaultAdversarialTarget: TargetInstance | null
   labels: Record<string, string>
   onDismiss: () => void
+  onPresetChanged: () => void
 }
 
 function initialTargetName(
@@ -83,14 +85,20 @@ function presetSummary(preset: ScenarioPreset): string {
  * Collects the launch-owned fields a preset deliberately omits, then asks the
  * server to merge them with the stored preset. Resolution stays server-side so
  * the browser never reimplements the preset-to-run mapping.
+ *
+ * The summary above describes the preset as it was read, so the launch sends that
+ * version back. An edit landing in between is reported rather than launched, which
+ * is the one case where a run would otherwise differ from what was confirmed.
  */
 export default function LaunchPresetDialog({
   preset,
+  version,
   targets,
   defaultObjectiveTarget,
   defaultAdversarialTarget,
   labels,
   onDismiss,
+  onPresetChanged,
 }: LaunchPresetDialogProps) {
   const styles = useLaunchPresetDialogStyles()
   const navigate = useNavigate()
@@ -117,6 +125,7 @@ export default function LaunchPresetDialog({
     setError(null)
     try {
       const request = await scenarioPresetsApi.resolve(preset.name, {
+        expected_version: version,
         target_name: targetName,
         ...(adversarialTargetName === '' ? {} : { adversarial_target_name: adversarialTargetName }),
         max_concurrency: maxConcurrency,
@@ -128,7 +137,14 @@ export default function LaunchPresetDialog({
         state: { scenarioName: preset.scenario_name },
       })
     } catch (err) {
-      setError(toApiError(err).detail)
+      const apiError = toApiError(err)
+      if (apiError.status === 409) {
+        // The summary on screen no longer describes the preset, so re-reading is the
+        // only way forward; keeping the dialog open would invite a confirm-and-retry loop.
+        onPresetChanged()
+        return
+      }
+      setError(apiError.detail)
       setSubmitting(false)
     }
   }

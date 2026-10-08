@@ -233,7 +233,10 @@ async def delete_scenario_preset(name: str) -> None:  # pyrit-async-suffix-exemp
 @router.post(
     "/{name}/resolve",
     response_model=RunScenarioRequest,
-    responses={404: {"model": ProblemDetail, "description": "Preset not found"}},
+    responses={
+        404: {"model": ProblemDetail, "description": "Preset not found"},
+        409: {"model": ProblemDetail, "description": "The preset changed after it was read"},
+    },
 )
 async def resolve_scenario_preset(  # pyrit-async-suffix-exempt
     name: str,
@@ -247,12 +250,24 @@ async def resolve_scenario_preset(  # pyrit-async-suffix-exempt
     the merge, so the distinction between "unset" and "set to the default" cannot
     drift between callers.
 
+    When the caller supplies ``expected_version`` the stored version must still match,
+    so an edit landing between the preview and the launch is reported rather than
+    quietly running a configuration the operator never confirmed.
+
     Args:
         name: The preset name.
         body: The target and execution fields for this launch.
 
     Returns:
         RunScenarioRequest: The request to post to the scenario run endpoint.
+
+    Raises:
+        HTTPException: 404 if no preset is stored, 409 if the stored version moved.
     """
     stored = await _load_preset_or_404_async(name)
+    if body.expected_version is not None and body.expected_version != stored.version:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Scenario preset '{name}' changed since it was read; re-read it and retry",
+        )
     return get_scenario_preset_service().resolve_run_request(preset=stored.preset, launch=body)

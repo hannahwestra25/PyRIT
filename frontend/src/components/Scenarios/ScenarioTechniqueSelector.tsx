@@ -1,6 +1,6 @@
 import { useId, useMemo } from 'react'
 
-import { Checkbox, Text, ToggleButton } from '@fluentui/react-components'
+import { Checkbox, Tag, TagGroup, Text, ToggleButton } from '@fluentui/react-components'
 
 import type { ScenarioTechniqueSummary } from '@/types'
 
@@ -23,6 +23,11 @@ interface ScenarioTechniqueSelectorProps {
  *
  * Baseline is rendered as a pseudo-technique so an operator sees one list, but it
  * travels as its own flag because the backend models it as `include_baseline`.
+ *
+ * A selection may hold tokens no checkbox represents: an aggregate such as `all`, or a
+ * technique carrying a converter modifier (`role_play:converter.translation_spanish`).
+ * Those render as dismissible tags, because leaving them out would show every checkbox
+ * cleared while the run still executes them.
  */
 export default function ScenarioTechniqueSelector({
   techniqueOptions,
@@ -44,6 +49,13 @@ export default function ScenarioTechniqueSelector({
   const isTechniqueSelected = (technique: SelectableTechnique): boolean => (
     technique.isBaseline ? includeBaseline : selectedTechniques.includes(technique.name)
   )
+
+  const tokensWithoutCheckbox = useMemo(() => {
+    const checkboxNames = new Set(
+      selectableTechniques.filter((technique) => !technique.isBaseline).map((technique) => technique.name),
+    )
+    return selectedTechniques.filter((token) => !checkboxNames.has(token))
+  }, [selectableTechniques, selectedTechniques])
 
   const handleTechniqueChange = (technique: SelectableTechnique, checked: boolean): void => {
     if (technique.isBaseline) {
@@ -92,6 +104,33 @@ export default function ScenarioTechniqueSelector({
         <Text className={styles.errorText} role="alert">
           Select at least one attack technique.
         </Text>
+      )}
+      {tokensWithoutCheckbox.length > 0 && (
+        <div className={styles.pinnedTokens}>
+          <Text size={200} className={styles.hint}>
+            Also running, with no checkbox of their own:
+          </Text>
+          <TagGroup
+            aria-label="Techniques without a checkbox"
+            data-testid="techniques-without-checkbox"
+            onDismiss={(_, data) => onTechniquesChange(
+              selectedTechniques.filter((name) => name !== data.value),
+            )}
+          >
+            {tokensWithoutCheckbox.map((token) => (
+              <Tag
+                key={token}
+                value={token}
+                dismissible
+                disabled={disabled}
+                size="small"
+                aria-label={`Remove ${token}`}
+              >
+                {token}
+              </Tag>
+            ))}
+          </TagGroup>
+        </div>
       )}
       <div className={styles.techniqueList} role="group" aria-label="Techniques">
         {selectableTechniques.map((technique) => {

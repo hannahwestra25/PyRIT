@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import sys
 import tempfile
 import time
 from contextlib import contextmanager, suppress
@@ -24,6 +25,53 @@ if TYPE_CHECKING:
     from azure.storage.blob import ContainerClient
 
 logger = logging.getLogger(__name__)
+
+# Both platforms lock a single byte at offset zero, which they allow past the end of an
+# empty file. The lock belongs to the open file handle, so it excludes other threads in
+# this process as well as other processes, and the kernel drops it if the holder exits.
+if sys.platform == "win32":
+    import msvcrt
+
+    def _try_acquire_exclusive_lock(descriptor: int) -> bool:
+        """
+        Try to take the exclusive lock without waiting.
+
+        Returns:
+            bool: Whether the lock was taken.
+        """
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        try:
+            msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
+        except OSError:
+            return False
+        return True
+
+    def _release_exclusive_lock(descriptor: int) -> None:
+        """Release the exclusive lock held on an open descriptor."""
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        with suppress(OSError):
+            msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
+
+else:
+    import fcntl
+
+    def _try_acquire_exclusive_lock(descriptor: int) -> bool:
+        """
+        Try to take the exclusive lock without waiting.
+
+        Returns:
+            bool: Whether the lock was taken.
+        """
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            return False
+        return True
+
+    def _release_exclusive_lock(descriptor: int) -> None:
+        """Release the exclusive lock held on an open descriptor."""
+        with suppress(OSError):
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
 
 
 class DocumentConflictError(ValueError):
@@ -93,9 +141,10 @@ class FileDocumentStorage:
 
     - Blob creates upload with ``overwrite=False`` and updates send the ETag read moments
       earlier as an ``If-Match`` precondition, both evaluated by the service.
-    - Local writes hold an exclusive lock file for the whole read-compare-replace
-      sequence, which serializes every writer that goes through this class, including
-      ones in other processes.
+    - Local writes hold an OS advisory lock on a sibling file for the whole
+      read-compare-replace sequence, which serializes every writer that goes through this
+      class, including ones in other processes. The kernel owns the lock, so a writer that
+      dies releases it rather than stranding the document.
 
     The local guarantee is cooperative: it binds writers using this class, not someone
     editing the file directly. That case is covered instead by the version itself, which
@@ -106,9 +155,7 @@ class FileDocumentStorage:
     """
 
     LOCK_SUFFIX: str = ".lock"
-    LOCK_BREAKER_SUFFIX: str = ".breaking"
     LOCK_TIMEOUT_SECONDS: float = 10.0
-    LOCK_STALE_SECONDS: float = 60.0
     LOCK_POLL_SECONDS: float = 0.05
 
     def __init__(self, *, source: str, extension: str, source_label: str) -> None:
@@ -401,9 +448,13 @@ class FileDocumentStorage:
         """
         Hold an exclusive lock covering one document for the duration of the block.
 
-        The lock is a sibling file created exclusively, so it excludes writers in other
-        processes as well as other threads. It does not carry the document extension, so
-        listing never sees it.
+        The lock is an OS advisory lock taken on a sibling file, so it excludes writers in
+        other processes as well as other threads, and the kernel releases it if the holder
+        exits without cleaning up. Crash recovery therefore needs no timeout heuristic: a
+        lock is held only while its owner is alive. The file itself stays in place because
+        it carries no state and deleting it would let two writers hold what they each
+        believe is the same lock while the path pointed at different files. It does not
+        carry the document extension, so listing never sees it.
 
         Yields:
             None: Control while the lock is held.
@@ -412,106 +463,32 @@ class FileDocumentStorage:
             TimeoutError: If the lock could not be acquired.
         """
         lock_path = path.with_name(f".{path.name}{self.LOCK_SUFFIX}")
-        self._acquire_document_lock(lock_path)
+        descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR)
         try:
-            yield
+            self._acquire_document_lock(descriptor=descriptor, lock_path=lock_path)
+            try:
+                yield
+            finally:
+                _release_exclusive_lock(descriptor)
         finally:
-            with suppress(OSError):
-                lock_path.unlink(missing_ok=True)
+            os.close(descriptor)
 
-    def _acquire_document_lock(self, lock_path: Path) -> None:
+    def _acquire_document_lock(self, *, descriptor: int, lock_path: Path) -> None:
         """
-        Create the lock file, waiting for whoever holds it to release it.
+        Wait for the exclusive lock on an open lock file until the wait budget runs out.
+
+        Args:
+            descriptor (int): Open descriptor for the lock file.
+            lock_path (Path): Path of the lock file, named in the timeout message.
 
         Raises:
             TimeoutError: If the lock is still held when the wait budget runs out.
         """
         deadline = time.monotonic() + self.LOCK_TIMEOUT_SECONDS
-        while True:
-            try:
-                descriptor = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            except FileExistsError:
-                if self._clear_stale_lock(lock_path):
-                    continue
-                if time.monotonic() >= deadline:
-                    raise TimeoutError(
-                        f"Timed out waiting to write '{lock_path.name}'; another writer still holds it."
-                    ) from None
-                time.sleep(self.LOCK_POLL_SECONDS)
-                continue
-            with os.fdopen(descriptor, "w") as lock_file:
-                lock_file.write(str(os.getpid()))
-            return
-
-    def _clear_stale_lock(self, lock_path: Path) -> bool:
-        """
-        Remove a lock left behind by a writer that died before releasing it.
-
-        The age check and the removal run under a second exclusive file, so only one writer
-        can break a given lock. Without that, two writers seeing the same stale lock would
-        both unlink: the first would take a fresh lock and the second would delete it, and
-        both would proceed to write believing they held it.
-
-        Returns:
-            bool: Whether a stale lock was removed.
-        """
-        if self._stale_lock_age(lock_path) is None:
-            return False
-        breaker_path = lock_path.with_name(f"{lock_path.name}{self.LOCK_BREAKER_SUFFIX}")
-        try:
-            descriptor = os.open(breaker_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except FileExistsError:
-            self._discard_abandoned_breaker(breaker_path)
-            return False
-        except OSError:
-            return False
-        os.close(descriptor)
-        try:
-            # Re-checked while holding the breaker, because the lock seen above may since
-            # have been released and retaken by a writer that is still running.
-            held_seconds = self._stale_lock_age(lock_path)
-            if held_seconds is None:
-                return False
-            try:
-                lock_path.unlink()
-            except OSError:
-                return False
-            logger.warning(
-                f"Removed stale lock {lock_path.name} held for {held_seconds:.0f}s by a writer that stopped."
-            )
-            return True
-        finally:
-            with suppress(OSError):
-                breaker_path.unlink(missing_ok=True)
-
-    def _stale_lock_age(self, lock_path: Path) -> float | None:
-        """
-        Report how long a lock has been held once it is past the stale threshold.
-
-        Returns:
-            float | None: Seconds the lock has been held, or None if it is gone or still fresh.
-        """
-        try:
-            held_seconds = time.time() - lock_path.stat().st_mtime
-        except OSError:
-            return None
-        return held_seconds if held_seconds >= self.LOCK_STALE_SECONDS else None
-
-    def _discard_abandoned_breaker(self, breaker_path: Path) -> None:
-        """
-        Remove a breaker file left behind by a writer that died while breaking a lock.
-
-        Breaking a lock spans a stat and an unlink, so a breaker older than the stale
-        threshold can only be an orphan. Two writers discarding it at once is harmless,
-        since the breaker grants no access on its own and is taken exclusively.
-        """
-        try:
-            if time.time() - breaker_path.stat().st_mtime < self.LOCK_STALE_SECONDS:
-                return
-        except OSError:
-            return
-        with suppress(OSError):
-            breaker_path.unlink()
+        while not _try_acquire_exclusive_lock(descriptor):
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"Timed out waiting to write '{lock_path.name}'; another writer still holds it.")
+            time.sleep(self.LOCK_POLL_SECONDS)
 
     @staticmethod
     def _replace_file(*, path: Path, content: bytes) -> None:

@@ -105,6 +105,13 @@ describe('unknownPresetTechniques', () => {
 
     expect(unknownPresetTechniques(scenario, preset)).toEqual([])
   })
+
+  it('accepts a converter modifier on a technique the scenario does define', () => {
+    const scenario = makeScenario({ all_techniques: ['crescendo', 'default_technique'] })
+    const preset = makePreset({ techniques: ['crescendo:converter.translation_spanish'] })
+
+    expect(unknownPresetTechniques(scenario, preset)).toEqual([])
+  })
 })
 
 describe('defaultMaxDatasetSize', () => {
@@ -190,19 +197,29 @@ describe('presetToConfigState', () => {
     expect(state.dataTypesFilter).toBe('text')
   })
 
-  it('drops pinned techniques the scenario no longer offers', () => {
+  it('keeps pinned techniques the scenario no longer offers rather than rewriting the selection', () => {
     const scenario = makeScenario({ all_techniques: ['crescendo', 'default_technique'] })
     const state = presetToConfigState(
       scenario,
       makePreset({ techniques: ['crescendo', 'retired_attack'] }),
     )
 
-    expect(state.techniques).toEqual(['crescendo'])
+    expect(state.techniques).toEqual(['crescendo', 'retired_attack'])
   })
 
-  it('falls back to the scenario defaults when every pinned technique is gone', () => {
+  it('keeps a converter-qualified technique the selector renders no checkbox for', () => {
     const scenario = makeScenario({ all_techniques: ['crescendo', 'default_technique'] })
-    const state = presetToConfigState(scenario, makePreset({ techniques: ['retired_attack'] }))
+    const state = presetToConfigState(
+      scenario,
+      makePreset({ techniques: ['crescendo:converter.translation_spanish'] }),
+    )
+
+    expect(state.techniques).toEqual(['crescendo:converter.translation_spanish'])
+  })
+
+  it('falls back to the scenario defaults only when the preset pins nothing', () => {
+    const scenario = makeScenario({ all_techniques: ['crescendo', 'default_technique'] })
+    const state = presetToConfigState(scenario, makePreset({ techniques: [] }))
 
     expect(state.techniques).toEqual(['default_technique'])
   })

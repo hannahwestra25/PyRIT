@@ -253,7 +253,8 @@ describe('ScenarioPresetEditor edit mode', () => {
     expect(mockNavigate).not.toHaveBeenCalled()
   })
 
-  it('warns that pinned techniques this deployment lacks will be dropped', async () => {
+  it('keeps pinned techniques this deployment does not offer instead of rewriting them', async () => {
+    const user = userEvent.setup()
     mockGet.mockResolvedValue({
       preset: { ...STORED_PRESET, techniques: ['crescendo', 'retired_attack'] },
       version: 'v1',
@@ -265,9 +266,36 @@ describe('ScenarioPresetEditor edit mode', () => {
     expect(await screen.findByTestId('dropped-techniques-warning')).toHaveTextContent(
       'retired_attack',
     )
+    await user.click(screen.getByTestId('save-preset-btn'))
+
+    await waitFor(() => expect(mockUpdate).toHaveBeenCalledWith(
+      'nightly_probe',
+      expect.objectContaining({ techniques: ['crescendo', 'retired_attack'] }),
+      'v1',
+    ))
   })
 
-  it('keeps a pinned aggregate technique when a tag toggle changes the selection', async () => {
+  it('keeps a converter-qualified technique through an unrelated edit', async () => {
+    const user = userEvent.setup()
+    mockGet.mockResolvedValue({
+      preset: { ...STORED_PRESET, techniques: ['crescendo:converter.translation_spanish'] },
+      version: 'v1',
+      issues: [],
+    })
+
+    renderEdit()
+
+    await user.type(await screen.findByTestId('preset-description-input'), ' Updated.')
+    await user.click(screen.getByTestId('save-preset-btn'))
+
+    await waitFor(() => expect(mockUpdate).toHaveBeenCalledWith(
+      'nightly_probe',
+      expect.objectContaining({ techniques: ['crescendo:converter.translation_spanish'] }),
+      'v1',
+    ))
+  })
+
+  it('shows a pinned aggregate technique as a tag the operator can remove', async () => {
     const user = userEvent.setup()
     mockGet.mockResolvedValue({
       preset: { ...STORED_PRESET, techniques: ['all'] },
@@ -277,15 +305,17 @@ describe('ScenarioPresetEditor edit mode', () => {
 
     renderEdit()
 
-    expect(await screen.findByTestId('technique-crescendo')).not.toBeChecked()
+    expect(await screen.findByTestId('techniques-without-checkbox')).toHaveTextContent('all')
+    expect(screen.getByTestId('technique-crescendo')).not.toBeChecked()
     expect(screen.queryByTestId('dropped-techniques-warning')).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Select Multi-turn techniques' }))
+    await user.click(screen.getByRole('button', { name: 'Remove all' }))
     await user.click(screen.getByTestId('save-preset-btn'))
 
     await waitFor(() => expect(mockUpdate).toHaveBeenCalledWith(
       'nightly_probe',
-      expect.objectContaining({ techniques: ['all', 'crescendo'] }),
+      expect.objectContaining({ techniques: ['crescendo'] }),
       'v1',
     ))
   })

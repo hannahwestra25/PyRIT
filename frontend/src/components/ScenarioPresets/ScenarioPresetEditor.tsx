@@ -293,8 +293,8 @@ function ScenarioPresetEditorContent({ mode, presetName }: ScenarioPresetEditorC
           <MessageBar intent="warning" data-testid="dropped-techniques-warning">
             <MessageBarBody>
               This preset pins techniques this deployment does not offer
-              ({droppedTechniques.join(', ')}). Saving replaces them with the techniques
-              selected below.
+              ({droppedTechniques.join(', ')}). They are preserved on save — remove them
+              below if this preset should stop running them.
             </MessageBarBody>
           </MessageBar>
         )}

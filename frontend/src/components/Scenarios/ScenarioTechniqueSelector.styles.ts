@@ -27,6 +27,11 @@ export const useScenarioTechniqueSelectorStyles = makeStyles({
     flexDirection: 'column',
     gap: tokens.spacingVerticalS,
   },
+  pinnedTokens: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: tokens.spacingVerticalXS,
+  },
   techniqueOption: {
     display: 'grid',
     gridTemplateColumns: 'minmax(12rem, 35%) minmax(0, 1fr)',

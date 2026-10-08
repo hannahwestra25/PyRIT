@@ -78,8 +78,16 @@ class ResolveScenarioPresetRequest(BaseModel):
 
     A preset answers *what to test*; these answer *how and where*. Resolution is
     a union of the two, which is why nothing here overlaps a preset field.
+
+    ``expected_version`` is the exception: it is a precondition rather than a
+    launch field. A client that previewed a resolution sends the version it
+    previewed so an edit landing in between is reported instead of silently
+    launching a configuration the operator never saw.
     """
 
+    expected_version: str | None = Field(
+        None, description="Version the caller resolved against; omit to resolve whatever is stored now"
+    )
     target_name: str = Field(..., description="Name of a registered target from the TargetRegistry")
     adversarial_target_name: str | None = Field(
         None, description="Name of a registered adversarial target, when the scenario uses one"

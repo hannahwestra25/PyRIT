@@ -286,3 +286,34 @@ class TestResolvePreset:
         response = client.post(f"/api/scenario-presets/{PRESET_NAME}/resolve", json={})
 
         assert response.status_code == 422
+
+    def test_resolve_accepts_the_version_the_caller_read(self, client: TestClient, service: MagicMock) -> None:
+        service.get_preset_async = AsyncMock(return_value=_response(version="v1"))
+        service.resolve_run_request = ScenarioPresetService.resolve_run_request
+
+        response = client.post(
+            f"/api/scenario-presets/{PRESET_NAME}/resolve",
+            json={"target_name": "gpt4", "expected_version": "v1"},
+        )
+
+        assert response.status_code == 200
+
+    def test_a_preset_edited_after_it_was_read_is_a_conflict(self, client: TestClient, service: MagicMock) -> None:
+        service.get_preset_async = AsyncMock(return_value=_response(version="v2"))
+        service.resolve_run_request = ScenarioPresetService.resolve_run_request
+
+        response = client.post(
+            f"/api/scenario-presets/{PRESET_NAME}/resolve",
+            json={"target_name": "gpt4", "expected_version": "v1"},
+        )
+
+        assert response.status_code == 409
+        assert PRESET_NAME in response.json()["detail"]
+
+    def test_an_omitted_version_resolves_whatever_is_stored(self, client: TestClient, service: MagicMock) -> None:
+        service.get_preset_async = AsyncMock(return_value=_response(version="v9"))
+        service.resolve_run_request = ScenarioPresetService.resolve_run_request
+
+        response = client.post(f"/api/scenario-presets/{PRESET_NAME}/resolve", json={"target_name": "gpt4"})
+
+        assert response.status_code == 200

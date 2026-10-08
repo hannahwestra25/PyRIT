@@ -4,7 +4,7 @@
 """Tests for the scenario preset service."""
 
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -69,6 +69,15 @@ def _preset(name: str = "quick_scan", **overrides: object) -> ScenarioPreset:
     fields: dict[str, object] = {"name": name, "scenario_name": SCENARIO_NAME}
     fields.update(overrides)
     return ScenarioPreset(**fields)  # type: ignore[arg-type]
+
+
+def _converter_registry(*registered_names: str) -> MagicMock:
+    """Patch target standing in for the converter instances this deployment registered."""
+    registry = MagicMock()
+    registry.get_registry_singleton.return_value.instances.get.side_effect = (
+        lambda name: MagicMock() if name in registered_names else None
+    )
+    return registry
 
 
 class TestPresetCrud:
@@ -202,6 +211,41 @@ class TestAdvisoryValidation:
             saved = await service.save_preset_async(preset=_preset(techniques=["all"]), expected_version=None)
 
         assert saved.issues == []
+
+    async def test_a_converter_modifier_does_not_make_a_known_technique_look_unknown(
+        self, service: ScenarioPresetService, registered_scenario: RegisteredScenario
+    ) -> None:
+        with patch(
+            "pyrit.backend.services.scenario_preset_service.ConverterRegistry",
+            _converter_registry("translation_spanish"),
+        ):
+            saved = await service.save_preset_async(
+                preset=_preset(techniques=["crescendo:converter.translation_spanish"]), expected_version=None
+            )
+
+        assert saved.issues == []
+
+    async def test_a_converter_this_deployment_has_not_registered_is_reported(
+        self, service: ScenarioPresetService, registered_scenario: RegisteredScenario
+    ) -> None:
+        with patch("pyrit.backend.services.scenario_preset_service.ConverterRegistry", _converter_registry()):
+            saved = await service.save_preset_async(
+                preset=_preset(techniques=["crescendo:converter.translation_spanish"]), expected_version=None
+            )
+
+        assert [issue.field for issue in saved.issues] == ["techniques"]
+        assert "translation_spanish" in saved.issues[0].message
+
+    async def test_a_modifier_the_launch_path_cannot_parse_is_reported(
+        self, service: ScenarioPresetService, registered_scenario: RegisteredScenario
+    ) -> None:
+        with patch("pyrit.backend.services.scenario_preset_service.ConverterRegistry", _converter_registry()):
+            saved = await service.save_preset_async(
+                preset=_preset(techniques=["crescendo:scorer.refusal"]), expected_version=None
+            )
+
+        assert [issue.field for issue in saved.issues] == ["techniques"]
+        assert "scorer.refusal" in saved.issues[0].message
 
     async def test_undeclared_scenario_parameters_are_reported(
         self, service: ScenarioPresetService, registered_scenario: RegisteredScenario

@@ -830,6 +830,7 @@ export interface UpdateScenarioPresetRequest {
 
 /** The launch-owned fields a preset deliberately omits. */
 export interface ResolveScenarioPresetRequest {
+  expected_version?: string | null
   target_name: string
   adversarial_target_name?: string | null
   initializers?: string[] | null

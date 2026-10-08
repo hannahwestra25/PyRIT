@@ -49,15 +49,18 @@ const ADVERSARIAL_TARGET: TargetInstance = makeTarget({
 
 interface RenderOptions {
   preset?: ScenarioPreset
+  version?: string
   defaultObjectiveTarget?: TargetInstance | null
   defaultAdversarialTarget?: TargetInstance | null
   labels?: Record<string, string>
 }
 
 const onDismiss = jest.fn()
+const onPresetChanged = jest.fn()
 
 function renderDialog({
   preset = PRESET,
+  version = 'v1',
   defaultObjectiveTarget = OBJECTIVE_TARGET,
   defaultAdversarialTarget = null,
   labels = {},
@@ -67,11 +70,13 @@ function renderDialog({
       <MemoryRouter>
         <LaunchPresetDialog
           preset={preset}
+          version={version}
           targets={[OBJECTIVE_TARGET, ADVERSARIAL_TARGET]}
           defaultObjectiveTarget={defaultObjectiveTarget}
           defaultAdversarialTarget={defaultAdversarialTarget}
           labels={labels}
           onDismiss={onDismiss}
+          onPresetChanged={onPresetChanged}
         />
       </MemoryRouter>
     </FluentProvider>,
@@ -123,6 +128,7 @@ describe('LaunchPresetDialog', () => {
     await user.click(screen.getByTestId('confirm-launch-preset'))
 
     await waitFor(() => expect(mockResolve).toHaveBeenCalledWith('nightly_probe', {
+      expected_version: 'v1',
       target_name: 'gpt4o',
       max_concurrency: 10,
       max_retries: 0,
@@ -144,10 +150,27 @@ describe('LaunchPresetDialog', () => {
     await user.click(screen.getByTestId('confirm-launch-preset'))
 
     await waitFor(() => expect(mockResolve).toHaveBeenCalledWith('nightly_probe', {
+      expected_version: 'v1',
       target_name: 'gpt4o',
       max_concurrency: 10,
       max_retries: 0,
     }))
+  })
+
+  it('hands a preset edited mid-launch back to the library instead of running it', async () => {
+    const user = userEvent.setup()
+    mockResolve.mockRejectedValue({
+      isAxiosError: true,
+      response: { status: 409, data: { detail: "Scenario preset 'nightly_probe' changed since it was read" } },
+    })
+
+    renderDialog()
+
+    await user.click(screen.getByTestId('confirm-launch-preset'))
+
+    await waitFor(() => expect(onPresetChanged).toHaveBeenCalled())
+    expect(mockStartRun).not.toHaveBeenCalled()
+    expect(mockNavigate).not.toHaveBeenCalled()
   })
 
   it('sends the default adversarial target when one is configured', async () => {

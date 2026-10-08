@@ -279,11 +279,20 @@ export default function ScenarioPresetLibrary({
       {launching && (
         <LaunchPresetDialog
           preset={launching.preset}
+          version={launching.version}
           targets={targets}
           defaultObjectiveTarget={defaultObjectiveTarget}
           defaultAdversarialTarget={defaultAdversarialTarget}
           labels={labels}
           onDismiss={() => setLaunching(null)}
+          onPresetChanged={() => {
+            const changedName = launching.preset.name
+            setLaunching(null)
+            refresh()
+            setActionError(
+              `Preset '${changedName}' changed while you were launching it. Review it and launch again.`,
+            )
+          }}
         />
       )}
 
