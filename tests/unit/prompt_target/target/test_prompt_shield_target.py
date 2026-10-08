@@ -163,23 +163,21 @@ def test_init_raises_when_no_api_key_and_non_azure_endpoint(sqlite_instance):
     """No key + a non-Azure endpoint raises (identity auth only works for Azure endpoints)."""
     with patch.dict(os.environ, {}, clear=False):
         os.environ.pop("AZURE_CONTENT_SAFETY_API_KEY", None)
-        with pytest.raises(ValueError, match="API key is required for non-Azure"):
+        with pytest.raises(ValueError, match="No API key available"):
             PromptShieldTarget(endpoint="https://test.endpoint.com", api_key=None)
 
 
-def test_init_uses_identity_token_provider_for_azure_endpoint(sqlite_instance):
-    """No key + a recognized Azure Content Safety endpoint falls back to an Entra ID token provider."""
-    token_provider = MagicMock(return_value="minted-token")
+def test_init_raises_when_no_api_key_on_azure_endpoint(sqlite_instance):
+    """A recognized Azure endpoint no longer auto-mints a token; identity must be explicit."""
     with patch.dict(os.environ, {}, clear=False):
         os.environ.pop("AZURE_CONTENT_SAFETY_API_KEY", None)
         with patch(
             "pyrit.prompt_target.prompt_shield_target.get_azure_token_provider",
-            return_value=token_provider,
         ) as mock_provider:
-            target = PromptShieldTarget(endpoint="https://myresource.cognitiveservices.azure.com", api_key=None)
+            with pytest.raises(ValueError, match="No API key available"):
+                PromptShieldTarget(endpoint="https://myresource.cognitiveservices.azure.com", api_key=None)
 
-    mock_provider.assert_called_once_with("https://cognitiveservices.azure.com/.default")
-    assert target._api_key is token_provider
+    mock_provider.assert_not_called()
 
 
 def test_supported_auth_modes_includes_identity():

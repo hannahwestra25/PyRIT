@@ -98,23 +98,40 @@ def test_api_key_mode_wraps_callable_before_reading_env_var():
     assert resolved is not sync_provider
 
 
-def test_api_key_mode_falls_back_to_entra_when_no_key(minted_provider):
-    provider, _ = minted_provider
+def test_api_key_mode_raises_when_no_key_available(minted_provider):
+    """api_key mode no longer mints an Entra token just because the endpoint looks like Azure."""
+    _, mock_auth = minted_provider
     with patch.dict(os.environ, {API_KEY_ENV_VAR: ""}):
-        resolved = resolve_openai_auth(
-            endpoint=AZURE_ENDPOINT,
-            api_key=None,
-            api_key_environment_variable=API_KEY_ENV_VAR,
-        )
+        with pytest.raises(ValueError, match="No API key available"):
+            resolve_openai_auth(
+                endpoint=AZURE_ENDPOINT,
+                api_key=None,
+                api_key_environment_variable=API_KEY_ENV_VAR,
+            )
 
-    assert resolved is provider
+    mock_auth.assert_not_called()
 
 
 def test_api_key_mode_raises_for_non_azure_endpoint_without_key():
     with patch.dict(os.environ, {API_KEY_ENV_VAR: ""}):
-        with pytest.raises(ValueError, match="is required for non-Azure endpoints"):
+        with pytest.raises(ValueError, match="No API key available"):
             resolve_openai_auth(
                 endpoint=NON_AZURE_ENDPOINT,
                 api_key=None,
                 api_key_environment_variable=API_KEY_ENV_VAR,
             )
+
+
+def test_api_key_mode_error_names_the_identity_migration():
+    """The break is only safe if the error tells the caller how to opt into identity."""
+    with patch.dict(os.environ, {API_KEY_ENV_VAR: ""}):
+        with pytest.raises(ValueError) as exc_info:
+            resolve_openai_auth(
+                endpoint=AZURE_ENDPOINT,
+                api_key=None,
+                api_key_environment_variable=API_KEY_ENV_VAR,
+            )
+
+    message = str(exc_info.value)
+    assert 'auth_mode="identity"' in message
+    assert API_KEY_ENV_VAR in message

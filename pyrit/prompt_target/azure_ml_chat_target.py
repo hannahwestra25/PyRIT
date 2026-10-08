@@ -197,13 +197,13 @@ class AzureMLChatTarget(PromptTarget):
                 ``AZURE_ML_KEY`` env variable.
             auth_mode (AuthMode): ``"identity"`` mints a Microsoft Entra ID token and ignores
                 ``api_key`` and the ``AZURE_ML_KEY`` environment variable entirely. ``"api_key"``
-                (the default) keeps the historical resolution order.
+                (the default) resolves a token-provider callable, then an explicit key, then the
+                environment variable.
 
         Raises:
             ValueError: If identity auth is requested for an endpoint that is not a recognized
-                Azure ML managed online endpoint, or if no api_key is supplied (via parameter or
-                environment variable) and the endpoint is not a recognized Azure ML managed
-                online endpoint for which Entra ID authentication can be used.
+                Azure ML managed online endpoint, or if ``"api_key"`` auth is requested and no key
+                is available via parameter or environment variable.
         """
         self._endpoint = default_values.get_required_value(
             env_var_name=self.endpoint_uri_environment_variable, passed_value=endpoint
@@ -238,18 +238,11 @@ class AzureMLChatTarget(PromptTarget):
             self._api_key = api_key_value
             return
 
-        # No key supplied: fall back to Microsoft Entra ID, but only for a
-        # recognized AML managed online endpoint so a bearer token is never
-        # minted for an arbitrary host.
-        if is_azure_ml_endpoint(self._endpoint):
-            self._api_key_provider = self._build_azure_ml_token_provider()
-            self._api_key = ""
-            return
-
         raise ValueError(
-            f"Environment variable {self.api_key_environment_variable} is required unless the endpoint is a "
-            "recognized Azure ML managed online endpoint (*.inference.ml.azure.com), for which Entra ID "
-            "authentication is used automatically. Pass an api_key or a token provider callable instead."
+            f"No API key available for endpoint '{self._endpoint}'. Set the "
+            f"{self.api_key_environment_variable} environment variable, pass api_key (a key or a token "
+            'provider callable), or pass auth_mode="identity" to authenticate with Microsoft Entra ID on a '
+            "recognized Azure ML managed online endpoint (*.inference.ml.azure.com)."
         )
 
     def _build_azure_ml_token_provider(self) -> Callable[[], Awaitable[str]]:

@@ -55,25 +55,18 @@ def test_initialization_with_no_api_raises():
         AzureMLChatTarget(api_key="xxxxx")
 
 
-def test_no_key_recognized_aml_endpoint_auto_mints_entra(patch_central_database):
-    """With no key and a recognized *.inference.ml.azure.com endpoint, the target
-    auto-mints an Entra token provider for the AML scope."""
-
-    async def _provider() -> str:
-        return "aml-entra-token"
-
+def test_no_key_recognized_aml_endpoint_raises(patch_central_database):
+    """A recognized AML endpoint no longer auto-mints a token; identity must be explicit."""
     with (
         patch.dict(os.environ, {AzureMLChatTarget.api_key_environment_variable: ""}),
         patch(
             "pyrit.prompt_target.azure_ml_chat_target.get_azure_async_token_provider",
-            return_value=_provider,
         ) as mock_provider,
     ):
-        target = AzureMLChatTarget(endpoint="https://my-aml.region.inference.ml.azure.com/score")
+        with pytest.raises(ValueError, match="No API key available"):
+            AzureMLChatTarget(endpoint="https://my-aml.region.inference.ml.azure.com/score")
 
-    mock_provider.assert_called_once_with(AzureMLChatTarget._AZURE_ML_SCOPE)
-    assert target._api_key_provider is _provider
-    assert target._api_key == ""
+    mock_provider.assert_not_called()
 
 
 def test_identity_auth_mode_ignores_env_key(patch_central_database):

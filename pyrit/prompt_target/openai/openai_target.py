@@ -103,9 +103,7 @@ class OpenAITarget(PromptTarget):
             endpoint (str, Optional): The target URL for the OpenAI service.
             api_key (str | Callable[[], str | Awaitable[str]], Optional): The API key for accessing the
                 OpenAI service, or a callable that returns an access token (sync or async).
-                For recognized Azure OpenAI / AI Foundry endpoints, if no API key is provided
-                (via parameter or environment variable), Entra ID authentication is used automatically.
-                You can also explicitly pass a token provider from pyrit.auth
+                You can pass a token provider from pyrit.auth
                 (e.g., get_azure_openai_auth(endpoint) for async, or get_azure_token_provider(scope) for sync).
                 Synchronous token providers are automatically wrapped to work with async clients.
                 Defaults to the target-specific API key environment variable.
@@ -129,9 +127,8 @@ class OpenAITarget(PromptTarget):
 
         Raises:
             ValueError: If identity auth is requested for an endpoint that is not a recognized
-                Azure OpenAI / AI Foundry endpoint, or if no API key is provided (via parameter or
-                environment variable) and the endpoint is not a recognized Azure OpenAI /
-                AI Foundry endpoint.
+                Azure OpenAI / AI Foundry endpoint, or if ``"api_key"`` auth is requested and no
+                key is available via parameter or environment variable.
         """
         self._headers: dict[str, str] = {}
         self._httpx_client_kwargs = httpx_client_kwargs or {}

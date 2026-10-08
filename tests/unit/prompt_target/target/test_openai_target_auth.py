@@ -74,22 +74,22 @@ class TestOpenAITargetAuthResolution:
 
     def test_non_azure_endpoint_without_key_raises(self):
         """Non-Azure endpoints must have an API key; otherwise ValueError is raised."""
-        with pytest.raises(ValueError, match="TEST_API_KEY is required for non-Azure endpoints"):
+        with pytest.raises(ValueError, match="No API key available"):
             _build_target(
                 endpoint="https://api.openai.com/v1",
                 api_key=None,
             )
 
-    def test_azure_endpoint_falls_back_to_entra(self):
-        """Azure endpoints without a key fall back to get_azure_openai_auth."""
-        mock_auth = AsyncMock(return_value="entra-token")
-        with patch("pyrit.auth.openai_auth.get_azure_openai_auth", return_value=mock_auth):
-            target = _build_target(
-                endpoint="https://myresource.openai.azure.com/openai/v1",
-                api_key=None,
-            )
-        # The api_key should be the async callable returned by get_azure_openai_auth
-        assert target._api_key is mock_auth
+    def test_azure_endpoint_without_key_raises(self):
+        """Azure endpoints no longer fall back to Entra implicitly; identity must be explicit."""
+        with patch("pyrit.auth.openai_auth.get_azure_openai_auth") as mock_auth:
+            with pytest.raises(ValueError, match="No API key available"):
+                _build_target(
+                    endpoint="https://myresource.openai.azure.com/openai/v1",
+                    api_key=None,
+                )
+
+        mock_auth.assert_not_called()
 
     def test_callable_token_provider_bypasses_env_lookup(self):
         """A callable api_key is used directly without checking env vars."""

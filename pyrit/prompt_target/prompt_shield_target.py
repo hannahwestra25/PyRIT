@@ -106,7 +106,7 @@ class PromptShieldTarget(PromptTarget):
         Raises:
             ValueError: If the endpoint value is not provided, if identity auth is requested for
                 an endpoint that is not a recognized Azure Content Safety endpoint, or if no API key
-                is provided for a non-Azure Content Safety endpoint.
+                is available for ``"api_key"`` auth.
         """
         endpoint_value = default_values.get_required_value(
             env_var_name=self.ENDPOINT_URI_ENVIRONMENT_VARIABLE, passed_value=endpoint
@@ -121,9 +121,7 @@ class PromptShieldTarget(PromptTarget):
 
         self._api_version = api_version or "2024-09-01"
 
-        # Resolve authentication: an explicit key or token-provider callable, the
-        # env var, or — for a recognized Azure Content Safety endpoint with no key —
-        # an Entra ID token provider minted for the endpoint (identity-based auth).
+        # Resolve authentication: an explicit key or token-provider callable, or the env var.
         # Identity is an explicit caller choice, so it must never be silently downgraded
         # to a key that merely happens to be present in the environment.
         if auth_mode == "identity":
@@ -142,13 +140,12 @@ class PromptShieldTarget(PromptTarget):
             )
             if api_key_value:
                 self._api_key = api_key_value
-            elif is_azure_openai_endpoint(endpoint_value):
-                self._api_key = get_azure_token_provider(get_default_azure_scope(endpoint_value))
             else:
                 raise ValueError(
-                    "API key is required for non-Azure Content Safety endpoints. For recognized Azure "
-                    "endpoints (*.cognitiveservices.azure.com), identity-based authentication is used "
-                    "automatically."
+                    f"No API key available for endpoint '{endpoint_value}'. Set the "
+                    f"{self.API_KEY_ENVIRONMENT_VARIABLE} environment variable, pass api_key (a key or a "
+                    'token provider callable), or pass auth_mode="identity" to authenticate with Microsoft '
+                    "Entra ID on a recognized Azure Content Safety endpoint (*.cognitiveservices.azure.com)."
                 )
 
         self._force_entry_field: PromptShieldEntryField = field
