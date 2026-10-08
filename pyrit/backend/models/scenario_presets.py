@@ -15,6 +15,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from pyrit.models.catalog.scenario import ScenarioRunSizeEstimate
 from pyrit.models.catalog.scenario_preset import ScenarioPreset
 
 __all__ = [
@@ -48,6 +49,14 @@ class ScenarioPresetResponse(BaseModel):
     issues: list[PresetIssue] = Field(
         default_factory=list,
         description="Advisory problems resolving this preset against the live registry; empty when it is runnable",
+    )
+    run_size: ScenarioRunSizeEstimate | None = Field(
+        None,
+        description=(
+            "Run size for this preset's own techniques, datasets, and limits rather than the scenario default. "
+            "Only the list endpoint fills this in, and only when estimates are requested; it stays None for a "
+            "preset that cannot be resolved in this deployment."
+        ),
     )
 
 

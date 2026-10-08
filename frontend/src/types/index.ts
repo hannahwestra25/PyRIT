@@ -796,6 +796,8 @@ export interface ScenarioPreset {
   name: string
   scenario_name: string
   description?: string | null
+  /** Who created the preset. Descriptive only; never used to authorize a read or a write. */
+  author?: string | null
   techniques?: string[] | null
   dataset_names?: string[] | null
   max_dataset_size?: number | null
@@ -816,6 +818,12 @@ export interface ScenarioPresetResponse {
   version: string
   /** Empty when the preset is runnable here. Never blocks a save. */
   issues: PresetIssue[]
+  /**
+   * How much this preset runs with its own techniques, datasets, and limits.
+   * Only the list endpoint fills this in, and only when estimates are requested;
+   * it stays null for a preset this deployment cannot resolve.
+   */
+  run_size?: ScenarioRunSizeEstimateResponse | null
 }
 
 export interface ScenarioPresetListResponse {

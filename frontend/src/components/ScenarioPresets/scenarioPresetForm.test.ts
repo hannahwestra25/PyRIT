@@ -296,6 +296,27 @@ describe('configToPreset', () => {
     expect(preset.description).toBe('nightly')
   })
 
+  it('keeps the author the server stamped at create', () => {
+    const scenario = makeScenario()
+    const preset = configToPreset(
+      IDENTITY,
+      buildConfig(),
+      {
+        scenario,
+        previous: { name: 'nightly', scenario_name: scenario.scenario_name, author: 'Ada Lovelace' },
+      },
+    )
+
+    expect(preset.author).toBe('Ada Lovelace')
+  })
+
+  it('leaves the author unset on create so the server can stamp it', () => {
+    const scenario = makeScenario()
+    const preset = configToPreset(IDENTITY, buildConfig(), { scenario, previous: null })
+
+    expect(preset).not.toHaveProperty('author')
+  })
+
   it('carries only the fields the operator moved off the scenario default', () => {
     const scenario = makeScenario()
     const preset = configToPreset(IDENTITY, buildConfig(), { scenario, previous: null })

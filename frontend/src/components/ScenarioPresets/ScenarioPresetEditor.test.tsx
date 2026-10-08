@@ -54,9 +54,9 @@ function apiError(status: number, detail: string): unknown {
 function renderCreate() {
   return render(
     <FluentProvider theme={webLightTheme}>
-      <MemoryRouter initialEntries={['/scanner/presets/new']}>
+      <MemoryRouter initialEntries={['/registry/scenario-presets/new']}>
         <Routes>
-          <Route path="/scanner/presets/new" element={<ScenarioPresetEditor mode="create" />} />
+          <Route path="/registry/scenario-presets/new" element={<ScenarioPresetEditor mode="create" />} />
         </Routes>
       </MemoryRouter>
     </FluentProvider>,
@@ -66,10 +66,10 @@ function renderCreate() {
 function renderEdit(name = 'nightly_probe') {
   return render(
     <FluentProvider theme={webLightTheme}>
-      <MemoryRouter initialEntries={[`/scanner/presets/${name}/edit`]}>
+      <MemoryRouter initialEntries={[`/registry/scenario-presets/${name}/edit`]}>
         <Routes>
           <Route
-            path="/scanner/presets/:presetName/edit"
+            path="/registry/scenario-presets/:presetName/edit"
             element={<ScenarioPresetEditor mode="edit" />}
           />
         </Routes>
@@ -114,7 +114,7 @@ describe('ScenarioPresetEditor create mode', () => {
       scenario_name: 'foundry.red_team_agent',
     }))
     expect(mockUpdate).not.toHaveBeenCalled()
-    expect(mockNavigate).toHaveBeenCalledWith('/scanner/presets')
+    expect(mockNavigate).toHaveBeenCalledWith('/registry/scenario-presets')
   })
 
   it('pins a technique selection the operator moved off the scenario default', async () => {
@@ -239,7 +239,7 @@ describe('ScenarioPresetEditor edit mode', () => {
       'v1',
     ))
     expect(mockCreate).not.toHaveBeenCalled()
-    expect(mockNavigate).toHaveBeenCalledWith('/scanner/presets')
+    expect(mockNavigate).toHaveBeenCalledWith('/registry/scenario-presets')
   })
 
   it('reports a version conflict instead of navigating away', async () => {
@@ -445,7 +445,7 @@ describe('ScenarioPresetEditor edit mode', () => {
     await user.click(await screen.findByRole('button', { name: 'Cancel' }))
 
     expect(mockUpdate).not.toHaveBeenCalled()
-    expect(mockNavigate).toHaveBeenCalledWith('/scanner/presets')
+    expect(mockNavigate).toHaveBeenCalledWith('/registry/scenario-presets')
   })
 
   it('returns to the library from the not-found state', async () => {
@@ -456,7 +456,7 @@ describe('ScenarioPresetEditor edit mode', () => {
 
     await user.click(await screen.findByRole('button', { name: 'Back to presets' }))
 
-    expect(mockNavigate).toHaveBeenCalledWith('/scanner/presets')
+    expect(mockNavigate).toHaveBeenCalledWith('/registry/scenario-presets')
   })
 
   it('reports a catalog failure that is not a missing preset as an error', async () => {

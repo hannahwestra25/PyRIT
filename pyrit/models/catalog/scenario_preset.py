@@ -41,6 +41,12 @@ class ScenarioPreset(BaseModel):
     because an absent field is a meaningful state, a misspelled key would otherwise parse
     cleanly and leave the preset silently testing the scenario default instead of the
     value the file plainly states.
+
+    ``description`` and ``author`` describe the preset rather than configure the run, so
+    they are not tri-state: an absent value means unknown, not "use the scenario default".
+    ``author`` is filled in from the signed-in user when a preset is created through the
+    API and is informational only — these documents are hand-editable, so it records
+    provenance rather than proving it.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -48,6 +54,10 @@ class ScenarioPreset(BaseModel):
     name: str = Field(..., description="Unique preset name, used as the storage key and as the reference from scans")
     scenario_name: _RequestName = Field(..., min_length=1, description="Registered scenario this preset configures")
     description: str | None = Field(None, description="Human-readable summary of what this preset tests")
+    author: str | None = Field(
+        None,
+        description="Who created this preset; descriptive only, never used to authorize a read or a write",
+    )
     techniques: _RequestTechniques | None = Field(None, description="Technique names; None uses the scenario default")
     dataset_names: _RequestNames | None = Field(None, description="Dataset names; None uses the scenario default")
     max_dataset_size: int | None = Field(None, ge=1, description="Maximum selected logical seed groups")

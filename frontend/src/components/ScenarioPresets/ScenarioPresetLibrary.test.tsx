@@ -4,7 +4,12 @@ import { FluentProvider, webLightTheme } from '@fluentui/react-components'
 import { MemoryRouter } from 'react-router'
 
 import { scenarioPresetsApi } from '@/services/api'
-import type { PresetIssue, ScenarioPreset, ScenarioPresetResponse } from '@/types'
+import type {
+  PresetIssue,
+  ScenarioPreset,
+  ScenarioPresetResponse,
+  ScenarioRunSizeEstimateResponse,
+} from '@/types'
 
 import ScenarioPresetLibrary from './ScenarioPresetLibrary'
 
@@ -38,8 +43,21 @@ const NIGHTLY_PRESET: ScenarioPreset = {
 function makeItem(
   preset: ScenarioPreset = NIGHTLY_PRESET,
   issues: PresetIssue[] = [],
+  runSize: ScenarioRunSizeEstimateResponse | null = null,
 ): ScenarioPresetResponse {
-  return { preset, version: 'v1', issues }
+  return { preset, version: 'v1', issues, run_size: runSize }
+}
+
+function makeRunSize(attacks: number): ScenarioRunSizeEstimateResponse {
+  return {
+    status: 'exact',
+    dataset_size: { kind: 'bounded', value: attacks },
+    dataset_limit: { state: 'value', value: attacks },
+    estimated_attack_count: attacks,
+    components: [{ label: 'Crescendo', count: attacks, is_baseline: false, note: null }],
+    datasets: [],
+    note: null,
+  }
 }
 
 function renderLibrary() {
@@ -81,9 +99,10 @@ describe('ScenarioPresetLibrary', () => {
 
     renderLibrary()
 
-    expect(await screen.findByTestId('preset-card-nightly_probe')).toBeInTheDocument()
-    expect(screen.getByText('foundry.red_team_agent · 1 technique')).toBeInTheDocument()
-    expect(screen.getByTestId('preset-card-weekly_probe')).toBeInTheDocument()
+    const row = await screen.findByTestId('preset-row-nightly_probe')
+    expect(within(row).getByText('foundry.red_team_agent')).toBeInTheDocument()
+    expect(within(row).getByText('1 technique')).toBeInTheDocument()
+    expect(screen.getByTestId('preset-row-weekly_probe')).toBeInTheDocument()
   })
 
   it('reports scenario default techniques when the preset pins none', async () => {
@@ -94,9 +113,71 @@ describe('ScenarioPresetLibrary', () => {
 
     renderLibrary()
 
+    expect(await screen.findByText('Scenario default techniques')).toBeInTheDocument()
+  })
+
+  it('shows the run size the preset itself produces', async () => {
+    mockList.mockResolvedValue({
+      source: 'presets.yaml',
+      items: [makeItem(NIGHTLY_PRESET, [], makeRunSize(24))],
+    })
+
+    renderLibrary()
+
+    const cell = await screen.findByTestId('preset-run-size-nightly_probe')
+    await waitFor(() => expect(within(cell).getByText('24 attacks')).toBeInTheDocument())
+  })
+
+  it('paints the table from an unsized read before asking for run sizes', async () => {
+    mockList.mockResolvedValue({
+      source: 'presets.yaml',
+      items: [makeItem(NIGHTLY_PRESET, [], makeRunSize(24))],
+    })
+
+    renderLibrary()
+
+    await screen.findByTestId('preset-row-nightly_probe')
+    await waitFor(() => expect(mockList).toHaveBeenCalledTimes(2))
+    expect(mockList.mock.calls[0][1]).toBe(false)
+    expect(mockList.mock.calls[1][1]).toBeUndefined()
+  })
+
+  it('leaves the run size blank for a preset this deployment cannot size', async () => {
+    mockList.mockResolvedValue({ source: 'presets.yaml', items: [makeItem()] })
+
+    renderLibrary()
+
+    const cell = await screen.findByTestId('preset-run-size-nightly_probe')
+    await waitFor(() => expect(within(cell).getByText('—')).toBeInTheDocument())
+  })
+
+  it('keeps the table usable when run sizes cannot be calculated', async () => {
+    mockList
+      .mockResolvedValueOnce({ source: 'presets.yaml', items: [makeItem()] })
+      .mockRejectedValueOnce(new Error('sizing unavailable'))
+
+    renderLibrary()
+
+    expect(await screen.findByTestId('preset-row-nightly_probe')).toBeInTheDocument()
     expect(
-      await screen.findByText('foundry.red_team_agent · Scenario default techniques'),
+      await screen.findByText('Run sizes could not be calculated: sizing unavailable'),
     ).toBeInTheDocument()
+  })
+
+  it('attributes a preset to its author and leaves the column blank without one', async () => {
+    mockList.mockResolvedValue({
+      source: 'presets.yaml',
+      items: [
+        makeItem({ ...NIGHTLY_PRESET, author: 'Ada Lovelace' }),
+        makeItem({ name: 'weekly_probe', scenario_name: 'foundry.encoding' }),
+      ],
+    })
+
+    renderLibrary()
+
+    const authored = await screen.findByTestId('preset-author-nightly_probe')
+    expect(within(authored).getByText('Ada Lovelace')).toBeInTheDocument()
+    expect(within(screen.getByTestId('preset-author-weekly_probe')).getByText('—')).toBeInTheDocument()
   })
 
   it('disables launch for an unresolvable preset and names the missing reference', async () => {
@@ -135,7 +216,7 @@ describe('ScenarioPresetLibrary', () => {
     mockList.mockResolvedValue({ source: 'presets.yaml', items: [makeItem()] })
     await user.click(screen.getByTestId('retry-btn'))
 
-    expect(await screen.findByTestId('preset-card-nightly_probe')).toBeInTheDocument()
+    expect(await screen.findByTestId('preset-row-nightly_probe')).toBeInTheDocument()
   })
 
   it('requires confirmation before deleting and refreshes afterwards', async () => {
@@ -167,7 +248,7 @@ describe('ScenarioPresetLibrary', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Cancel' }))
 
     expect(mockRemove).not.toHaveBeenCalled()
-    expect(screen.getByTestId('preset-card-nightly_probe')).toBeInTheDocument()
+    expect(screen.getByTestId('preset-row-nightly_probe')).toBeInTheDocument()
   })
 
   it('reports a delete failure without removing the card', async () => {
@@ -182,7 +263,7 @@ describe('ScenarioPresetLibrary', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Delete' }))
 
     expect(await screen.findByText('Admin access required.')).toBeInTheDocument()
-    expect(screen.getByTestId('preset-card-nightly_probe')).toBeInTheDocument()
+    expect(screen.getByTestId('preset-row-nightly_probe')).toBeInTheDocument()
   })
 
   it('navigates to the editor for create and edit', async () => {
@@ -192,10 +273,10 @@ describe('ScenarioPresetLibrary', () => {
     renderLibrary()
 
     await user.click(await screen.findByTestId('edit-preset-nightly_probe'))
-    expect(mockNavigate).toHaveBeenCalledWith('/scanner/presets/nightly_probe/edit')
+    expect(mockNavigate).toHaveBeenCalledWith('/registry/scenario-presets/nightly_probe/edit')
 
     await user.click(screen.getByTestId('new-preset-btn'))
-    expect(mockNavigate).toHaveBeenCalledWith('/scanner/presets/new')
+    expect(mockNavigate).toHaveBeenCalledWith('/registry/scenario-presets/new')
   })
 
   it('opens the launch dialog only for a runnable preset', async () => {

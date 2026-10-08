@@ -11,7 +11,7 @@ from azure.core.exceptions import AzureError
 from fastapi.testclient import TestClient
 
 from pyrit.backend.main import app
-from pyrit.backend.middleware.auth import require_admin
+from pyrit.backend.middleware.auth import current_user_name, require_admin
 from pyrit.backend.models.scenario_presets import (
     PresetIssue,
     ScenarioPresetListResponse,
@@ -21,7 +21,8 @@ from pyrit.backend.services.scenario_preset_service import (
     ScenarioPresetNotFoundError,
     ScenarioPresetService,
 )
-from pyrit.models.catalog import ScenarioPreset
+from pyrit.models.catalog import ScenarioPreset, ScenarioRunSizeEstimate
+from pyrit.models.catalog.scenario import ScenarioRunSizeComponent
 from pyrit.registry import ScenarioPresetConflictError
 
 PRESET_NAME = "quick_scan"
@@ -55,14 +56,38 @@ def service() -> Iterator[MagicMock]:
         yield mock_service
 
 
+@pytest.fixture
+def signed_in_user() -> Iterator[None]:
+    """Report a signed-in user to routes that record one."""
+    app.dependency_overrides[current_user_name] = lambda: "Ada Lovelace"
+    try:
+        yield
+    finally:
+        app.dependency_overrides.pop(current_user_name, None)
+
+
+def _estimate(count: int) -> ScenarioRunSizeEstimate:
+    """Build an exact run-size estimate of *count* attacks."""
+    return ScenarioRunSizeEstimate(
+        estimated_attack_count=count,
+        components=[ScenarioRunSizeComponent(label="Preset sweep", count=count)],
+    )
+
+
 def _preset(name: str = PRESET_NAME) -> ScenarioPreset:
     """Build a minimal preset."""
     return ScenarioPreset(name=name, scenario_name=SCENARIO_NAME)
 
 
-def _response(*, name: str = PRESET_NAME, version: str = "v1", issues: list[PresetIssue] | None = None):
+def _response(
+    *,
+    name: str = PRESET_NAME,
+    version: str = "v1",
+    issues: list[PresetIssue] | None = None,
+    run_size: ScenarioRunSizeEstimate | None = None,
+):
     """Build a preset response envelope."""
-    return ScenarioPresetResponse(preset=_preset(name), version=version, issues=issues or [])
+    return ScenarioPresetResponse(preset=_preset(name), version=version, issues=issues or [], run_size=run_size)
 
 
 class TestListPresets:
@@ -105,6 +130,28 @@ class TestListPresets:
 
         assert response.status_code == 503
         assert "secret" not in response.text
+
+    def test_each_preset_carries_its_own_run_size(self, client: TestClient, service: MagicMock) -> None:
+        estimate = _estimate(42)
+        service.list_presets_async = AsyncMock(
+            return_value=ScenarioPresetListResponse(source="/tmp", items=[_response(run_size=estimate)])
+        )
+
+        response = client.get("/api/scenario-presets")
+
+        assert response.json()["items"][0]["run_size"]["total_attack_count"] == 42
+        assert service.list_presets_async.call_args.kwargs["include_estimates"] is True
+
+    def test_sizing_can_be_skipped_so_the_table_paints_first(self, client: TestClient, service: MagicMock) -> None:
+        service.list_presets_async = AsyncMock(
+            return_value=ScenarioPresetListResponse(source="/tmp", items=[_response()])
+        )
+
+        response = client.get("/api/scenario-presets", params={"include_estimates": "false"})
+
+        assert response.status_code == 200
+        assert response.json()["items"][0]["run_size"] is None
+        assert service.list_presets_async.call_args.kwargs["include_estimates"] is False
 
 
 class TestGetPreset:
@@ -169,6 +216,33 @@ class TestCreatePreset:
         response = client.post("/api/scenario-presets", json=payload)
 
         assert response.status_code == 422
+
+    @pytest.mark.usefixtures("signed_in_user")
+    def test_the_signed_in_user_is_recorded_as_the_author(self, client: TestClient, service: MagicMock) -> None:
+        service.save_preset_async = AsyncMock(return_value=_response())
+
+        client.post("/api/scenario-presets", json=_preset().model_dump())
+
+        assert service.save_preset_async.call_args.kwargs["preset"].author == "Ada Lovelace"
+
+    @pytest.mark.usefixtures("signed_in_user")
+    def test_an_author_in_the_body_survives_import(self, client: TestClient, service: MagicMock) -> None:
+        service.save_preset_async = AsyncMock(return_value=_response())
+        payload = _preset().model_dump()
+        payload["author"] = "Grace Hopper"
+
+        client.post("/api/scenario-presets", json=payload)
+
+        assert service.save_preset_async.call_args.kwargs["preset"].author == "Grace Hopper"
+
+    def test_an_unauthenticated_deployment_leaves_the_author_unset(
+        self, client: TestClient, service: MagicMock
+    ) -> None:
+        service.save_preset_async = AsyncMock(return_value=_response())
+
+        client.post("/api/scenario-presets", json=_preset().model_dump())
+
+        assert service.save_preset_async.call_args.kwargs["preset"].author is None
 
 
 class TestUpdatePreset:

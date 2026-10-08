@@ -566,8 +566,13 @@ export const scenariosApi = {
 }
 
 export const scenarioPresetsApi = {
-  list: async (signal?: AbortSignal): Promise<ScenarioPresetListResponse> => {
-    const response = await apiClient.get('/scenario-presets', { signal })
+  list: async (
+    signal?: AbortSignal,
+    includeEstimates = true,
+  ): Promise<ScenarioPresetListResponse> => {
+    const params: Record<string, boolean> = {}
+    if (!includeEstimates) params.include_estimates = false
+    const response = await apiClient.get('/scenario-presets', { params, signal })
     return response.data
   },
 

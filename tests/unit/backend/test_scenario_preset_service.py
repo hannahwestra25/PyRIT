@@ -4,11 +4,13 @@
 """Tests for the scenario preset service."""
 
 from pathlib import Path
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from pyrit.backend.models.scenario_presets import ResolveScenarioPresetRequest
+from pyrit.backend.services import scenario_preset_service as preset_service_module
 from pyrit.backend.services.scenario_preset_service import (
     ScenarioPresetNotFoundError,
     ScenarioPresetService,
@@ -16,7 +18,7 @@ from pyrit.backend.services.scenario_preset_service import (
 )
 from pyrit.models import Parameter
 from pyrit.models.catalog import RegisteredScenario, ScenarioPreset
-from pyrit.models.catalog.scenario import ScenarioRunSizeEstimate
+from pyrit.models.catalog.scenario import ScenarioRunSizeComponent, ScenarioRunSizeEstimate
 from pyrit.registry import ScenarioPresetConflictError
 
 SCENARIO_NAME = "foundry.red_team_agent"
@@ -47,6 +49,14 @@ def _registered_scenario(
     )
 
 
+def _estimate(count: int) -> ScenarioRunSizeEstimate:
+    """Build an exact run-size estimate of *count* attacks."""
+    return ScenarioRunSizeEstimate(
+        estimated_attack_count=count,
+        components=[ScenarioRunSizeComponent(label="Preset sweep", count=count)],
+    )
+
+
 @pytest.fixture
 def service(tmp_path: Path) -> ScenarioPresetService:
     """Create a service backed by an isolated preset directory."""
@@ -61,7 +71,14 @@ def registered_scenario() -> RegisteredScenario:
     scenario = _registered_scenario()
     with patch("pyrit.backend.services.scenario_preset_service.get_scenario_service") as mock_factory:
         mock_factory.return_value.get_scenario_async = AsyncMock(return_value=scenario)
+        mock_factory.return_value.estimate_scenario_run_size_async = AsyncMock(return_value=_estimate(12))
         yield scenario
+
+
+@pytest.fixture
+def scenario_service(registered_scenario: RegisteredScenario) -> MagicMock:
+    """Return the scenario service the preset service calls while it is patched."""
+    return cast("MagicMock", preset_service_module.get_scenario_service())
 
 
 def _preset(name: str = "quick_scan", **overrides: object) -> ScenarioPreset:
@@ -353,6 +370,105 @@ class TestRunRequestResolution:
         assert resolved.initializers == ["scorer"]
         assert resolved.initializer_args == {"scorer": {"threshold": 0.5}}
         assert resolved.labels == {"operator": "red"}
+
+
+class TestRunSizeEstimates:
+    """Sizing a preset against its own configuration rather than the scenario default."""
+
+    async def test_every_listed_preset_carries_its_own_size(
+        self, service: ScenarioPresetService, scenario_service: MagicMock
+    ) -> None:
+        await service.save_preset_async(preset=_preset(), expected_version=None)
+
+        response = await service.list_presets_async()
+
+        assert response.items[0].run_size is not None
+        assert response.items[0].run_size.total_attack_count == 12
+
+    async def test_the_preset_configuration_is_what_gets_sized(
+        self, service: ScenarioPresetService, scenario_service: MagicMock
+    ) -> None:
+        preset = _preset(
+            techniques=["crescendo"],
+            dataset_names=["harmbench"],
+            max_dataset_size=25,
+            dataset_filters={"harm_categories": ["violence"]},
+            include_baseline=True,
+            scenario_params={"max_turns": 3},
+        )
+        await service.save_preset_async(preset=preset, expected_version=None)
+
+        await service.list_presets_async()
+
+        estimate_call = scenario_service.estimate_scenario_run_size_async.call_args
+        assert estimate_call.kwargs["scenario_name"] == SCENARIO_NAME
+        request = estimate_call.kwargs["request"]
+        assert request.techniques == ["crescendo"]
+        assert request.dataset_names == ["harmbench"]
+        assert request.max_dataset_size == 25
+        assert request.dataset_filters == {"harm_categories": ["violence"]}
+        assert request.include_baseline is True
+        assert request.scenario_params == {"max_turns": 3}
+
+    async def test_a_preset_that_sets_nothing_is_sized_without_overrides(
+        self, service: ScenarioPresetService, scenario_service: MagicMock
+    ) -> None:
+        await service.save_preset_async(preset=_preset(), expected_version=None)
+
+        await service.list_presets_async()
+
+        request = scenario_service.estimate_scenario_run_size_async.call_args.kwargs["request"]
+        assert request.techniques is None
+        assert request.dataset_names is None
+        assert request.target_name is None
+
+    async def test_skipping_estimates_does_no_sizing_work(
+        self, service: ScenarioPresetService, scenario_service: MagicMock
+    ) -> None:
+        await service.save_preset_async(preset=_preset(), expected_version=None)
+
+        response = await service.list_presets_async(include_estimates=False)
+
+        assert response.items[0].run_size is None
+        scenario_service.estimate_scenario_run_size_async.assert_not_called()
+
+    async def test_one_preset_that_cannot_be_sized_does_not_hide_the_others(
+        self, service: ScenarioPresetService, scenario_service: MagicMock
+    ) -> None:
+        for name in ("alpha", "broken"):
+            await service.save_preset_async(preset=_preset(name), expected_version=None)
+        scenario_service.estimate_scenario_run_size_async = AsyncMock(
+            side_effect=[_estimate(7), ValueError("unknown technique 'nope'")]
+        )
+
+        response = await service.list_presets_async()
+
+        assert [item.preset.name for item in response.items] == ["alpha", "broken"]
+        assert response.items[0].run_size is not None
+        assert response.items[0].run_size.total_attack_count == 7
+        assert response.items[1].run_size is None
+
+    async def test_an_unknown_scenario_is_reported_as_an_issue_not_a_size(
+        self, service: ScenarioPresetService, scenario_service: MagicMock
+    ) -> None:
+        await service.save_preset_async(preset=_preset(), expected_version=None)
+        scenario_service.estimate_scenario_run_size_async = AsyncMock(return_value=None)
+
+        response = await service.list_presets_async()
+
+        assert response.items[0].run_size is None
+
+    async def test_a_single_read_stays_cheap(
+        self, service: ScenarioPresetService, scenario_service: MagicMock
+    ) -> None:
+        await service.save_preset_async(preset=_preset(), expected_version=None)
+        scenario_service.estimate_scenario_run_size_async.reset_mock()
+
+        read_back = await service.get_preset_async(name="quick_scan")
+
+        assert read_back is not None
+        assert read_back.run_size is None
+        scenario_service.estimate_scenario_run_size_async.assert_not_called()
 
 
 class TestServiceConfiguration:

@@ -17,10 +17,12 @@ Route structure:
     POST   /api/scenario-presets/{name}/resolve   — combine a preset with launch fields
 """
 
-from azure.core.exceptions import AzureError
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import Annotated
 
-from pyrit.backend.middleware.auth import require_admin
+from azure.core.exceptions import AzureError
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+
+from pyrit.backend.middleware.auth import current_user_name, require_admin
 from pyrit.backend.models.common import ProblemDetail
 from pyrit.backend.models.scenario_presets import (
     ResolveScenarioPresetRequest,
@@ -90,17 +92,23 @@ async def _load_preset_or_404_async(name: str) -> ScenarioPresetResponse:
 
 
 @router.get("", response_model=ScenarioPresetListResponse)
-async def list_scenario_presets() -> ScenarioPresetListResponse:  # pyrit-async-suffix-exempt
+async def list_scenario_presets(  # pyrit-async-suffix-exempt
+    include_estimates: bool = Query(True, description="Wait for each preset's own run-size estimate"),
+) -> ScenarioPresetListResponse:
     """
     List every readable preset from the configured storage source.
 
     Presets that cannot be parsed are skipped rather than failing the listing.
 
+    Args:
+        include_estimates: Whether to size each preset. Sizing constructs every scenario,
+            so a caller that wants to render immediately can list without it and ask again.
+
     Returns:
         ScenarioPresetListResponse: The configured source and the stored presets.
     """
     try:
-        return await get_scenario_preset_service().list_presets_async()
+        return await get_scenario_preset_service().list_presets_async(include_estimates=include_estimates)
     except AzureError as exc:
         raise _storage_unavailable() from exc
 
@@ -132,19 +140,29 @@ async def get_scenario_preset(name: str) -> ScenarioPresetResponse:  # pyrit-asy
         409: {"model": ProblemDetail, "description": "A preset is already stored under this name"},
     },
 )
-async def create_scenario_preset(preset: ScenarioPreset) -> ScenarioPresetResponse:  # pyrit-async-suffix-exempt
+async def create_scenario_preset(  # pyrit-async-suffix-exempt
+    preset: ScenarioPreset,
+    author: Annotated[str | None, Depends(current_user_name)],
+) -> ScenarioPresetResponse:
     """
     Create a preset that must not already exist.
 
     References that do not resolve in this deployment are reported on the response
     rather than rejected, so a preset authored elsewhere can still be stored here.
 
+    An author supplied in the body is kept, so importing a preset written elsewhere
+    preserves who wrote it; otherwise the signed-in user is recorded.
+
     Args:
         preset: The preset to create.
+        author: The signed-in user, or None when the deployment has no authentication.
 
     Returns:
         ScenarioPresetResponse: The persisted preset, its version, and its advisory issues.
     """
+    if preset.author is None and author is not None:
+        preset = preset.model_copy(update={"author": author})
+
     try:
         return await get_scenario_preset_service().save_preset_async(preset=preset, expected_version=None)
     except ScenarioPresetConflictError as exc:

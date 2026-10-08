@@ -17,7 +17,14 @@ from pyrit.backend.models.scenario_presets import (
     ScenarioPresetResponse,
 )
 from pyrit.backend.services.scenario_service import get_scenario_service
-from pyrit.models.catalog import RegisteredScenario, RunScenarioRequest, ScenarioPreset, StoredPreset
+from pyrit.models.catalog import (
+    RegisteredScenario,
+    RunScenarioRequest,
+    ScenarioPreset,
+    ScenarioRunSizeEstimate,
+    ScenarioRunSizeEstimateRequest,
+    StoredPreset,
+)
 from pyrit.registry import ConverterRegistry, ScenarioPresetStorage
 from pyrit.scenario.core import (
     CONVERTER_MODIFIER_PREFIX,
@@ -54,9 +61,14 @@ class ScenarioPresetService:
         """
         self._storage = ScenarioPresetStorage(source=source)
 
-    async def list_presets_async(self) -> ScenarioPresetListResponse:
+    async def list_presets_async(self, *, include_estimates: bool = True) -> ScenarioPresetListResponse:
         """
         Read every stored preset, newest advisory issues included.
+
+        Args:
+            include_estimates (bool): Whether to size each preset's own configuration. Sizing
+                constructs every scenario, so a caller that wants to paint first can ask for
+                the presets alone and request the sizes separately.
 
         Returns:
             ScenarioPresetListResponse: The configured source and every readable preset.
@@ -69,6 +81,12 @@ class ScenarioPresetService:
                 *(self._to_response_async(stored_preset) for _, stored_preset in sorted(stored.items(), key=_by_name))
             )
         )
+        if include_estimates:
+            estimates = await asyncio.gather(*(self._estimate_run_size_async(preset=item.preset) for item in items))
+            items = [
+                item.model_copy(update={"run_size": estimate})
+                for item, estimate in zip(items, estimates, strict=True)
+            ]
         return ScenarioPresetListResponse(source=storage.display_source, items=items)
 
     async def get_preset_async(self, *, name: str) -> ScenarioPresetResponse | None:
@@ -193,6 +211,36 @@ class ScenarioPresetService:
         """
         issues = await self._collect_issues_async(preset=stored.preset)
         return ScenarioPresetResponse(preset=stored.preset, version=stored.version, issues=issues)
+
+    async def _estimate_run_size_async(self, *, preset: ScenarioPreset) -> ScenarioRunSizeEstimate | None:
+        """
+        Size one preset against its own techniques, datasets, and limits.
+
+        A preset is allowed to name things this deployment has not registered, so a
+        preset that cannot be sized reports no size rather than failing the listing
+        that every other preset shares.
+
+        Args:
+            preset (ScenarioPreset): The preset to size.
+
+        Returns:
+            ScenarioRunSizeEstimate | None: The estimate, or None when it cannot be computed here.
+        """
+        request = ScenarioRunSizeEstimateRequest(
+            techniques=preset.techniques,
+            dataset_names=preset.dataset_names,
+            max_dataset_size=preset.max_dataset_size,
+            dataset_filters=preset.dataset_filters,
+            include_baseline=preset.include_baseline,
+            scenario_params=preset.scenario_params,
+        )
+        try:
+            return await get_scenario_service().estimate_scenario_run_size_async(
+                scenario_name=preset.scenario_name, request=request
+            )
+        except Exception:
+            logger.debug("Could not size scenario preset '%s'", preset.name, exc_info=True)
+            return None
 
     async def _collect_issues_async(self, *, preset: ScenarioPreset) -> list[PresetIssue]:
         """

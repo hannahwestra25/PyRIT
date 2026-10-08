@@ -60,28 +60,19 @@ export const useScenarioPresetLibraryStyles = makeStyles({
     padding: tokens.spacingVerticalXXL,
     textAlign: 'center',
   },
-  list: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: tokens.spacingVerticalM,
+  tableContainer: {
+    width: '100%',
+    overflowX: 'auto',
   },
-  card: {
-    display: 'flex',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    flexWrap: 'wrap',
-    gap: tokens.spacingHorizontalM,
-    padding: tokens.spacingVerticalM,
-    borderRadius: tokens.borderRadiusMedium,
-    border: `${tokens.strokeWidthThin} solid ${tokens.colorNeutralStroke2}`,
+  table: {
+    minWidth: '900px',
     backgroundColor: tokens.colorNeutralBackground1,
   },
-  cardText: {
+  nameCell: {
     display: 'flex',
     flexDirection: 'column',
     gap: tokens.spacingVerticalXXS,
     minWidth: 0,
-    flex: 1,
   },
   cardTitleRow: {
     display: 'flex',

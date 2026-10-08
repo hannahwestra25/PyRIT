@@ -18,15 +18,13 @@ import {
 } from '@fluentui/react-components'
 import {
   ArrowSyncRegular,
-  BookmarkMultipleRegular,
   ChevronDownRegular,
   ChevronUpRegular,
   SearchRegular,
 } from '@fluentui/react-icons'
-import { Link, useNavigate } from 'react-router'
+import { Link } from 'react-router'
 
 import MarkdownContent from '@/components/Markdown/MarkdownContent'
-import { PRESETS_ROUTE } from '@/components/ScenarioPresets/presetRoutes'
 import { useRuntime } from '@/hooks/useRuntime'
 import { scenariosApi } from '@/services/api'
 import { toApiError } from '@/services/errors'
@@ -291,7 +289,6 @@ function ScenarioCatalogRow({ scenario, estimatesLoading }: ScenarioCatalogRowPr
 
 export default function ScenarioCatalog() {
   const { generation } = useRuntime()
-  const navigate = useNavigate()
   const styles = useScenarioCatalogStyles()
   const [scenarios, setScenarios] = useState<RegisteredScenario[]>([])
   const [loading, setLoading] = useState(true)
@@ -397,15 +394,6 @@ export default function ScenarioCatalog() {
             onChange={(_, data) => setQuery(data.value)}
             aria-label="Search scenarios"
           />
-          <Button
-            className={styles.touchTarget}
-            appearance="subtle"
-            icon={<BookmarkMultipleRegular />}
-            onClick={() => navigate(PRESETS_ROUTE)}
-            data-testid="scenario-presets-link"
-          >
-            Presets
-          </Button>
           <Button
             className={styles.touchTarget}
             appearance="subtle"

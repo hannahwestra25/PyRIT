@@ -221,6 +221,11 @@ export function configToPreset(
   if (trimmedDescription.length > 0) {
     preset.description = trimmedDescription
   }
+  // The server stamps `author` once, at create. Editing rebuilds the document from
+  // form state, so without carrying it forward every edit would erase it.
+  if (previous?.author != null) {
+    preset.author = previous.author
+  }
   if (previous?.techniques != null || !matchesTechniques(config.techniques, defaults.techniques)) {
     preset.techniques = config.techniques
   }
