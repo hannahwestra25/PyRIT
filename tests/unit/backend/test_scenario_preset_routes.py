@@ -17,10 +17,7 @@ from pyrit.backend.models.scenario_presets import (
     ScenarioPresetListResponse,
     ScenarioPresetResponse,
 )
-from pyrit.backend.services.scenario_preset_service import (
-    ScenarioPresetNotFoundError,
-    ScenarioPresetService,
-)
+from pyrit.backend.services.scenario_preset_service import ScenarioPresetService
 from pyrit.models.catalog import ScenarioPreset, ScenarioRunSizeEstimate
 from pyrit.models.catalog.scenario import ScenarioRunSizeComponent
 from pyrit.registry import ScenarioPresetConflictError
@@ -306,21 +303,21 @@ class TestDeletePreset:
     """DELETE /api/scenario-presets/{name}."""
 
     def test_delete_returns_204(self, client: TestClient, service: MagicMock) -> None:
-        service.delete_preset_async = AsyncMock(return_value=None)
+        service.delete_preset_async = AsyncMock(return_value=True)
 
         response = client.delete(f"/api/scenario-presets/{PRESET_NAME}")
 
         assert response.status_code == 204
 
     def test_delete_reports_a_missing_preset(self, client: TestClient, service: MagicMock) -> None:
-        service.delete_preset_async = AsyncMock(side_effect=ScenarioPresetNotFoundError(PRESET_NAME))
+        service.delete_preset_async = AsyncMock(return_value=False)
 
         response = client.delete(f"/api/scenario-presets/{PRESET_NAME}")
 
         assert response.status_code == 404
 
     def test_delete_requires_admin(self, anonymous_client: TestClient, service: MagicMock) -> None:
-        service.delete_preset_async = AsyncMock(return_value=None)
+        service.delete_preset_async = AsyncMock(return_value=True)
 
         response = anonymous_client.delete(f"/api/scenario-presets/{PRESET_NAME}")
 
@@ -331,9 +328,24 @@ class TestDeletePreset:
 class TestResolvePreset:
     """POST /api/scenario-presets/{name}/resolve."""
 
+    @staticmethod
+    def _resolving(preset: ScenarioPreset | None = None) -> AsyncMock:
+        """
+        Stand in for the service's read-and-merge.
+
+        The route delegates the read, the version check, and the merge wholesale, so the
+        stub performs the real merge and these tests cover only what the route adds:
+        mapping absence and conflict onto status codes.
+        """
+        resolved = preset if preset is not None else _preset()
+        return AsyncMock(
+            side_effect=lambda *, name, launch: ScenarioPresetService.resolve_run_request(
+                preset=resolved, launch=launch
+            )
+        )
+
     def test_resolve_returns_a_run_request(self, client: TestClient, service: MagicMock) -> None:
-        service.get_preset_async = AsyncMock(return_value=_response())
-        service.resolve_run_request = ScenarioPresetService.resolve_run_request
+        service.resolve_run_request_async = self._resolving()
 
         response = client.post(
             f"/api/scenario-presets/{PRESET_NAME}/resolve",
@@ -348,22 +360,21 @@ class TestResolvePreset:
         assert body["techniques"] is None
 
     def test_resolve_reports_a_missing_preset(self, client: TestClient, service: MagicMock) -> None:
-        service.get_preset_async = AsyncMock(return_value=None)
+        service.resolve_run_request_async = AsyncMock(return_value=None)
 
         response = client.post("/api/scenario-presets/missing/resolve", json={"target_name": "gpt4"})
 
         assert response.status_code == 404
 
     def test_resolve_requires_a_target(self, client: TestClient, service: MagicMock) -> None:
-        service.get_preset_async = AsyncMock(return_value=_response())
+        service.resolve_run_request_async = self._resolving()
 
         response = client.post(f"/api/scenario-presets/{PRESET_NAME}/resolve", json={})
 
         assert response.status_code == 422
 
-    def test_resolve_accepts_the_version_the_caller_read(self, client: TestClient, service: MagicMock) -> None:
-        service.get_preset_async = AsyncMock(return_value=_response(version="v1"))
-        service.resolve_run_request = ScenarioPresetService.resolve_run_request
+    def test_resolve_passes_the_version_the_caller_read_through(self, client: TestClient, service: MagicMock) -> None:
+        service.resolve_run_request_async = self._resolving()
 
         response = client.post(
             f"/api/scenario-presets/{PRESET_NAME}/resolve",
@@ -371,10 +382,12 @@ class TestResolvePreset:
         )
 
         assert response.status_code == 200
+        assert service.resolve_run_request_async.call_args.kwargs["launch"].expected_version == "v1"
 
     def test_a_preset_edited_after_it_was_read_is_a_conflict(self, client: TestClient, service: MagicMock) -> None:
-        service.get_preset_async = AsyncMock(return_value=_response(version="v2"))
-        service.resolve_run_request = ScenarioPresetService.resolve_run_request
+        service.resolve_run_request_async = AsyncMock(
+            side_effect=ScenarioPresetConflictError(name=PRESET_NAME, expected_version="v1", actual_version="v2")
+        )
 
         response = client.post(
             f"/api/scenario-presets/{PRESET_NAME}/resolve",
@@ -385,9 +398,9 @@ class TestResolvePreset:
         assert PRESET_NAME in response.json()["detail"]
 
     def test_an_omitted_version_resolves_whatever_is_stored(self, client: TestClient, service: MagicMock) -> None:
-        service.get_preset_async = AsyncMock(return_value=_response(version="v9"))
-        service.resolve_run_request = ScenarioPresetService.resolve_run_request
+        service.resolve_run_request_async = self._resolving()
 
         response = client.post(f"/api/scenario-presets/{PRESET_NAME}/resolve", json={"target_name": "gpt4"})
 
         assert response.status_code == 200
+        assert service.resolve_run_request_async.call_args.kwargs["launch"].expected_version is None

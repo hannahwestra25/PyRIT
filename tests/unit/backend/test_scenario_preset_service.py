@@ -3,6 +3,7 @@
 
 """Tests for the scenario preset service."""
 
+from collections.abc import Iterator
 from pathlib import Path
 from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -12,14 +13,17 @@ import pytest
 from pyrit.backend.models.scenario_presets import ResolveScenarioPresetRequest
 from pyrit.backend.services import scenario_preset_service as preset_service_module
 from pyrit.backend.services.scenario_preset_service import (
-    ScenarioPresetNotFoundError,
     ScenarioPresetService,
     get_scenario_preset_service,
 )
 from pyrit.models import Parameter
-from pyrit.models.catalog import RegisteredScenario, ScenarioPreset
+from pyrit.models.catalog import PresetIssue, RegisteredScenario, ScenarioPreset
 from pyrit.models.catalog.scenario import ScenarioRunSizeComponent, ScenarioRunSizeEstimate
-from pyrit.registry import ScenarioPresetConflictError
+from pyrit.registry import (
+    ScenarioPresetConflictError,
+    ScenarioPresetRegistry,
+    ScenarioPresetStorage,
+)
 
 SCENARIO_NAME = "foundry.red_team_agent"
 
@@ -58,11 +62,25 @@ def _estimate(count: int) -> ScenarioRunSizeEstimate:
 
 
 @pytest.fixture
-def service(tmp_path: Path) -> ScenarioPresetService:
-    """Create a service backed by an isolated preset directory."""
-    instance = ScenarioPresetService()
-    instance.configure_source(str(tmp_path))
-    return instance
+def preset_registry(tmp_path: Path) -> Iterator[ScenarioPresetRegistry]:
+    """
+    Install a preset registry backed by an isolated directory as the process singleton.
+
+    Validation belongs to the registry and is tested against the real token grammar there,
+    so it is stubbed out here. These tests cover what the service does with the result.
+    """
+    instance = ScenarioPresetRegistry(storage=ScenarioPresetStorage(source=str(tmp_path)))
+    with (
+        patch.object(ScenarioPresetRegistry, "_singleton", instance),
+        patch.object(instance, "check_preset", return_value=[]),
+    ):
+        yield instance
+
+
+@pytest.fixture
+def service(preset_registry: ScenarioPresetRegistry) -> ScenarioPresetService:
+    """Create a service reading through the isolated preset registry."""
+    return ScenarioPresetService()
 
 
 @pytest.fixture
@@ -86,15 +104,6 @@ def _preset(name: str = "quick_scan", **overrides: object) -> ScenarioPreset:
     fields: dict[str, object] = {"name": name, "scenario_name": SCENARIO_NAME}
     fields.update(overrides)
     return ScenarioPreset(**fields)  # type: ignore[arg-type]
-
-
-def _converter_registry(*registered_names: str) -> MagicMock:
-    """Patch target standing in for the converter instances this deployment registered."""
-    registry = MagicMock()
-    registry.get_registry_singleton.return_value.instances.get.side_effect = (
-        lambda name: MagicMock() if name in registered_names else None
-    )
-    return registry
 
 
 class TestPresetCrud:
@@ -183,114 +192,43 @@ class TestPresetCrud:
     async def test_delete_reports_a_missing_preset_rather_than_succeeding_silently(
         self, service: ScenarioPresetService
     ) -> None:
-        with pytest.raises(ScenarioPresetNotFoundError):
-            await service.delete_preset_async(name="missing")
+        assert await service.delete_preset_async(name="missing") is False
 
 
-class TestAdvisoryValidation:
-    """Unresolvable references are reported, never enforced."""
+class TestAdvisoryIssues:
+    """The service attaches the registry's advisory issues to the wire response."""
 
-    async def test_a_resolvable_preset_has_no_issues(
-        self, service: ScenarioPresetService, registered_scenario: RegisteredScenario
+    async def test_registry_issues_reach_a_saved_preset(
+        self, service: ScenarioPresetService, preset_registry: ScenarioPresetRegistry
     ) -> None:
-        saved = await service.save_preset_async(
-            preset=_preset(techniques=["crescendo"], scenario_params={"max_turns": 2}), expected_version=None
-        )
+        issue = PresetIssue(field="scenario_name", message="Scenario 'nope' is not registered in this deployment.")
+        cast("MagicMock", preset_registry.check_preset).return_value = [issue]
 
-        assert saved.issues == []
+        saved = await service.save_preset_async(preset=_preset(), expected_version=None)
 
-    async def test_an_unregistered_scenario_is_saved_and_reported(self, service: ScenarioPresetService) -> None:
-        with patch("pyrit.backend.services.scenario_preset_service.get_scenario_service") as mock_factory:
-            mock_factory.return_value.get_scenario_async = AsyncMock(return_value=None)
-            saved = await service.save_preset_async(preset=_preset(), expected_version=None)
+        assert saved.issues == [issue]
 
-            read_back = await service.get_preset_async(name="quick_scan")
-
-        assert read_back is not None
-        assert [issue.field for issue in saved.issues] == ["scenario_name"]
-        assert "not registered" in saved.issues[0].message
-
-    async def test_unknown_techniques_are_reported_without_blocking_the_save(
-        self, service: ScenarioPresetService, registered_scenario: RegisteredScenario
+    async def test_registry_issues_reach_a_listed_preset(
+        self, service: ScenarioPresetService, preset_registry: ScenarioPresetRegistry
     ) -> None:
-        saved = await service.save_preset_async(
-            preset=_preset(techniques=["crescendo", "not_a_technique"]), expected_version=None
-        )
+        await service.save_preset_async(preset=_preset(), expected_version=None)
+        issue = PresetIssue(field="techniques", message="Technique 'nope' is not available.")
+        cast("MagicMock", preset_registry.check_preset).return_value = [issue]
 
-        assert [issue.field for issue in saved.issues] == ["techniques"]
-        assert "not_a_technique" in saved.issues[0].message
+        response = await service.list_presets_async(include_estimates=False)
+
+        assert response.items[0].issues == [issue]
+
+    async def test_an_unresolvable_preset_is_still_saved(
+        self, service: ScenarioPresetService, preset_registry: ScenarioPresetRegistry
+    ) -> None:
+        cast("MagicMock", preset_registry.check_preset).return_value = [
+            PresetIssue(field="scenario_name", message="Scenario 'nope' is not registered in this deployment.")
+        ]
+
+        await service.save_preset_async(preset=_preset(), expected_version=None)
+
         assert await service.get_preset_async(name="quick_scan") is not None
-
-    async def test_an_aggregate_technique_is_not_reported_as_unknown(self, service: ScenarioPresetService) -> None:
-        scenario = _registered_scenario(aggregate_techniques=["all"])
-        with patch("pyrit.backend.services.scenario_preset_service.get_scenario_service") as mock_factory:
-            mock_factory.return_value.get_scenario_async = AsyncMock(return_value=scenario)
-            saved = await service.save_preset_async(preset=_preset(techniques=["all"]), expected_version=None)
-
-        assert saved.issues == []
-
-    async def test_a_converter_modifier_does_not_make_a_known_technique_look_unknown(
-        self, service: ScenarioPresetService, registered_scenario: RegisteredScenario
-    ) -> None:
-        with patch(
-            "pyrit.backend.services.scenario_preset_service.ConverterRegistry",
-            _converter_registry("translation_spanish"),
-        ):
-            saved = await service.save_preset_async(
-                preset=_preset(techniques=["crescendo:converter.translation_spanish"]), expected_version=None
-            )
-
-        assert saved.issues == []
-
-    async def test_a_converter_this_deployment_has_not_registered_is_reported(
-        self, service: ScenarioPresetService, registered_scenario: RegisteredScenario
-    ) -> None:
-        with patch("pyrit.backend.services.scenario_preset_service.ConverterRegistry", _converter_registry()):
-            saved = await service.save_preset_async(
-                preset=_preset(techniques=["crescendo:converter.translation_spanish"]), expected_version=None
-            )
-
-        assert [issue.field for issue in saved.issues] == ["techniques"]
-        assert "translation_spanish" in saved.issues[0].message
-
-    async def test_a_modifier_the_launch_path_cannot_parse_is_reported(
-        self, service: ScenarioPresetService, registered_scenario: RegisteredScenario
-    ) -> None:
-        with patch("pyrit.backend.services.scenario_preset_service.ConverterRegistry", _converter_registry()):
-            saved = await service.save_preset_async(
-                preset=_preset(techniques=["crescendo:scorer.refusal"]), expected_version=None
-            )
-
-        assert [issue.field for issue in saved.issues] == ["techniques"]
-        assert "scorer.refusal" in saved.issues[0].message
-
-    async def test_undeclared_scenario_parameters_are_reported(
-        self, service: ScenarioPresetService, registered_scenario: RegisteredScenario
-    ) -> None:
-        saved = await service.save_preset_async(
-            preset=_preset(scenario_params={"max_turns": 1, "mystery": 2}), expected_version=None
-        )
-
-        assert [issue.field for issue in saved.issues] == ["scenario_params"]
-        assert "mystery" in saved.issues[0].message
-
-    async def test_a_baseline_the_scenario_forbids_is_reported(self, service: ScenarioPresetService) -> None:
-        scenario = _registered_scenario(baseline_policy="forbidden")
-        with patch("pyrit.backend.services.scenario_preset_service.get_scenario_service") as mock_factory:
-            mock_factory.return_value.get_scenario_async = AsyncMock(return_value=scenario)
-            saved = await service.save_preset_async(preset=_preset(include_baseline=True), expected_version=None)
-
-        assert [issue.field for issue in saved.issues] == ["include_baseline"]
-
-    async def test_an_omitted_baseline_is_not_reported_when_the_scenario_forbids_one(
-        self, service: ScenarioPresetService
-    ) -> None:
-        scenario = _registered_scenario(baseline_policy="forbidden")
-        with patch("pyrit.backend.services.scenario_preset_service.get_scenario_service") as mock_factory:
-            mock_factory.return_value.get_scenario_async = AsyncMock(return_value=scenario)
-            saved = await service.save_preset_async(preset=_preset(), expected_version=None)
-
-        assert saved.issues == []
 
 
 class TestRunRequestResolution:
@@ -448,7 +386,7 @@ class TestRunSizeEstimates:
         assert response.items[0].run_size.total_attack_count == 7
         assert response.items[1].run_size is None
 
-    async def test_an_unknown_scenario_is_reported_as_an_issue_not_a_size(
+    async def test_a_sizer_that_returns_nothing_leaves_the_size_unset(
         self, service: ScenarioPresetService, scenario_service: MagicMock
     ) -> None:
         await service.save_preset_async(preset=_preset(), expected_version=None)
@@ -477,14 +415,9 @@ class TestServiceConfiguration:
     def test_the_service_is_a_singleton(self) -> None:
         assert get_scenario_preset_service() is get_scenario_preset_service()
 
-    def test_configure_source_replaces_the_storage_location(self, tmp_path: Path) -> None:
-        instance = ScenarioPresetService()
+    async def test_the_listed_source_is_the_registry_source(
+        self, service: ScenarioPresetService, tmp_path: Path
+    ) -> None:
+        response = await service.list_presets_async(include_estimates=False)
 
-        instance.configure_source(str(tmp_path))
-
-        assert instance._get_storage().display_source == str(tmp_path)
-
-    def test_an_unconfigured_service_falls_back_to_the_default_directory(self) -> None:
-        instance = ScenarioPresetService()
-
-        assert instance._get_storage().display_source.endswith("scenario_presets")
+        assert response.source == str(tmp_path)

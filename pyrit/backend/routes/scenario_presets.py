@@ -30,10 +30,7 @@ from pyrit.backend.models.scenario_presets import (
     ScenarioPresetResponse,
     UpdateScenarioPresetRequest,
 )
-from pyrit.backend.services.scenario_preset_service import (
-    ScenarioPresetNotFoundError,
-    get_scenario_preset_service,
-)
+from pyrit.backend.services.scenario_preset_service import get_scenario_preset_service
 from pyrit.models.catalog import RunScenarioRequest, ScenarioPreset
 from pyrit.registry import ScenarioPresetConflictError
 
@@ -239,13 +236,14 @@ async def delete_scenario_preset(name: str) -> None:  # pyrit-async-suffix-exemp
         HTTPException: 404 if no preset is stored, 400 for an illegal name, 503 if storage fails.
     """
     try:
-        await get_scenario_preset_service().delete_preset_async(name=name)
-    except ScenarioPresetNotFoundError:
-        raise _not_found(name) from None
+        deleted = await get_scenario_preset_service().delete_preset_async(name=name)
     except AzureError as exc:
         raise _storage_unavailable() from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from None
+
+    if not deleted:
+        raise _not_found(name)
 
 
 @router.post(
@@ -280,12 +278,21 @@ async def resolve_scenario_preset(  # pyrit-async-suffix-exempt
         RunScenarioRequest: The request to post to the scenario run endpoint.
 
     Raises:
-        HTTPException: 404 if no preset is stored, 409 if the stored version moved.
+        HTTPException: 404 if no preset is stored, 409 if the stored version moved,
+            400 for an illegal name, 503 if storage fails.
     """
-    stored = await _load_preset_or_404_async(name)
-    if body.expected_version is not None and body.expected_version != stored.version:
+    try:
+        resolved = await get_scenario_preset_service().resolve_run_request_async(name=name, launch=body)
+    except ScenarioPresetConflictError:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Scenario preset '{name}' changed since it was read; re-read it and retry",
-        )
-    return get_scenario_preset_service().resolve_run_request(preset=stored.preset, launch=body)
+        ) from None
+    except AzureError as exc:
+        raise _storage_unavailable() from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from None
+
+    if resolved is None:
+        raise _not_found(name)
+    return resolved

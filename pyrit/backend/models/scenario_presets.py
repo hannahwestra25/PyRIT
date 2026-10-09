@@ -4,10 +4,12 @@
 """
 REST envelopes for the scenario preset endpoints.
 
-The canonical preset types (``ScenarioPreset``, ``StoredPreset``) live in
-``pyrit.models.catalog.scenario_preset`` and are imported from there directly.
-The models here only add the wire-level concerns: the storage source, the
-advisory issues attached to a read, and the launch-owned fields that a preset
+The canonical preset types (``ScenarioPreset``, ``StoredPreset``, ``PresetIssue``)
+live in ``pyrit.models.catalog.scenario_preset`` and are imported from there
+directly. ``PresetIssue`` is re-exported here so that a client of the wire models
+does not have to reach across into the catalog for one field's element type.
+The models here only add the wire-level concerns: the storage source, the run
+size attached to a listing, and the launch-owned fields that a preset
 deliberately does not carry.
 """
 
@@ -16,7 +18,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from pyrit.models.catalog.scenario import ScenarioRunSizeEstimate
-from pyrit.models.catalog.scenario_preset import ScenarioPreset
+from pyrit.models.catalog.scenario_preset import PresetIssue, ScenarioPreset
 
 __all__ = [
     "PresetIssue",
@@ -25,20 +27,6 @@ __all__ = [
     "ScenarioPresetResponse",
     "UpdateScenarioPresetRequest",
 ]
-
-
-class PresetIssue(BaseModel):
-    """
-    One advisory problem found while checking a preset against the live registry.
-
-    Issues are reported, never enforced. A preset that names a scenario this
-    deployment has not registered is still a valid preset; it simply cannot run
-    here yet. Blocking the save would make presets un-portable between
-    deployments, which is the one property they exist to have.
-    """
-
-    field: str = Field(..., description="Preset field the issue applies to, e.g. 'scenario_name' or 'techniques'")
-    message: str = Field(..., description="Human-readable description of why the reference does not resolve")
 
 
 class ScenarioPresetResponse(BaseModel):
