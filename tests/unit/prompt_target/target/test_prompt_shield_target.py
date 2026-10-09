@@ -167,17 +167,19 @@ def test_init_raises_when_no_api_key_and_non_azure_endpoint(sqlite_instance):
             PromptShieldTarget(endpoint="https://test.endpoint.com", api_key=None)
 
 
-def test_init_raises_when_no_api_key_on_azure_endpoint(sqlite_instance):
-    """A recognized Azure endpoint no longer auto-mints a token; identity must be explicit."""
+def test_init_falls_back_to_entra_on_azure_endpoint_with_deprecation_warning(sqlite_instance):
+    """Keyless Content Safety configurations keep working until 1.4.0, but now announce it."""
     with patch.dict(os.environ, {}, clear=False):
         os.environ.pop("AZURE_CONTENT_SAFETY_API_KEY", None)
         with patch(
             "pyrit.prompt_target.prompt_shield_target.get_azure_token_provider",
+            return_value="minted-token",
         ) as mock_provider:
-            with pytest.raises(ValueError, match="No API key available"):
-                PromptShieldTarget(endpoint="https://myresource.cognitiveservices.azure.com", api_key=None)
+            with pytest.warns(DeprecationWarning, match="1.4.0"):
+                target = PromptShieldTarget(endpoint="https://myresource.cognitiveservices.azure.com", api_key=None)
 
-    mock_provider.assert_not_called()
+    mock_provider.assert_called_once()
+    assert target._api_key == "minted-token"
 
 
 def test_supported_auth_modes_includes_identity():

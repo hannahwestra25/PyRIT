@@ -847,19 +847,19 @@ def test_set_auth_with_api_key(patch_central_database):
     assert target._api_key == "test_api_key_456"
 
 
-def test_no_key_recognized_azure_endpoint_raises(patch_central_database):
-    """A recognized Azure OpenAI endpoint no longer auto-mints a token; identity must be explicit."""
+def test_no_key_recognized_azure_endpoint_falls_back_with_deprecation_warning(patch_central_database):
+    """Keyless Azure OpenAI configurations keep working until 1.4.0, but now announce it."""
     with (
         patch.dict(os.environ, {}, clear=True),
-        patch("pyrit.auth.openai_auth.get_azure_openai_auth") as mock_get_auth,
+        patch("pyrit.auth.openai_auth.get_azure_openai_auth", return_value="minted-token") as mock_get_auth,
     ):
-        with pytest.raises(ValueError, match="No API key available"):
+        with pytest.warns(DeprecationWarning, match="1.4.0"):
             OpenAIChatTarget(
                 model_name="gpt-4",
                 endpoint="https://test.openai.azure.com/",
             )
 
-    mock_get_auth.assert_not_called()
+    mock_get_auth.assert_called_once()
 
 
 def test_no_key_non_azure_endpoint_raises(patch_central_database):

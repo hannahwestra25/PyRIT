@@ -80,16 +80,17 @@ class TestOpenAITargetAuthResolution:
                 api_key=None,
             )
 
-    def test_azure_endpoint_without_key_raises(self):
-        """Azure endpoints no longer fall back to Entra implicitly; identity must be explicit."""
-        with patch("pyrit.auth.openai_auth.get_azure_openai_auth") as mock_auth:
-            with pytest.raises(ValueError, match="No API key available"):
-                _build_target(
+    def test_azure_endpoint_without_key_falls_back_with_deprecation_warning(self):
+        """The implicit Azure fallback survives to 1.4.0 so keyless configurations keep working."""
+        with patch("pyrit.auth.openai_auth.get_azure_openai_auth", return_value="minted-token") as mock_auth:
+            with pytest.warns(DeprecationWarning, match="1.4.0"):
+                target = _build_target(
                     endpoint="https://myresource.openai.azure.com/openai/v1",
                     api_key=None,
                 )
 
-        mock_auth.assert_not_called()
+        mock_auth.assert_called_once()
+        assert target._api_key == "minted-token"
 
     def test_callable_token_provider_bypasses_env_lookup(self):
         """A callable api_key is used directly without checking env vars."""

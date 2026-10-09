@@ -55,18 +55,19 @@ def test_initialization_with_no_api_raises():
         AzureMLChatTarget(api_key="xxxxx")
 
 
-def test_no_key_recognized_aml_endpoint_raises(patch_central_database):
-    """A recognized AML endpoint no longer auto-mints a token; identity must be explicit."""
+def test_no_key_recognized_aml_endpoint_falls_back_with_deprecation_warning(patch_central_database):
+    """Keyless AML configurations predate explicit auth modes, so they keep working until 1.4.0."""
     with (
         patch.dict(os.environ, {AzureMLChatTarget.api_key_environment_variable: ""}),
         patch(
             "pyrit.prompt_target.azure_ml_chat_target.get_azure_async_token_provider",
         ) as mock_provider,
     ):
-        with pytest.raises(ValueError, match="No API key available"):
-            AzureMLChatTarget(endpoint="https://my-aml.region.inference.ml.azure.com/score")
+        with pytest.warns(DeprecationWarning, match="1.4.0"):
+            target = AzureMLChatTarget(endpoint="https://my-aml.region.inference.ml.azure.com/score")
 
-    mock_provider.assert_not_called()
+    mock_provider.assert_called_once()
+    assert target._api_key == ""
 
 
 def test_identity_auth_mode_ignores_env_key(patch_central_database):

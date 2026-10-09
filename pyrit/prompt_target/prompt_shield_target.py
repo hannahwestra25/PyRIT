@@ -12,6 +12,7 @@ from pyrit.auth import (
     is_azure_openai_endpoint,
 )
 from pyrit.common import default_values, net_utility
+from pyrit.common.deprecation import print_deprecation_message
 from pyrit.models import (
     ComponentIdentifier,
     Message,
@@ -106,7 +107,7 @@ class PromptShieldTarget(PromptTarget):
             ValueError: If the endpoint value is not provided, if identity auth is requested
                 alongside an explicit ``api_key``, if identity auth is requested for an endpoint
                 that is not a recognized Azure Content Safety endpoint, or if no API key is
-                available for ``"api_key"`` auth.
+                available for an endpoint that is not a recognized Azure Content Safety endpoint.
         """
         endpoint_value = default_values.get_required_value(
             env_var_name=self.ENDPOINT_URI_ENVIRONMENT_VARIABLE, passed_value=endpoint
@@ -121,9 +122,9 @@ class PromptShieldTarget(PromptTarget):
 
         self._api_version = api_version or "2024-09-01"
 
-        # Resolve authentication: an explicit key or token-provider callable, or the env var.
-        # Identity is an explicit caller choice, so it must never be silently downgraded
-        # to a key that merely happens to be present in the environment.
+        # Resolve authentication: an explicit key or token-provider callable, the env var, or the
+        # deprecated Entra fallback for a recognized endpoint. Identity is an explicit caller choice,
+        # so it must never be silently downgraded to a key that merely happens to be in the environment.
         if auth_mode == "identity":
             if api_key is not None:
                 raise ValueError(
@@ -147,6 +148,19 @@ class PromptShieldTarget(PromptTarget):
             )
             if api_key_value:
                 self._api_key = api_key_value
+            elif is_azure_openai_endpoint(endpoint_value):
+                # Keyless configurations against a recognized Content Safety endpoint predate explicit
+                # auth modes, so the implicit Entra fallback stays until 1.4.0 rather than breaking them
+                # at the next minor release.
+                print_deprecation_message(
+                    old_item=(
+                        "Falling back to Microsoft Entra ID authentication in PromptShieldTarget when no API "
+                        "key is configured"
+                    ),
+                    new_item='PromptShieldTarget(auth_mode="identity")',
+                    removed_in="1.4.0",
+                )
+                self._api_key = get_azure_token_provider(get_default_azure_scope(endpoint_value))
             else:
                 raise ValueError(
                     f"No API key available for endpoint '{endpoint_value}'. Set the "

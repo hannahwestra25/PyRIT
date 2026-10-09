@@ -13,6 +13,7 @@ from pyrit.auth import (
     is_azure_ml_endpoint,
 )
 from pyrit.common import default_values, net_utility
+from pyrit.common.deprecation import print_deprecation_message
 from pyrit.exceptions import (
     EmptyResponseException,
     RateLimitException,
@@ -198,13 +199,15 @@ class AzureMLChatTarget(PromptTarget):
             auth_mode (AuthMode): ``"identity"`` mints a Microsoft Entra ID token for the endpoint;
                 it ignores the ``AZURE_ML_KEY`` environment variable and rejects an explicit
                 ``api_key``. ``"api_key"`` (the default) resolves a token-provider callable, then an
-                explicit key, then the environment variable.
+                explicit key, then the environment variable, and finally falls back to Entra ID on a
+                recognized AML managed online endpoint. That last fallback is deprecated and is
+                removed in 1.4.0, after which identity auth must be requested explicitly.
 
         Raises:
             ValueError: If identity auth is requested alongside an explicit ``api_key``, if identity
                 auth is requested for an endpoint that is not a recognized Azure ML managed online
-                endpoint, or if ``"api_key"`` auth is requested and no key is available via parameter
-                or environment variable.
+                endpoint, or if ``"api_key"`` auth is requested and no key is available for an
+                endpoint that is not a recognized Azure ML managed online endpoint.
         """
         self._endpoint = default_values.get_required_value(
             env_var_name=self.endpoint_uri_environment_variable, passed_value=endpoint
@@ -244,6 +247,21 @@ class AzureMLChatTarget(PromptTarget):
         if api_key_value:
             self._api_key_provider = None
             self._api_key = api_key_value
+            return
+
+        # Keyless configurations against a recognized AML endpoint predate explicit auth modes, so the
+        # implicit Entra fallback stays until 1.4.0 rather than breaking them at the next minor release.
+        if is_azure_ml_endpoint(self._endpoint):
+            print_deprecation_message(
+                old_item=(
+                    "Falling back to Microsoft Entra ID authentication in AzureMLChatTarget when no API key "
+                    "is configured"
+                ),
+                new_item='AzureMLChatTarget(auth_mode="identity")',
+                removed_in="1.4.0",
+            )
+            self._api_key_provider = self._build_azure_ml_token_provider()
+            self._api_key = ""
             return
 
         raise ValueError(

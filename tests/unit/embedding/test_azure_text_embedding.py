@@ -147,15 +147,15 @@ def test_callable_token_provider_used_as_is(mock_async_openai):
 
 
 @patch("pyrit.embedding.openai_text_embedding.AsyncOpenAI")
-def test_no_key_azure_endpoint_raises(mock_async_openai):
-    """A recognized Azure endpoint no longer auto-mints a token; identity must be explicit."""
+def test_no_key_azure_endpoint_falls_back_with_deprecation_warning(mock_async_openai):
+    """Keyless Azure embedding configurations keep working until 1.4.0, but now announce it."""
     mock_async_openai.return_value = MagicMock()
 
-    with patch("pyrit.auth.openai_auth.get_azure_openai_auth") as mock_get_auth:
-        with pytest.raises(ValueError, match="No API key available"):
+    with patch("pyrit.auth.openai_auth.get_azure_openai_auth", return_value="minted-token") as mock_get_auth:
+        with pytest.warns(DeprecationWarning, match="1.4.0"):
             _build_embedding(api_key=None, endpoint=_AZURE_ENDPOINT)
 
-    mock_get_auth.assert_not_called()
+    mock_get_auth.assert_called_once_with(_AZURE_ENDPOINT)
 
 
 @patch("pyrit.embedding.openai_text_embedding.AsyncOpenAI")

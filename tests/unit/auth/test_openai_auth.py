@@ -2,6 +2,7 @@
 # Licensed under the MIT license.
 
 import os
+import warnings
 from unittest.mock import patch
 
 import pytest
@@ -105,18 +106,36 @@ def test_api_key_mode_wraps_callable_before_reading_env_var():
     assert resolved is not sync_provider
 
 
-def test_api_key_mode_raises_when_no_key_available(minted_provider):
-    """api_key mode no longer mints an Entra token just because the endpoint looks like Azure."""
-    _, mock_auth = minted_provider
+def test_api_key_mode_falls_back_to_entra_with_deprecation_warning(minted_provider):
+    """Keyless Azure configurations predate explicit auth modes, so the fallback survives to 1.4.0 --
+    but it now announces itself instead of happening silently."""
+    provider, mock_auth = minted_provider
     with patch.dict(os.environ, {API_KEY_ENV_VAR: ""}):
-        with pytest.raises(ValueError, match="No API key available"):
-            resolve_openai_auth(
+        with pytest.warns(DeprecationWarning, match="1.4.0"):
+            resolved = resolve_openai_auth(
                 endpoint=AZURE_ENDPOINT,
                 api_key=None,
                 api_key_environment_variable=API_KEY_ENV_VAR,
             )
 
-    mock_auth.assert_not_called()
+    assert resolved is provider
+    mock_auth.assert_called_once_with(AZURE_ENDPOINT)
+
+
+def test_identity_does_not_emit_a_deprecation_warning(minted_provider):
+    """Identity is the replacement the warning points at, so it must not warn itself."""
+    provider, _ = minted_provider
+    with patch.dict(os.environ, {API_KEY_ENV_VAR: ""}):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DeprecationWarning)
+            resolved = resolve_openai_auth(
+                endpoint=AZURE_ENDPOINT,
+                api_key=None,
+                api_key_environment_variable=API_KEY_ENV_VAR,
+                auth_mode="identity",
+            )
+
+    assert resolved is provider
 
 
 def test_api_key_mode_raises_for_non_azure_endpoint_without_key():
@@ -130,11 +149,11 @@ def test_api_key_mode_raises_for_non_azure_endpoint_without_key():
 
 
 def test_api_key_mode_error_names_the_identity_migration():
-    """The break is only safe if the error tells the caller how to opt into identity."""
+    """A caller who cannot fall back needs the error to name the supported alternative."""
     with patch.dict(os.environ, {API_KEY_ENV_VAR: ""}):
         with pytest.raises(ValueError) as exc_info:
             resolve_openai_auth(
-                endpoint=AZURE_ENDPOINT,
+                endpoint=NON_AZURE_ENDPOINT,
                 api_key=None,
                 api_key_environment_variable=API_KEY_ENV_VAR,
             )
