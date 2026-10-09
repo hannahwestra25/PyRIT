@@ -47,9 +47,11 @@ if TYPE_CHECKING:
         OutcomeStatistics,
     )
     from pyrit.models.catalog import (
+        PresetIssue,
         ScenarioDatasetSizeCap,
         ScenarioDatasetSummary,
         ScenarioDefaultRunSizeEstimate,
+        ScenarioPreset,
         ScenarioProducerCategoryCounts,
         ScenarioProducerCounts,
         ScenarioRunListItem,
@@ -60,6 +62,7 @@ if TYPE_CHECKING:
         ScenarioRunSizeEstimateStatus,
         ScenarioRunSizeFactor,
         ScenarioTechniqueSummary,
+        StoredPreset,
     )
     from pyrit.models.conversation_stats import ConversationStats
     from pyrit.models.embeddings import EmbeddingData, EmbeddingResponse, EmbeddingSupport, EmbeddingUsageInformation
@@ -394,6 +397,7 @@ _LAZY_EXPORTS: dict[str, str] = {
     "ObjectiveTargetEvaluationIdentifier": "pyrit.models.identifiers",
     "Parameter": "pyrit.models.parameter",
     "ParameterDestination": "pyrit.models.parameter",
+    "PresetIssue": "pyrit.models.catalog",
     "PromptDataType": "pyrit.models.literals",
     "PromptResponseError": "pyrit.models.literals",
     "QuestionAnsweringDataset": "pyrit.models.question_answering",
@@ -430,6 +434,7 @@ _LAZY_EXPORTS: dict[str, str] = {
     "ScenarioDatasetSizeCap": "pyrit.models.catalog",
     "ScenarioDatasetSummary": "pyrit.models.catalog",
     "ScenarioDefaultRunSizeEstimate": "pyrit.models.catalog",
+    "ScenarioPreset": "pyrit.models.catalog",
     "ScenarioProducerCategoryCounts": "pyrit.models.catalog",
     "ScenarioProducerCounts": "pyrit.models.catalog",
     "ScenarioRunListItem": "pyrit.models.catalog",
@@ -491,6 +496,7 @@ _LAZY_EXPORTS: dict[str, str] = {
     "warn_prompt_path_deprecated": "pyrit.models.seeds",
     "snake_case_to_class_name": "pyrit.models.identifiers",
     "sort_message_pieces": "pyrit.models.messages.message_piece",
+    "StoredPreset": "pyrit.models.catalog",
     "StrategyResult": "pyrit.models.results.strategy_result",
     "StrategyResultT": "pyrit.models.results.strategy_result",
     "StructuredParameterValue": "pyrit.models.parameter",
