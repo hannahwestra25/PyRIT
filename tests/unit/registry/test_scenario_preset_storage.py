@@ -590,6 +590,43 @@ def test_a_second_writer_cannot_enter_while_a_save_is_in_flight(tmp_path: Path) 
     assert loaded.preset.description == "second"
 
 
+def test_a_delete_cannot_enter_while_a_save_is_in_flight(tmp_path: Path) -> None:
+    """Test that a delete landing inside a save is refused rather than undone by that save."""
+    storage = ScenarioPresetStorage(source=str(tmp_path))
+    first = storage.save_preset(preset=_make_preset(description="first"), expected_version=None)
+    competitor = ScenarioPresetStorage(source=str(tmp_path))
+    refusals: list[str] = []
+    real_replace_file = ScenarioPresetStorage._replace_file
+
+    def replace_once_a_deleter_has_tried(*, path: Path, content: bytes) -> None:
+        with pytest.raises(TimeoutError) as error:
+            competitor.delete_preset("nightly")
+        refusals.append(str(error.value))
+        real_replace_file(path=path, content=content)
+
+    with patch.object(ScenarioPresetStorage, "LOCK_TIMEOUT_SECONDS", 0.1):
+        with patch.object(ScenarioPresetStorage, "_replace_file", staticmethod(replace_once_a_deleter_has_tried)):
+            storage.save_preset(preset=_make_preset(description="second"), expected_version=first.version)
+
+    assert len(refusals) == 1
+    loaded = storage.load_preset("nightly")
+    assert loaded is not None
+    assert loaded.preset.description == "second"
+
+
+def test_local_update_of_a_deleted_preset_is_a_conflict(tmp_path: Path) -> None:
+    """Test that the local backend reports a removed preset the same way the blob backend does."""
+    storage = ScenarioPresetStorage(source=str(tmp_path))
+    first = storage.save_preset(preset=_make_preset(description="first"), expected_version=None)
+    assert storage.delete_preset("nightly")
+
+    with pytest.raises(ScenarioPresetConflictError, match="no longer exists") as error:
+        storage.save_preset(preset=_make_preset(description="second"), expected_version=first.version)
+
+    assert error.value.actual_version is None
+    assert storage.load_preset("nightly") is None
+
+
 def test_a_completed_save_releases_its_lock(tmp_path: Path) -> None:
     """Test that a save leaves nothing behind that would block the next writer."""
     storage = ScenarioPresetStorage(source=str(tmp_path))

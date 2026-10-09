@@ -525,6 +525,11 @@ class FileDocumentStorage:
         existence check, so two callers racing to remove the same document cannot
         both be told they removed it.
 
+        A local delete takes the same lock a conditional write holds, because a delete
+        is a writer. Without it a delete landing inside a save's read-compare-replace
+        sequence is reported as successful and then immediately undone by that replace,
+        while the blob backend reports the same interleaving as a conflict.
+
         Args:
             name (str): The document name.
 
@@ -533,6 +538,7 @@ class FileDocumentStorage:
 
         Raises:
             ValueError: If *name* is not a legal registry name.
+            TimeoutError: If a local delete could not acquire the document lock.
         """
         validate_registry_name(name)
         if self._is_blob:
@@ -545,10 +551,12 @@ class FileDocumentStorage:
                     return False
             return True
 
-        try:
-            (self._local_directory() / f"{name}{self._extension}").unlink()
-        except FileNotFoundError:
-            return False
+        path = self._local_directory(create=True) / f"{name}{self._extension}"
+        with self._local_document_lock(path):
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                return False
         return True
 
     def _local_directory(self, *, create: bool = False) -> Path:

@@ -184,6 +184,7 @@ class ScenarioPresetStorage(FileDocumentStorage):
 
         Raises:
             ValueError: If *name* is not a legal preset name.
+            TimeoutError: If a local delete could not acquire the document lock.
         """
         return self._delete_document(name)
 
