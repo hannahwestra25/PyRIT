@@ -78,8 +78,8 @@ class PromptTarget(Identifiable):
     #
     # ``supported_auth_modes`` lists the auth modes the create-target API accepts
     # for this type. Base default is api-key only; targets that can authenticate
-    # via an ambient Azure identity when given no key (e.g. OpenAI, Azure ML,
-    # Azure Blob Storage, Prompt Shield) override this to add ``"identity"``.
+    # via an ambient Azure identity (e.g. OpenAI, Azure ML, Azure Blob Storage,
+    # Prompt Shield) override this to add ``"identity"``.
     supported_auth_modes: ClassVar[tuple[AuthMode, ...]] = ("api_key",)
 
     def __init_subclass__(cls, **kwargs: object) -> None:

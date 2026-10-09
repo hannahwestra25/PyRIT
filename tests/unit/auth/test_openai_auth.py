@@ -37,17 +37,24 @@ def test_identity_ignores_env_var_api_key(minted_provider):
     mock_auth.assert_called_once_with(AZURE_ENDPOINT)
 
 
-def test_identity_ignores_explicit_api_key(minted_provider):
-    """Identity wins over a key passed alongside it rather than silently using the key."""
-    provider, _ = minted_provider
-    resolved = resolve_openai_auth(
-        endpoint=AZURE_ENDPOINT,
-        api_key="sk-explicit",
-        api_key_environment_variable=API_KEY_ENV_VAR,
-        auth_mode="identity",
-    )
+@pytest.mark.parametrize(
+    "explicit_key",
+    ["sk-explicit", lambda: "caller-supplied-token"],
+    ids=["key_string", "token_provider"],
+)
+def test_identity_with_explicit_api_key_raises(minted_provider, explicit_key):
+    """Identity plus an explicit credential is contradictory. Silently dropping a caller's token
+    provider would authenticate as a different principal than the one they supplied."""
+    _, mock_auth = minted_provider
+    with pytest.raises(ValueError, match="cannot be combined with an explicit api_key"):
+        resolve_openai_auth(
+            endpoint=AZURE_ENDPOINT,
+            api_key=explicit_key,
+            api_key_environment_variable=API_KEY_ENV_VAR,
+            auth_mode="identity",
+        )
 
-    assert resolved is provider
+    mock_auth.assert_not_called()
 
 
 def test_identity_raises_for_non_azure_endpoint():

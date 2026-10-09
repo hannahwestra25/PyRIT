@@ -135,11 +135,19 @@ class TestOpenAITargetAuthResolution:
             )
         assert target._api_key is mock_auth
 
-    def test_identity_auth_mode_ignores_explicit_key(self):
+    @pytest.mark.parametrize(
+        "explicit_key",
+        ["param-key", lambda: "caller-supplied-token"],
+        ids=["key_string", "token_provider"],
+    )
+    def test_identity_auth_mode_with_explicit_key_raises(self, explicit_key):
+        """A caller's own credential must not be silently replaced by a default Entra token."""
         mock_auth = AsyncMock(return_value="entra-token")
-        with patch("pyrit.auth.openai_auth.get_azure_openai_auth", return_value=mock_auth):
-            target = _build_target(api_key="param-key", auth_mode="identity")
-        assert target._api_key is mock_auth
+        with patch("pyrit.auth.openai_auth.get_azure_openai_auth", return_value=mock_auth) as mock_get_auth:
+            with pytest.raises(ValueError, match="cannot be combined with an explicit api_key"):
+                _build_target(api_key=explicit_key, auth_mode="identity")
+
+        mock_get_auth.assert_not_called()
 
     def test_identity_auth_mode_non_azure_endpoint_raises(self):
         with pytest.raises(ValueError, match="Identity-based authentication requires a recognized Azure"):

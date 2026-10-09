@@ -195,15 +195,16 @@ class AzureMLChatTarget(PromptTarget):
                 The API key for accessing the Azure ML endpoint, or a callable
                 which returns a bearer token, or None to fall back to the
                 ``AZURE_ML_KEY`` env variable.
-            auth_mode (AuthMode): ``"identity"`` mints a Microsoft Entra ID token and ignores
-                ``api_key`` and the ``AZURE_ML_KEY`` environment variable entirely. ``"api_key"``
-                (the default) resolves a token-provider callable, then an explicit key, then the
-                environment variable.
+            auth_mode (AuthMode): ``"identity"`` mints a Microsoft Entra ID token for the endpoint;
+                it ignores the ``AZURE_ML_KEY`` environment variable and rejects an explicit
+                ``api_key``. ``"api_key"`` (the default) resolves a token-provider callable, then an
+                explicit key, then the environment variable.
 
         Raises:
-            ValueError: If identity auth is requested for an endpoint that is not a recognized
-                Azure ML managed online endpoint, or if ``"api_key"`` auth is requested and no key
-                is available via parameter or environment variable.
+            ValueError: If identity auth is requested alongside an explicit ``api_key``, if identity
+                auth is requested for an endpoint that is not a recognized Azure ML managed online
+                endpoint, or if ``"api_key"`` auth is requested and no key is available via parameter
+                or environment variable.
         """
         self._endpoint = default_values.get_required_value(
             env_var_name=self.endpoint_uri_environment_variable, passed_value=endpoint
@@ -213,11 +214,18 @@ class AzureMLChatTarget(PromptTarget):
         # Identity is an explicit caller choice, so it must never be silently downgraded to a key
         # that merely happens to be present in the environment.
         if auth_mode == "identity":
+            if api_key is not None:
+                raise ValueError(
+                    'auth_mode="identity" cannot be combined with an explicit api_key, because identity auth '
+                    "mints its own Microsoft Entra ID token and would silently ignore the key or token provider "
+                    "you supplied. Omit api_key to authenticate with an ambient Azure identity, or pass "
+                    'auth_mode="api_key" to authenticate with the key or token provider you supplied.'
+                )
             if not is_azure_ml_endpoint(self._endpoint):
                 raise ValueError(
                     "Identity-based authentication requires a recognized Azure ML managed online endpoint "
-                    f"(*.inference.ml.azure.com), but got '{self._endpoint}'. Use api_key authentication for "
-                    "this endpoint, or pass your own token provider callable as api_key."
+                    f"(*.inference.ml.azure.com), but got '{self._endpoint}'. Pass auth_mode=\"api_key\" for "
+                    "this endpoint, supplying either a key or your own token provider callable as api_key."
                 )
             self._api_key_provider = self._build_azure_ml_token_provider()
             self._api_key = ""

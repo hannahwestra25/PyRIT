@@ -54,8 +54,8 @@ class PromptShieldTarget(PromptTarget):
     ENDPOINT_URI_ENVIRONMENT_VARIABLE: str = "AZURE_CONTENT_SAFETY_API_ENDPOINT"
     API_KEY_ENVIRONMENT_VARIABLE: str = "AZURE_CONTENT_SAFETY_API_KEY"
 
-    # A subscription key is the "api_key"; with no key a recognized Azure Content
-    # Safety endpoint falls back to an Entra ID token provider (identity-based auth).
+    # A subscription key is the "api_key"; auth_mode="identity" mints an Entra ID token
+    # provider for a recognized Azure Content Safety endpoint instead.
     supported_auth_modes: ClassVar[tuple[AuthMode, ...]] = ("api_key", "identity")
 
     _endpoint: str
@@ -82,17 +82,16 @@ class PromptShieldTarget(PromptTarget):
                 Defaults to the `ENDPOINT_URI_ENVIRONMENT_VARIABLE` environment variable.
             api_key (str | Callable[[], str | Awaitable[str]], Optional):
                 The API key for accessing the Azure Content Safety service,
-                or a callable that returns an access token. For recognized Azure endpoints
-                (``*.cognitiveservices.azure.com``) with no key provided, an Entra ID token
-                provider is minted automatically (identity-based auth). To supply your own
+                or a callable that returns an access token. To supply your own
                 token provider, pass one from pyrit.auth
                 (e.g., get_azure_token_provider('https://cognitiveservices.azure.com/.default')).
-                Defaults to the `API_KEY_ENVIRONMENT_VARIABLE` environment variable.
+                Defaults to the `API_KEY_ENVIRONMENT_VARIABLE` environment variable. To
+                authenticate with an ambient Azure identity instead, pass ``auth_mode="identity"``.
             auth_mode (AuthMode, Optional): Explicitly selects how to authenticate. ``"identity"``
-                mints a Microsoft Entra ID token for the endpoint and ignores ``api_key`` and the
-                `API_KEY_ENVIRONMENT_VARIABLE` environment variable entirely; it requires a
-                recognized Azure Content Safety endpoint. Defaults to ``"api_key"``, which resolves
-                the key as described above.
+                mints a Microsoft Entra ID token for the endpoint; it ignores the
+                `API_KEY_ENVIRONMENT_VARIABLE` environment variable, rejects an explicit ``api_key``,
+                and requires a recognized Azure Content Safety endpoint. Defaults to ``"api_key"``,
+                which resolves the key as described above.
             api_version (str, Optional): The version of the Azure Content Safety API. Defaults to "2024-09-01".
             field (PromptShieldEntryField, Optional): If "userPrompt", all input is sent to the userPrompt field.
                 If "documents", all input is sent to the documents field. If None, the input is parsed to separate
@@ -104,9 +103,10 @@ class PromptShieldTarget(PromptTarget):
                 this target instance. Defaults to None.
 
         Raises:
-            ValueError: If the endpoint value is not provided, if identity auth is requested for
-                an endpoint that is not a recognized Azure Content Safety endpoint, or if no API key
-                is available for ``"api_key"`` auth.
+            ValueError: If the endpoint value is not provided, if identity auth is requested
+                alongside an explicit ``api_key``, if identity auth is requested for an endpoint
+                that is not a recognized Azure Content Safety endpoint, or if no API key is
+                available for ``"api_key"`` auth.
         """
         endpoint_value = default_values.get_required_value(
             env_var_name=self.ENDPOINT_URI_ENVIRONMENT_VARIABLE, passed_value=endpoint
@@ -125,11 +125,18 @@ class PromptShieldTarget(PromptTarget):
         # Identity is an explicit caller choice, so it must never be silently downgraded
         # to a key that merely happens to be present in the environment.
         if auth_mode == "identity":
+            if api_key is not None:
+                raise ValueError(
+                    'auth_mode="identity" cannot be combined with an explicit api_key, because identity auth '
+                    "mints its own Microsoft Entra ID token and would silently ignore the key or token provider "
+                    "you supplied. Omit api_key to authenticate with an ambient Azure identity, or pass "
+                    'auth_mode="api_key" to authenticate with the key or token provider you supplied.'
+                )
             if not is_azure_openai_endpoint(endpoint_value):
                 raise ValueError(
                     "Identity-based authentication requires a recognized Azure Content Safety endpoint "
-                    f"(*.cognitiveservices.azure.com), but got '{endpoint_value}'. Use api_key authentication "
-                    "for this endpoint, or pass your own token provider callable as api_key."
+                    f"(*.cognitiveservices.azure.com), but got '{endpoint_value}'. Pass auth_mode=\"api_key\" "
+                    "for this endpoint, supplying either a key or your own token provider callable as api_key."
                 )
             self._api_key = get_azure_token_provider(get_default_azure_scope(endpoint_value))
         elif api_key is not None and callable(api_key):

@@ -113,7 +113,7 @@ target3 = OpenAIChatTarget(
 #
 # Authentication is explicit. `auth_mode="api_key"` (the default) resolves a credential in this order: a token provider callable passed as `api_key`, an explicit `api_key` string, then the target's API key environment variable. If none of those yield a key it raises a `ValueError` rather than guessing.
 #
-# Pass `auth_mode="identity"` when you want Entra auth. It skips the key and the environment variable entirely, so an unrelated key in your `.env` can no longer override your choice. It raises a `ValueError` if the endpoint is not a recognized Azure endpoint rather than minting a token for an unknown host.
+# Pass `auth_mode="identity"` when you want Entra auth. It ignores the target's API key environment variable entirely, so an unrelated key in your `.env` can no longer override your choice. It raises a `ValueError` if you also pass an explicit `api_key`, since identity mints its own token and would silently discard the credential you supplied. It also raises a `ValueError` if the endpoint is not a recognized Azure endpoint rather than minting a token for an unknown host.
 #
 # ```python
 # target = OpenAIChatTarget(
@@ -122,7 +122,7 @@ target3 = OpenAIChatTarget(
 # )
 # ```
 #
-# `auth_mode` applies to the OpenAI targets, `AzureMLChatTarget`, and `PromptShieldTarget`. `AzureBlobStorageTarget` accepts the same `auth_mode="identity"` to bypass its SAS token sources; it defaults to selecting a credential automatically.
+# `auth_mode` applies to the OpenAI targets, `AzureMLChatTarget`, and `PromptShieldTarget`. `AzureBlobStorageTarget` accepts the same `auth_mode="identity"` to bypass its SAS token sources; when no SAS token is configured it still selects a credential automatically, but that fallback now raises a `DeprecationWarning` and is removed in 1.4.0.
 #
 # > **Migration note.** Earlier versions silently minted an Entra token when no key was found and the endpoint looked like an Azure host. That implicit fallback has been removed because it made an explicit `auth_mode="identity"` indistinguishable from "no key configured". If you relied on it, pass `auth_mode="identity"` (or a token provider as `api_key`, as the examples above do).
 

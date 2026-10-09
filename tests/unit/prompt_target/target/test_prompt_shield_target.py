@@ -201,19 +201,24 @@ def test_identity_auth_mode_ignores_env_key(sqlite_instance):
     assert target._api_key is token_provider
 
 
-def test_identity_auth_mode_ignores_explicit_key(sqlite_instance):
-    token_provider = MagicMock(return_value="minted-token")
+@pytest.mark.parametrize(
+    "explicit_key",
+    ["key-passed-anyway", lambda: "caller-supplied-token"],
+    ids=["key_string", "token_provider"],
+)
+def test_identity_auth_mode_with_explicit_key_raises(sqlite_instance, explicit_key):
+    """A caller's own credential must not be silently replaced by a default Entra token."""
     with patch(
         "pyrit.prompt_target.prompt_shield_target.get_azure_token_provider",
-        return_value=token_provider,
-    ):
-        target = PromptShieldTarget(
-            endpoint="https://myresource.cognitiveservices.azure.com",
-            api_key="key-passed-anyway",
-            auth_mode="identity",
-        )
+    ) as mock_provider:
+        with pytest.raises(ValueError, match="cannot be combined with an explicit api_key"):
+            PromptShieldTarget(
+                endpoint="https://myresource.cognitiveservices.azure.com",
+                api_key=explicit_key,
+                auth_mode="identity",
+            )
 
-    assert target._api_key is token_provider
+    mock_provider.assert_not_called()
 
 
 def test_identity_auth_mode_non_azure_endpoint_raises(sqlite_instance):

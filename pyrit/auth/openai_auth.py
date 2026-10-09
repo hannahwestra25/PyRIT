@@ -23,25 +23,34 @@ def resolve_openai_auth(
         endpoint (str): The OpenAI-compatible endpoint URL.
         api_key (str | Callable[[], str | Awaitable[str]] | None): The explicit API key or token provider.
         api_key_environment_variable (str): Environment variable to use when ``api_key`` is not provided.
-        auth_mode (AuthMode): ``"identity"`` authenticates with a Microsoft Entra ID token and ignores
-            ``api_key`` and its environment variable entirely. ``"api_key"`` (the default) resolves a
-            token-provider callable, then an explicit key, then the environment variable.
+        auth_mode (AuthMode): ``"identity"`` authenticates with a Microsoft Entra ID token minted for
+            the endpoint; it ignores the API key environment variable and rejects an explicit
+            ``api_key``. ``"api_key"`` (the default) resolves a token-provider callable, then an
+            explicit key, then the environment variable.
 
     Returns:
         str | Callable[[], Awaitable[str]]: API key string or async-compatible token provider.
 
     Raises:
-        ValueError: If identity auth is requested for an endpoint that is not a recognized Azure
-            OpenAI endpoint, or if ``"api_key"`` auth is requested and no key is available.
+        ValueError: If identity auth is requested alongside an explicit ``api_key``, if identity auth
+            is requested for an endpoint that is not a recognized Azure OpenAI endpoint, or if
+            ``"api_key"`` auth is requested and no key is available.
     """
     # Identity is an explicit caller choice, so it must never be silently downgraded to a key
     # that merely happens to be present in the environment.
     if auth_mode == "identity":
+        if api_key is not None:
+            raise ValueError(
+                'auth_mode="identity" cannot be combined with an explicit api_key, because identity auth '
+                "mints its own Microsoft Entra ID token and would silently ignore the key or token provider "
+                "you supplied. Omit api_key to authenticate with an ambient Azure identity, or pass "
+                'auth_mode="api_key" to authenticate with the key or token provider you supplied.'
+            )
         if not is_azure_openai_endpoint(endpoint):
             raise ValueError(
                 f"Identity-based authentication requires a recognized Azure OpenAI / AI Foundry endpoint, "
-                f"but got '{endpoint}'. Use api_key authentication for this endpoint, or pass your own "
-                "token provider callable as api_key."
+                f"but got '{endpoint}'. Pass auth_mode=\"api_key\" for this endpoint, supplying either a key "
+                "or your own token provider callable as api_key."
             )
         return get_azure_openai_auth(endpoint)
 

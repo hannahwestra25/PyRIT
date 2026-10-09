@@ -108,10 +108,10 @@ class OpenAITarget(PromptTarget):
                 Synchronous token providers are automatically wrapped to work with async clients.
                 Defaults to the target-specific API key environment variable.
             auth_mode (AuthMode, Optional): Explicitly selects how to authenticate. ``"identity"``
-                authenticates with a Microsoft Entra ID token for the endpoint and ignores ``api_key``
-                and its environment variable entirely; it requires a recognized Azure OpenAI /
-                AI Foundry endpoint. Defaults to ``"api_key"``, which resolves the key as described
-                above.
+                authenticates with a Microsoft Entra ID token minted for the endpoint; it ignores the
+                API key environment variable, rejects an explicit ``api_key``, and requires a
+                recognized Azure OpenAI / AI Foundry endpoint. Defaults to ``"api_key"``, which
+                resolves the key as described above.
             headers (str, Optional): Extra headers of the endpoint (JSON).
             max_requests_per_minute (int, Optional): Number of requests the target can handle per
                 minute before hitting a rate limit. The number of requests sent to the target

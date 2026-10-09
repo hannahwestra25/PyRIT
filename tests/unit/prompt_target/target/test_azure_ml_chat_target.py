@@ -91,22 +91,24 @@ def test_identity_auth_mode_ignores_env_key(patch_central_database):
     assert target._api_key == ""
 
 
-def test_identity_auth_mode_ignores_explicit_key(patch_central_database):
-    async def _provider() -> str:
-        return "aml-entra-token"
-
+@pytest.mark.parametrize(
+    "explicit_key",
+    ["key-passed-anyway", lambda: "caller-supplied-token"],
+    ids=["key_string", "token_provider"],
+)
+def test_identity_auth_mode_with_explicit_key_raises(patch_central_database, explicit_key):
+    """A caller's own credential must not be silently replaced by a default Entra token."""
     with patch(
         "pyrit.prompt_target.azure_ml_chat_target.get_azure_async_token_provider",
-        return_value=_provider,
-    ):
-        target = AzureMLChatTarget(
-            endpoint="https://my-aml.region.inference.ml.azure.com/score",
-            api_key="key-passed-anyway",
-            auth_mode="identity",
-        )
+    ) as mock_provider:
+        with pytest.raises(ValueError, match="cannot be combined with an explicit api_key"):
+            AzureMLChatTarget(
+                endpoint="https://my-aml.region.inference.ml.azure.com/score",
+                api_key=explicit_key,
+                auth_mode="identity",
+            )
 
-    assert target._api_key_provider is _provider
-    assert target._api_key == ""
+    mock_provider.assert_not_called()
 
 
 def test_identity_auth_mode_non_aml_endpoint_raises(patch_central_database):
