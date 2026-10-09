@@ -14,7 +14,6 @@ from fastapi import FastAPI
 from pyrit.backend.models.initializers import ConfiguredInitializerSetting
 from pyrit.backend.services.configuration_file_service import ConfigurationFileService
 from pyrit.backend.services.environment_file_service import EnvironmentFileService
-from pyrit.backend.services.scenario_preset_service import get_scenario_preset_service
 from pyrit.backend.services.scenario_run_service import get_scenario_run_service, peek_scenario_run_service
 from pyrit.backend.services.service_lifecycle import (
     close_services_async,
@@ -23,7 +22,7 @@ from pyrit.backend.services.service_lifecycle import (
 )
 from pyrit.common.path import CONFIGURATION_DIRECTORY_PATH
 from pyrit.memory import CentralMemory
-from pyrit.registry import InitializerRegistry
+from pyrit.registry import InitializerRegistry, ScenarioPresetRegistry
 from pyrit.setup.configuration_loader import ConfigurationLoader
 from pyrit.setup.environment_loading import resolve_environment_async
 from pyrit.setup.initialization import validate_reinitialization_memory
@@ -104,9 +103,12 @@ class RuntimeLifecycle:
         self.app.state.allow_custom_initializers = config.allow_custom_initializers
         registry = await asyncio.to_thread(InitializerRegistry.get_registry_singleton)
         registry.configure_custom_scripts_source(config.custom_initializers_source)
+        preset_registry = ScenarioPresetRegistry.get_registry_singleton()
         # Constructing the storage creates the default preset directory when no source is
-        # configured, so it stays off the event loop.
-        await asyncio.to_thread(get_scenario_preset_service().configure_source, config.scenario_presets_source)
+        # configured, and the validation pass reads every stored document, so both stay
+        # off the event loop.
+        await asyncio.to_thread(preset_registry.configure_source, config.scenario_presets_source)
+        await asyncio.to_thread(preset_registry.validate_stored_presets)
 
     def _publish(self, config: ConfigurationLoader) -> None:
         self.app.state.configured_initializers = [

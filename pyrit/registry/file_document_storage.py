@@ -517,9 +517,19 @@ class FileDocumentStorage:
             temporary_path.unlink(missing_ok=True)
             raise
 
-    def _delete_document(self, name: str) -> None:
+    def _delete_document(self, name: str) -> bool:
         """
-        Delete one document if it exists.
+        Delete one document, reporting whether it was there to delete.
+
+        The answer comes from the delete itself rather than from a preceding
+        existence check, so two callers racing to remove the same document cannot
+        both be told they removed it.
+
+        Args:
+            name (str): The document name.
+
+        Returns:
+            bool: True if the document existed and was deleted, False if it was already gone.
 
         Raises:
             ValueError: If *name* is not a legal registry name.
@@ -529,10 +539,17 @@ class FileDocumentStorage:
             from azure.core.exceptions import ResourceNotFoundError
 
             with self._open_container_client() as client:
-                with suppress(ResourceNotFoundError):
+                try:
                     client.delete_blob(self._get_blob_name(name))
-        else:
-            (self._local_directory() / f"{name}{self._extension}").unlink(missing_ok=True)
+                except ResourceNotFoundError:
+                    return False
+            return True
+
+        try:
+            (self._local_directory() / f"{name}{self._extension}").unlink()
+        except FileNotFoundError:
+            return False
+        return True
 
     def _local_directory(self, *, create: bool = False) -> Path:
         """

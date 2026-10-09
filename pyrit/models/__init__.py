@@ -46,6 +46,7 @@ if TYPE_CHECKING:
         AttackStats,
     )
     from pyrit.models.catalog import (
+        PresetIssue,
         ScenarioDatasetSizeCap,
         ScenarioDatasetSummary,
         ScenarioDefaultRunSizeEstimate,
@@ -369,6 +370,7 @@ _LAZY_EXPORTS: dict[str, str] = {
     "ObjectiveTargetEvaluationIdentifier": "pyrit.models.identifiers",
     "Parameter": "pyrit.models.parameter",
     "ParameterDestination": "pyrit.models.parameter",
+    "PresetIssue": "pyrit.models.catalog",
     "PromptDataType": "pyrit.models.literals",
     "PromptResponseError": "pyrit.models.literals",
     "QuestionAnsweringDataset": "pyrit.models.question_answering",

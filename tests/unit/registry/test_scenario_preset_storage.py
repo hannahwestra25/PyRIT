@@ -236,15 +236,29 @@ def test_list_and_delete_presets(tmp_path: Path) -> None:
     storage.save_preset(preset=_make_preset(name="weekly"), expected_version=None)
 
     assert sorted(storage.list_presets()) == ["nightly", "weekly"]
-    storage.delete_preset("nightly")
+    assert storage.delete_preset("nightly") is True
     assert sorted(storage.list_presets()) == ["weekly"]
 
 
-def test_delete_missing_preset_is_silent(tmp_path: Path) -> None:
-    """Test that deleting an absent preset is not an error."""
+def test_delete_missing_preset_is_not_an_error(tmp_path: Path) -> None:
+    """Test that deleting an absent preset reports absence rather than raising."""
     storage = ScenarioPresetStorage(source=str(tmp_path))
 
-    storage.delete_preset("absent")
+    assert storage.delete_preset("absent") is False
+
+
+def test_delete_reports_the_outcome_of_the_delete_itself(tmp_path: Path) -> None:
+    """Test that only the delete which removed the document reports that it did.
+
+    Two callers racing to remove the same preset must not both be told they removed it,
+    so the answer has to come from the delete rather than from a preceding existence
+    check.
+    """
+    storage = ScenarioPresetStorage(source=str(tmp_path))
+    storage.save_preset(preset=_make_preset(name="nightly"), expected_version=None)
+
+    assert storage.delete_preset("nightly") is True
+    assert storage.delete_preset("nightly") is False
 
 
 @pytest.mark.parametrize("name", ["../victim", "..\\victim", "nested/victim", "Nightly", "night-ly", ""])
@@ -353,6 +367,31 @@ def test_blob_storage_reads_missing_document_as_none() -> None:
 
     with patch("azure.storage.blob.ContainerClient.from_container_url", return_value=client):
         assert storage.load_preset("absent") is None
+
+
+def test_blob_delete_reports_that_it_removed_the_document() -> None:
+    """Test that deleting an existing blob reports the removal."""
+    client = MagicMock()
+    client.__enter__.return_value = client
+    storage = ScenarioPresetStorage(source="https://account.blob.core.windows.net/presets?sig=secret")
+
+    with patch("azure.storage.blob.ContainerClient.from_container_url", return_value=client):
+        assert storage.delete_preset("nightly") is True
+
+    client.delete_blob.assert_called_once_with("nightly.json")
+
+
+def test_blob_delete_of_a_missing_document_reports_absence_instead_of_raising() -> None:
+    """Test that deleting a blob someone else already removed reports absence."""
+    from azure.core.exceptions import ResourceNotFoundError
+
+    client = MagicMock()
+    client.__enter__.return_value = client
+    client.delete_blob.side_effect = ResourceNotFoundError("missing")
+    storage = ScenarioPresetStorage(source="https://account.blob.core.windows.net/presets?sig=secret")
+
+    with patch("azure.storage.blob.ContainerClient.from_container_url", return_value=client):
+        assert storage.delete_preset("absent") is False
 
 
 def test_name_is_not_written_into_the_document(tmp_path: Path) -> None:

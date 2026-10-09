@@ -172,14 +172,20 @@ class ScenarioPresetStorage(FileDocumentStorage):
         version = self._save_document_conditional(name=preset.name, content=content, expected_version=expected_version)
         return StoredPreset(preset=preset, version=version)
 
-    def delete_preset(self, name: str) -> None:
+    def delete_preset(self, name: str) -> bool:
         """
-        Delete one stored preset if it exists.
+        Delete one stored preset, reporting whether it was there to delete.
+
+        Args:
+            name (str): The preset name.
+
+        Returns:
+            bool: True if a document existed and was deleted, False if it was already gone.
 
         Raises:
             ValueError: If *name* is not a legal preset name.
         """
-        self._delete_document(name)
+        return self._delete_document(name)
 
     def _conflict_error(
         self, *, name: str, expected_version: str | None, actual_version: str | None

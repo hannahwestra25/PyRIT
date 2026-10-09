@@ -14,6 +14,10 @@ Every configurable field is tri-state. ``None`` means "not set by this preset, u
 the scenario's own default", which is distinct from an explicit value that happens
 to equal that default. Collapsing the two would silently pin a scenario default at
 the moment a preset was saved and stop it tracking upstream changes.
+
+``PresetIssue`` lives here rather than with the REST envelopes because checking a
+preset against the live registry is the registry's job, not the wire layer's, and
+both the registry and its callers need to name the result type.
 """
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -111,3 +115,17 @@ class StoredPreset(BaseModel):
 
     preset: ScenarioPreset = Field(..., description="The stored preset")
     version: str = Field(..., description="Opaque version of the document this preset was read from")
+
+
+class PresetIssue(BaseModel):
+    """
+    One advisory problem found while checking a preset against the live registry.
+
+    Issues are reported, never enforced. A preset that names a scenario this
+    deployment has not registered is still a valid preset; it simply cannot run
+    here yet. Blocking the save would make presets un-portable between
+    deployments, which is the one property they exist to have.
+    """
+
+    field: str = Field(..., description="Preset field the issue applies to, e.g. 'scenario_name' or 'techniques'")
+    message: str = Field(..., description="Human-readable description of why the reference does not resolve")
