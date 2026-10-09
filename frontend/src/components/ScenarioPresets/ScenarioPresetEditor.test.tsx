@@ -309,7 +309,7 @@ describe('ScenarioPresetEditor edit mode', () => {
     expect(screen.getByTestId('technique-crescendo')).not.toBeChecked()
     expect(screen.queryByTestId('dropped-techniques-warning')).not.toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'Select Multi-turn techniques' }))
+    await user.click(screen.getByTestId('technique-crescendo'))
     await user.click(screen.getByRole('button', { name: 'Remove all' }))
     await user.click(screen.getByTestId('save-preset-btn'))
 

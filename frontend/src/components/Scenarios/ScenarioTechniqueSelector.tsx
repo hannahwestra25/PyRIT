@@ -1,12 +1,11 @@
 import { useId, useMemo } from 'react'
 
-import { Checkbox, Tag, TagGroup, Text, ToggleButton } from '@fluentui/react-components'
+import { Checkbox, Tag, TagGroup, Text } from '@fluentui/react-components'
 
 import type { ScenarioTechniqueSummary } from '@/types'
 
 import { useScenarioTechniqueSelectorStyles } from './ScenarioTechniqueSelector.styles'
 import { buildSelectableTechniques, type SelectableTechnique } from './scenarioConfigForm'
-import { techniqueSetName } from './scenarioTechniqueSets'
 
 interface ScenarioTechniqueSelectorProps {
   techniqueOptions: ScenarioTechniqueSummary[]
@@ -71,34 +70,13 @@ export default function ScenarioTechniqueSelector({
     onTechniquesChange(selectedTechniques.filter((name) => name !== technique.name))
   }
 
-  const handleTagChange = (tag: string): void => {
-    const members = selectableTechniques.filter(
-      (technique) => !technique.disabled && technique.tags.includes(tag),
-    )
-    const shouldSelect = members.some((technique) => !isTechniqueSelected(technique))
-    const memberNames = new Set(
-      members.filter((technique) => !technique.isBaseline).map((technique) => technique.name),
-    )
-    // Derived from the current selection rather than rebuilt from the rendered options, so a
-    // selection with no checkbox of its own — a preset pinning an aggregate technique such as
-    // `all` — survives a tag toggle instead of being silently dropped.
-    const retained = selectedTechniques.filter((name) => shouldSelect || !memberNames.has(name))
-    const added = shouldSelect
-      ? [...memberNames].filter((name) => !selectedTechniques.includes(name))
-      : []
-    onTechniquesChange([...retained, ...added])
-    if (members.some((technique) => technique.isBaseline)) {
-      onIncludeBaselineChange(shouldSelect)
-    }
-  }
-
   return (
     <section className={styles.section} aria-labelledby={titleId}>
       <Text id={titleId} as="h2" size={400} weight="semibold">
         Techniques
       </Text>
       <Text size={200} className={styles.hint}>
-        Select individual techniques, or use a tag to select or clear all techniques with that tag.
+        Select individual techniques.
       </Text>
       {selectedTechniques.length === 0 && (
         <Text className={styles.errorText} role="alert">
@@ -148,30 +126,6 @@ export default function ScenarioTechniqueSelector({
               <div className={styles.techniqueDetails}>
                 {technique.description && (
                   <Text size={200} className={styles.hint}>{technique.description}</Text>
-                )}
-                {technique.tags.length > 0 && (
-                  <div className={styles.techniqueTags} aria-label={`${technique.name} tags`}>
-                    {technique.tags.map((tag) => {
-                      const tagMembers = selectableTechniques.filter(
-                        (candidate) => !candidate.disabled && candidate.tags.includes(tag),
-                      )
-                      const tagSelected = tagMembers.length > 0 && tagMembers.every(isTechniqueSelected)
-                      return (
-                        <ToggleButton
-                          className={styles.techniqueTag}
-                          key={tag}
-                          size="small"
-                          appearance="outline"
-                          checked={tagSelected}
-                          disabled={disabled || tagMembers.length === 0}
-                          onClick={() => handleTagChange(tag)}
-                          aria-label={`${tagSelected ? 'Clear' : 'Select'} ${techniqueSetName(tag)} techniques`}
-                        >
-                          {techniqueSetName(tag)}
-                        </ToggleButton>
-                      )
-                    })}
-                  </div>
                 )}
                 {technique.disabled && (
                   <Text size={200} className={styles.hint}>

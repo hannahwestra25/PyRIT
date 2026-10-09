@@ -1,7 +1,6 @@
 import { makeStyles, tokens } from '@fluentui/react-components'
 
 import {
-  mobileTouchTarget,
   mobileTouchTargetHeight,
   NARROW_VIEWPORT_QUERY,
 } from '@/styles/touchTargets'
@@ -53,13 +52,5 @@ export const useScenarioTechniqueSelectorStyles = makeStyles({
     flexDirection: 'column',
     gap: tokens.spacingVerticalXS,
     minWidth: 0,
-  },
-  techniqueTags: {
-    display: 'flex',
-    flexWrap: 'wrap',
-    gap: tokens.spacingHorizontalXS,
-  },
-  techniqueTag: {
-    ...mobileTouchTarget,
   },
 })
