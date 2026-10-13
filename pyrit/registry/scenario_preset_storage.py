@@ -128,12 +128,6 @@ class ScenarioPresetStorage(FileDocumentStorage):
         """
         Read the version of one stored document without parsing it.
 
-        A document that cannot be parsed is otherwise unreachable: ``list_presets`` skips
-        it, ``load_preset`` returns ``None``, and a create is refused because the document
-        exists. Exposing its version lets a caller overwrite the broken file instead of
-        leaving the name permanently unusable. Nothing is decoded here, so a file that is
-        not even valid text can still be replaced.
-
         Returns:
             str | None: The document version, or ``None`` if no document is stored.
 
@@ -147,11 +141,8 @@ class ScenarioPresetStorage(FileDocumentStorage):
         """
         Persist one preset.
 
-        The caller states its intent through *expected_version* rather than through
-        anything on *preset*, so creating and updating are never ambiguous and a
-        client-supplied version can never be trusted into storage. A document that exists
-        but cannot be parsed still has a version, so creating over a malformed file
-        conflicts rather than silently discarding it.
+        A document that exists but cannot be parsed still has a version, so creating over
+        a malformed file conflicts rather than silently discarding it.
 
         Args:
             preset (ScenarioPreset): The preset to persist.

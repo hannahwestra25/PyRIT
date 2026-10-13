@@ -118,41 +118,22 @@ class FileDocumentStorage:
     Read and write flat, named text documents in a directory or blob container.
 
     Documents live directly under the configured source, one file per name, with a fixed
-    extension. Nested paths are ignored so a virtual directory prefix behaves the same
-    way in both backends.
+    extension; nested paths are ignored so both backends behave alike. Names are validated
+    here rather than in each subclass, because a name becomes a path component and an
+    unvalidated one would reach a file outside the configured source.
 
-    Every operation that addresses a single document validates the name first, here
-    rather than in each subclass so no document API can omit it: the name becomes a path
-    component in both backends, so an unvalidated name would reach a file outside the
-    configured source. Listing applies the same rule before it reads anything, and skips
-    with a warning any file it cannot address or read, since those names come from the
-    file system rather than from a caller.
+    Content is raw bytes: decoding belongs to the subclasses, which can skip just the one
+    document they cannot interpret, and text mode would rewrite line endings per platform
+    so a caller's hash no longer matched what is stored.
 
-    Documents are read and written as raw bytes. Decoding belongs to the subclasses,
-    which can report a document they cannot interpret and skip just that one. Bytes also
-    keep what a caller hashes identical to what is stored, which text mode would not
-    because it rewrites line endings per platform.
+    Two separate mechanisms protect a write. Local writes stage content beside the
+    destination and move it into place, so a reader never sees a half-written document.
+    The version check in ``_save_document_conditional`` stops a second writer discarding
+    the first's edit, enforced by ``overwrite=False`` and ``If-Match`` ETags on blob and by
+    an OS advisory lock held across the whole read-compare-replace locally. That lock binds
+    only writers using this class; a direct edit is caught by the version instead.
 
-    Local writes stage the content beside the destination and move it into place, so an
-    interrupted write leaves the previous document intact. That stops a reader seeing a
-    half-written document; the separate version check in ``_save_document_conditional``
-    stops a second writer silently discarding the first writer's edit. Each backend
-    enforces that check with its own primitive, so the comparison and the write cannot be
-    separated by another writer:
-
-    - Blob creates upload with ``overwrite=False`` and updates send the ETag read moments
-      earlier as an ``If-Match`` precondition, both evaluated by the service.
-    - Local writes hold an OS advisory lock on a sibling file for the whole
-      read-compare-replace sequence, which serializes every writer that goes through this
-      class, including ones in other processes. The kernel owns the lock, so a writer that
-      dies releases it rather than stranding the document.
-
-    The local guarantee is cooperative: it binds writers using this class, not someone
-    editing the file directly. That case is covered instead by the version itself, which
-    hashes stored bytes and so changes under any edit, whoever made it.
-
-    Subclasses supply the extension and a human-readable label for error messages,
-    then expose a domain-specific API over the protected document operations.
+    Subclasses supply the extension and an error-message label.
     """
 
     LOCK_SUFFIX: str = ".lock"
