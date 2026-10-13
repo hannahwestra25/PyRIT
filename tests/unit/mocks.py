@@ -45,7 +45,9 @@ def make_technique_class(*, techniques: Sequence[str], aggregates: Sequence[str]
     """
     members = [(name.upper(), (name, {"all"})) for name in aggregates]
     members += [(name.upper(), (name, set())) for name in techniques]
-    return ScenarioTechnique("MockTechnique", members)  # type: ignore[call-overload]
+    # The functional Enum API builds a new enum class, but the overload ty selects is the
+    # member-lookup form, so it infers an instance rather than the class this returns.
+    return ScenarioTechnique("MockTechnique", members)  # ty: ignore[invalid-return-type]
 
 
 def make_scenario_identifier(
