@@ -117,34 +117,28 @@ class FileDocumentStorage:
     """
     Read and write flat, named text documents in a directory or blob container.
 
-    Documents live directly under the configured source, one file per name, with a
-    fixed extension. Nested paths are ignored so a virtual directory prefix behaves
-    the same way in both backends.
+    Documents live directly under the configured source, one file per name, with a fixed
+    extension. Nested paths are ignored so a virtual directory prefix behaves the same
+    way in both backends.
 
-    Every operation that addresses a single document validates the name first. The
-    name becomes a path component in both backends, so an unvalidated name would let
-    a caller read, overwrite, or delete a file outside the configured source. The
-    check lives here rather than in each subclass so no document API can omit it.
-
-    Listing applies the same rule before it reads anything, so every name it returns can
-    be passed back to the single-document operations. Names come from the file system
-    rather than from a caller, so the source can hold files this class cannot address or
-    cannot read; those are skipped with a warning rather than failing the whole listing.
+    Every operation that addresses a single document validates the name first, here
+    rather than in each subclass so no document API can omit it: the name becomes a path
+    component in both backends, so an unvalidated name would reach a file outside the
+    configured source. Listing applies the same rule before it reads anything, and skips
+    with a warning any file it cannot address or read, since those names come from the
+    file system rather than from a caller.
 
     Documents are read and written as raw bytes. Decoding belongs to the subclasses,
-    which know how to report a document they cannot interpret and can skip just that one.
-    Bytes also keep what a caller hashes identical to what is stored, which text mode
-    would not: it rewrites line endings per platform.
+    which can report a document they cannot interpret and skip just that one. Bytes also
+    keep what a caller hashes identical to what is stored, which text mode would not
+    because it rewrites line endings per platform.
 
     Local writes stage the content beside the destination and move it into place, so an
-    interrupted write leaves the previous document intact rather than truncating it.
-
-    Conditional writes go through ``_save_document_conditional``, which refuses a write
-    whose stored state no longer matches the version the caller read. Atomic replacement
-    and conditional writing solve different problems: replacement stops a reader seeing a
-    half-written document, while the version check stops a second writer silently
-    discarding the first writer's edit. Each backend enforces the check with its own
-    primitive, so the comparison and the write cannot be separated by another writer:
+    interrupted write leaves the previous document intact. That stops a reader seeing a
+    half-written document; the separate version check in ``_save_document_conditional``
+    stops a second writer silently discarding the first writer's edit. Each backend
+    enforces that check with its own primitive, so the comparison and the write cannot be
+    separated by another writer:
 
     - Blob creates upload with ``overwrite=False`` and updates send the ETag read moments
       earlier as an ``If-Match`` precondition, both evaluated by the service.
@@ -377,9 +371,8 @@ class FileDocumentStorage:
         """
         Write a blob behind a precondition the service evaluates, not an unconditional overwrite.
 
-        A create and an update fail for different reasons, so they are guarded separately.
-        On create, a missing blob means a missing container rather than a lost race, and
-        reporting it as a conflict would send the operator looking for a concurrent edit.
+        A create and an update fail for different reasons, so they are guarded separately:
+        on create a missing blob means a missing container rather than a lost race.
 
         Returns:
             str: The version token for the newly stored content.
@@ -540,14 +533,12 @@ class FileDocumentStorage:
         """
         Delete one document, reporting whether it was there to delete.
 
-        The answer comes from the delete itself rather than from a preceding
-        existence check, so two callers racing to remove the same document cannot
-        both be told they removed it.
+        The answer comes from the delete itself rather than a preceding existence check,
+        so two callers racing to remove the same document cannot both be told they did.
 
-        A local delete takes the same lock a conditional write holds, because a delete
-        is a writer. Without it a delete landing inside a save's read-compare-replace
-        sequence is reported as successful and then immediately undone by that replace,
-        while the blob backend reports the same interleaving as a conflict.
+        A local delete takes the same lock a conditional write holds, because a delete is
+        a writer: without it, a delete landing inside a save's read-compare-replace
+        sequence is reported as successful and then immediately undone by that replace.
 
         Args:
             name (str): The document name.

@@ -35,18 +35,13 @@ class ScenarioPresetStorage(FileDocumentStorage):
     """
     Read and write scenario presets as JSON documents.
 
-    Storage is read through on every call rather than cached, because the same directory
-    or blob container is routinely shared between a notebook, the API, and a second
-    process; a cache would serve edits those callers can no longer see.
+    Storage is read through on every call rather than cached: the same directory or blob
+    container is routinely shared between a notebook, the API, and a second process, and
+    a cache would serve edits those callers can no longer see.
 
-    Writes are guarded by an optimistic-concurrency check. A caller supplies the version
-    it read, and the save is refused unless storage still holds that version. Enforcing
-    that check without a window for a second writer to slip through is the shared
-    storage layer's job, so this class only serializes, validates, and names documents.
-
-    Almost nothing here is preset-specific beyond the model type and the directory name,
-    so a later generic JSON document store could absorb it. New preset-specific behavior
-    belongs in the registry rather than in these methods.
+    Writes are guarded by an optimistic-concurrency check. Enforcing that check without a
+    window for a second writer to slip through is the shared storage layer's job, so this
+    class only serializes, validates, and names documents.
     """
 
     def __init__(self, *, source: str | None = None) -> None:
@@ -135,9 +130,9 @@ class ScenarioPresetStorage(FileDocumentStorage):
 
         A document that cannot be parsed is otherwise unreachable: ``list_presets`` skips
         it, ``load_preset`` returns ``None``, and a create is refused because the document
-        exists. Exposing its version lets a caller offer to overwrite the broken file
-        instead of leaving the name permanently unusable. The document is never decoded
-        here, so a file that is not even valid text can still be replaced.
+        exists. Exposing its version lets a caller overwrite the broken file instead of
+        leaving the name permanently unusable. Nothing is decoded here, so a file that is
+        not even valid text can still be replaced.
 
         Returns:
             str | None: The document version, or ``None`` if no document is stored.
@@ -154,10 +149,9 @@ class ScenarioPresetStorage(FileDocumentStorage):
 
         The caller states its intent through *expected_version* rather than through
         anything on *preset*, so creating and updating are never ambiguous and a
-        client-supplied version can never be trusted into storage.
-
-        A document that exists but cannot be parsed still has a version, so creating
-        over a malformed file conflicts rather than silently discarding it.
+        client-supplied version can never be trusted into storage. A document that exists
+        but cannot be parsed still has a version, so creating over a malformed file
+        conflicts rather than silently discarding it.
 
         Args:
             preset (ScenarioPreset): The preset to persist.
@@ -210,8 +204,8 @@ class ScenarioPresetStorage(FileDocumentStorage):
 
         Unset fields are omitted rather than written as ``null`` so a stored preset reads
         as the set of decisions its author actually made. The name is omitted too: it is
-        the document key, and writing it would invite a hand-editor to change it and
-        expect a rename that cannot happen.
+        the document key, so writing it would invite a hand-edit that looks like a rename
+        but is not one.
 
         Returns:
             bytes: Encoded JSON document content.

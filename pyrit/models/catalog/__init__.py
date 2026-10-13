@@ -40,13 +40,14 @@ if TYPE_CHECKING:
         ScenarioRunSummary,
         ScenarioTechniqueSummary,
     )
-    from pyrit.models.catalog.scenario_preset import PresetIssue, ScenarioPreset, StoredPreset
+    from pyrit.models.catalog.scenario_preset import PresetEntry, PresetIssue, ScenarioPreset, StoredPreset
     from pyrit.models.catalog.scorer import ScorerInstance
     from pyrit.models.catalog.target import TargetInstance
 
 _LAZY_EXPORTS: dict[str, str] = {
     "AttackErrorSummary": "pyrit.models.catalog.scenario",
     "AttackRetrySummary": "pyrit.models.catalog.scenario",
+    "PresetEntry": "pyrit.models.catalog.scenario_preset",
     "PresetIssue": "pyrit.models.catalog.scenario_preset",
     "RegisteredInitializer": "pyrit.models.catalog.initializer",
     "ScorerInstance": "pyrit.models.catalog.scorer",

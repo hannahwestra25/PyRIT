@@ -47,6 +47,7 @@ if TYPE_CHECKING:
         OutcomeStatistics,
     )
     from pyrit.models.catalog import (
+        PresetEntry,
         PresetIssue,
         ScenarioDatasetSizeCap,
         ScenarioDatasetSummary,
@@ -397,6 +398,7 @@ _LAZY_EXPORTS: dict[str, str] = {
     "ObjectiveTargetEvaluationIdentifier": "pyrit.models.identifiers",
     "Parameter": "pyrit.models.parameter",
     "ParameterDestination": "pyrit.models.parameter",
+    "PresetEntry": "pyrit.models.catalog",
     "PresetIssue": "pyrit.models.catalog",
     "PromptDataType": "pyrit.models.literals",
     "PromptResponseError": "pyrit.models.literals",

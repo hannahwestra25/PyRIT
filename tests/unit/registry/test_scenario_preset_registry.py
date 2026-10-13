@@ -4,6 +4,7 @@
 """Tests for the scenario preset registry."""
 
 import json
+import logging
 from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -13,8 +14,8 @@ import pytest
 from pyrit.models import Parameter
 from pyrit.models.catalog.scenario_preset import ScenarioPreset
 from pyrit.registry.components.converter_registry import ConverterRegistry
+from pyrit.registry.components.scenario_preset_registry import ScenarioPresetRegistry
 from pyrit.registry.components.scenario_registry import ScenarioMetadata, ScenarioRegistry
-from pyrit.registry.scenario_preset_registry import ScenarioPresetRegistry
 from pyrit.registry.scenario_preset_storage import ScenarioPresetConflictError, ScenarioPresetStorage
 from pyrit.scenario.core.scenario_technique import ScenarioTechnique
 from unit.mocks import make_technique_class
@@ -216,6 +217,122 @@ class TestEnsurePreset:
     def test_an_illegal_name_is_still_refused(self, registry: ScenarioPresetRegistry) -> None:
         with pytest.raises(ValueError):
             registry.ensure_preset(preset=_preset("../escape"))
+
+
+class TestRegisteredPresets:
+    """Code contributes a preset for this process only, and the operator's document wins."""
+
+    def test_a_registered_preset_is_readable_and_reports_no_version(self, registry: ScenarioPresetRegistry) -> None:
+        registry.register_preset(preset=_preset())
+
+        entry = registry.get_preset(name="quick_scan")
+
+        assert entry is not None
+        assert entry.origin == "registered"
+        assert entry.version is None
+
+    def test_a_registered_preset_has_no_document_version(self, registry: ScenarioPresetRegistry) -> None:
+        registry.register_preset(preset=_preset())
+
+        assert registry.get_preset_version(name="quick_scan") is None
+
+    def test_listing_merges_both_origins_in_name_order(self, registry: ScenarioPresetRegistry) -> None:
+        registry.save_preset(preset=_preset("stored_one"), expected_version=None)
+        registry.register_preset(preset=_preset("code_one"))
+
+        listed = registry.list_presets()
+
+        assert [(entry.preset.name, entry.origin) for entry in listed] == [
+            ("code_one", "registered"),
+            ("stored_one", "stored"),
+        ]
+
+    def test_a_stored_document_shadows_a_registered_preset_in_a_listing(
+        self, registry: ScenarioPresetRegistry, tmp_path: Path
+    ) -> None:
+        registry.register_preset(preset=_preset(techniques=["crescendo"]))
+        (tmp_path / "quick_scan.json").write_text(
+            json.dumps({"scenario_name": SCENARIO_NAME, "techniques": ["flip"]}), encoding="utf-8"
+        )
+
+        entries = {entry.preset.name: entry for entry in registry.list_presets()}
+
+        assert entries["quick_scan"].origin == "stored"
+        assert entries["quick_scan"].preset.techniques == ["flip"]
+
+    def test_a_stored_document_shadows_a_registered_preset_on_read(
+        self, registry: ScenarioPresetRegistry, tmp_path: Path
+    ) -> None:
+        registry.register_preset(preset=_preset(techniques=["crescendo"]))
+        (tmp_path / "quick_scan.json").write_text(
+            json.dumps({"scenario_name": SCENARIO_NAME, "techniques": ["flip"]}), encoding="utf-8"
+        )
+
+        entry = registry.get_preset(name="quick_scan")
+
+        assert entry is not None
+        assert entry.origin == "stored"
+        assert entry.preset.techniques == ["flip"]
+
+    def test_registering_a_shadowed_name_warns_so_the_collision_is_not_silent(
+        self, registry: ScenarioPresetRegistry, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        registry.save_preset(preset=_preset(), expected_version=None)
+
+        with caplog.at_level(logging.WARNING):
+            registry.register_preset(preset=_preset())
+
+        assert "takes precedence" in caplog.text
+
+    def test_registering_the_same_name_twice_is_refused(self, registry: ScenarioPresetRegistry) -> None:
+        registry.register_preset(preset=_preset())
+
+        with pytest.raises(ValueError, match="quick_scan"):
+            registry.register_preset(preset=_preset())
+
+    def test_saving_over_a_registered_name_is_refused(self, registry: ScenarioPresetRegistry) -> None:
+        registry.register_preset(preset=_preset())
+
+        with pytest.raises(ValueError, match="registered by code"):
+            registry.save_preset(preset=_preset(), expected_version=None)
+
+        assert registry.get_preset_version(name="quick_scan") is None
+
+    def test_ensuring_a_registered_name_writes_nothing(self, registry: ScenarioPresetRegistry) -> None:
+        registry.register_preset(preset=_preset())
+
+        assert registry.ensure_preset(preset=_preset()) is False
+        assert registry.get_preset_version(name="quick_scan") is None
+
+    def test_deleting_a_registered_preset_removes_nothing(self, registry: ScenarioPresetRegistry) -> None:
+        registry.register_preset(preset=_preset())
+
+        assert registry.delete_preset(name="quick_scan") is False
+        assert registry.get_preset(name="quick_scan") is not None
+
+    def test_resolving_a_registered_preset_needs_no_version(self, registry: ScenarioPresetRegistry) -> None:
+        registry.register_preset(preset=_preset())
+
+        resolved = registry.resolve_preset(name="quick_scan", expected_version=None)
+
+        assert resolved is not None
+        assert resolved.origin == "registered"
+
+    def test_resolving_a_registered_preset_with_a_version_conflicts(
+        self, registry: ScenarioPresetRegistry
+    ) -> None:
+        created = registry.save_preset(preset=_preset(), expected_version=None)
+        registry.delete_preset(name="quick_scan")
+        registry.register_preset(preset=_preset())
+
+        with pytest.raises(ScenarioPresetConflictError):
+            registry.resolve_preset(name="quick_scan", expected_version=created.version)
+
+    def test_registered_presets_carry_identifier_metadata(self, registry: ScenarioPresetRegistry) -> None:
+        registry.register_preset(preset=_preset(), tags=["starter"])
+
+        assert [entry.name for entry in registry.instances.get_by_tag(tag="starter")] == ["quick_scan"]
+        assert len(registry.instances.list_metadata()) == 1
 
 
 class TestReadThrough:
