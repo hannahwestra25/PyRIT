@@ -20,7 +20,6 @@ from pyrit.registry.components.scenario_preset_registry import (
 )
 from pyrit.registry.components.scenario_registry import ScenarioMetadata, ScenarioRegistry
 from pyrit.registry.scenario_preset_storage import ScenarioPresetConflictError, ScenarioPresetStorage
-from pyrit.scenario.core.scenario_technique import ScenarioTechnique
 from unit.mocks import make_technique_class
 
 SCENARIO_NAME = "foundry.red_team_agent"
@@ -188,9 +187,7 @@ class TestPresetCrud:
         assert registry.get_preset(name="broken") is None
         assert registry.save_preset(preset=_preset("broken"), expected_version=version).preset.name == "broken"
 
-    def test_an_illegal_name_is_refused_rather_than_escaping_the_source(
-        self, registry: ScenarioPresetRegistry
-    ) -> None:
+    def test_an_illegal_name_is_refused_rather_than_escaping_the_source(self, registry: ScenarioPresetRegistry) -> None:
         with pytest.raises(ValueError):
             registry.get_preset(name="../escape")
 
@@ -202,9 +199,7 @@ class TestEnsurePreset:
         assert registry.ensure_preset(preset=_preset()) is True
         assert registry.get_preset(name="quick_scan") is not None
 
-    def test_an_existing_preset_is_left_exactly_as_the_operator_left_it(
-        self, registry: ScenarioPresetRegistry
-    ) -> None:
+    def test_an_existing_preset_is_left_exactly_as_the_operator_left_it(self, registry: ScenarioPresetRegistry) -> None:
         registry.save_preset(preset=_preset(techniques=["flip"]), expected_version=None)
 
         assert registry.ensure_preset(preset=_preset(techniques=["crescendo"])) is False
@@ -317,9 +312,7 @@ class TestRegisteredPresets:
 
         assert not isinstance(illegal.value, ScenarioPresetNameRegisteredError)
 
-    def test_a_registered_name_is_not_reported_as_a_version_conflict(
-        self, registry: ScenarioPresetRegistry
-    ) -> None:
+    def test_a_registered_name_is_not_reported_as_a_version_conflict(self, registry: ScenarioPresetRegistry) -> None:
         """Re-reading clears a version conflict but never clears this, so the types stay apart."""
         registry.register_preset(preset=_preset())
 
@@ -349,9 +342,7 @@ class TestRegisteredPresets:
         assert resolved is not None
         assert resolved.origin == "registered"
 
-    def test_resolving_a_registered_preset_with_a_version_conflicts(
-        self, registry: ScenarioPresetRegistry
-    ) -> None:
+    def test_resolving_a_registered_preset_with_a_version_conflicts(self, registry: ScenarioPresetRegistry) -> None:
         created = registry.save_preset(preset=_preset(), expected_version=None)
         registry.delete_preset(name="quick_scan")
         registry.register_preset(preset=_preset())
@@ -419,9 +410,7 @@ class TestReadThrough:
 class TestVersionCheckedResolution:
     """A launch runs the configuration the operator confirmed, or it does not run."""
 
-    def test_resolve_returns_the_preset_when_the_version_still_matches(
-        self, registry: ScenarioPresetRegistry
-    ) -> None:
+    def test_resolve_returns_the_preset_when_the_version_still_matches(self, registry: ScenarioPresetRegistry) -> None:
         created = registry.save_preset(preset=_preset(), expected_version=None)
 
         resolved = registry.resolve_preset(name="quick_scan", expected_version=created.version)

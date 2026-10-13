@@ -15,15 +15,6 @@ if TYPE_CHECKING:
         resolve_technique_factories,
         resolve_technique_factories_for_techniques,
     )
-    from pyrit.scenario.core.technique_tokens import (
-        CONVERTER_MODIFIER_PREFIX,
-        TechniqueToken,
-        TechniqueTokenIssue,
-        TechniqueTokenResolution,
-        converter_name_from_modifier,
-        parse_technique_token,
-        resolve_technique_tokens,
-    )
     from pyrit.scenario.core.atomic_attack import AtomicAttack
     from pyrit.scenario.core.attack_technique import AttackTechnique
     from pyrit.scenario.core.attack_technique_factory import AttackTechniqueFactory, ScorerOverridePolicy
@@ -46,6 +37,15 @@ if TYPE_CHECKING:
         override_default_adversarial_target,
     )
     from pyrit.scenario.core.scenario_technique import ScenarioTechnique
+    from pyrit.scenario.core.technique_tokens import (
+        CONVERTER_MODIFIER_PREFIX,
+        TechniqueToken,
+        TechniqueTokenIssue,
+        TechniqueTokenResolution,
+        converter_name_from_modifier,
+        parse_technique_token,
+        resolve_technique_tokens,
+    )
 
 _LAZY_EXPORTS: dict[str, str | tuple[str, str | None]] = {
     "AtomicAttack": "pyrit.scenario.core.atomic_attack",
