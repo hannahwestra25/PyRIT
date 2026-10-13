@@ -45,7 +45,7 @@ from pyrit.scenario.core import (
     override_default_adversarial_target,
 )
 from pyrit.scenario.scenarios.airt.scam import Scam
-from unit.mocks import MockPromptTarget
+from unit.mocks import MockPromptTarget, make_technique_class
 
 if TYPE_CHECKING:
     from pyrit.prompt_target import PromptTarget
@@ -123,6 +123,7 @@ def _make_scenario_metadata(
         default_technique=default_technique,
         default_techniques=default_techniques,
         all_techniques=all_techniques,
+        technique_class=make_technique_class(techniques=all_techniques, aggregates=aggregate_techniques),
         aggregate_techniques=aggregate_techniques,
         aggregate_technique_expansions=aggregate_technique_expansions,
         technique_summaries=technique_summaries,
@@ -1899,6 +1900,7 @@ class TestScenarioServiceSupportedParameters:
             class_description="A scenario with params",
             default_technique="default",
             all_techniques=("role_play",),
+            technique_class=make_technique_class(techniques=("role_play",), aggregates=("all",)),
             aggregate_techniques=("all",),
             default_datasets=("test_dataset",),
             supported_parameters=(
@@ -1964,6 +1966,7 @@ class TestScenarioServiceSupportedParameters:
             class_description="Test",
             default_technique="default",
             all_techniques=("all",),
+            technique_class=make_technique_class(techniques=(), aggregates=("all",)),
             aggregate_techniques=("all",),
             default_datasets=(),
             supported_parameters=(

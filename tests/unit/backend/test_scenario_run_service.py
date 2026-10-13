@@ -57,7 +57,7 @@ from pyrit.models import (
 )
 from pyrit.models.catalog.scenario import RunScenarioRequest, ScenarioTechniqueSummary
 from pyrit.prompt_target.common.target_capabilities import TargetCapabilities
-from pyrit.registry import ScenarioMetadata, ScenarioRegistry
+from pyrit.registry import ConverterRegistry, ScenarioMetadata, ScenarioRegistry
 from pyrit.scenario import Scenario
 from pyrit.scenario.core import (
     DatasetAttackConfiguration,
@@ -66,7 +66,12 @@ from pyrit.scenario.core import (
 )
 from pyrit.scenario.core.scenario_technique import ScenarioTechnique
 from pyrit.score.scorer_evaluation.scorer_metrics import ObjectiveScorerMetrics
-from unit.mocks import MockPromptTarget, get_mock_target_identifier, make_scenario_result
+from unit.mocks import (
+    MockPromptTarget,
+    get_mock_target_identifier,
+    make_scenario_result,
+    make_technique_class,
+)
 
 if TYPE_CHECKING:
     from pyrit.prompt_target import PromptTarget
@@ -90,7 +95,7 @@ def _patch_converter_registry(instances: dict[str, Any]):
     reg = MagicMock()
     reg.instances.get.side_effect = lambda name: instances.get(name)
     reg.instances.get_names.return_value = list(instances.keys())
-    return patch.object(_resolver_mod.ConverterRegistry, "get_registry_singleton", return_value=reg)
+    return patch.object(ConverterRegistry, "get_registry_singleton", return_value=reg)
 
 
 _REGISTRY_PATCH_BASE = "pyrit.registry"
@@ -2245,6 +2250,7 @@ async def test_legacy_plan_techniques_agree_across_projections(
         registry_name="garak.prompt_inject",
         default_technique="all",
         all_techniques=tuple(techniques),
+        technique_class=make_technique_class(techniques=techniques, aggregates=("all",)),
         technique_summaries=summaries,
         aggregate_techniques=("all",),
         default_datasets=(),
