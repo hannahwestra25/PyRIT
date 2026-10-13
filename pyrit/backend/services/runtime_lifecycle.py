@@ -107,10 +107,9 @@ class RuntimeLifecycle:
         registry.configure_custom_scripts_source(config.custom_initializers_source)
         preset_registry = ScenarioPresetRegistry.get_registry_singleton()
         # Constructing the storage creates the default preset directory when no source is
-        # configured, and the validation pass reads every stored document, so both stay
-        # off the event loop.
+        # configured, and the scan reads every stored document, so both stay off the event loop.
         await asyncio.to_thread(preset_registry.configure_source, config.scenario_presets_source)
-        await asyncio.to_thread(preset_registry.validate_stored_presets)
+        await asyncio.to_thread(preset_registry.scan_stored_presets)
 
     def _publish(self, config: ConfigurationLoader) -> None:
         self.app.state.configured_initializers = [

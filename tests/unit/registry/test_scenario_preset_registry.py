@@ -406,14 +406,14 @@ class TestAdvisoryValidation:
         ]
 
 
-class TestStartupValidation:
+class TestStartupScan:
     """Boot surfaces unusable documents without doing the work a launch would."""
 
-    def test_it_counts_the_presets_that_loaded(self, registry: ScenarioPresetRegistry) -> None:
+    def test_it_counts_the_presets_that_parsed(self, registry: ScenarioPresetRegistry) -> None:
         for name in ("alpha", "beta"):
             registry.save_preset(preset=_preset(name), expected_version=None)
 
-        assert registry.validate_stored_presets() == 2
+        assert registry.scan_stored_presets() == 2
 
     def test_a_malformed_document_is_reported_without_failing_the_pass(
         self, registry: ScenarioPresetRegistry, tmp_path: Path, caplog: pytest.LogCaptureFixture
@@ -422,7 +422,7 @@ class TestStartupValidation:
         (tmp_path / "broken.json").write_text("{not json", encoding="utf-8")
 
         with caplog.at_level("WARNING"):
-            loaded = registry.validate_stored_presets()
+            loaded = registry.scan_stored_presets()
 
         assert loaded == 1
         assert "broken" in caplog.text
@@ -435,7 +435,7 @@ class TestStartupValidation:
         )
 
         with caplog.at_level("WARNING"):
-            loaded = registry.validate_stored_presets()
+            loaded = registry.scan_stored_presets()
 
         assert loaded == 0
         assert "typo" in caplog.text
@@ -448,7 +448,7 @@ class TestStartupValidation:
         registry._storage = storage
 
         with caplog.at_level("ERROR"):
-            assert registry.validate_stored_presets() == 0
+            assert registry.scan_stored_presets() == 0
 
         assert "Could not read scenario presets" in caplog.text
 
@@ -457,7 +457,7 @@ class TestStartupValidation:
     ) -> None:
         registry.save_preset(preset=_preset(), expected_version=None)
 
-        registry.validate_stored_presets()
+        registry.scan_stored_presets()
 
         assert scenario_registry.get_registered_class_metadata.call_count == 0
 

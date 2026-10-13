@@ -43,6 +43,10 @@ class ScenarioPresetStorage(FileDocumentStorage):
     it read, and the save is refused unless storage still holds that version. Enforcing
     that check without a window for a second writer to slip through is the shared
     storage layer's job, so this class only serializes, validates, and names documents.
+
+    Almost nothing here is preset-specific beyond the model type and the directory name,
+    so a later generic JSON document store could absorb it. New preset-specific behavior
+    belongs in the registry rather than in these methods.
     """
 
     def __init__(self, *, source: str | None = None) -> None:

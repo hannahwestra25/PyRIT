@@ -1,7 +1,14 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
-"""Shared local-directory and Azure Blob storage for flat, named documents."""
+"""
+Shared local-directory and Azure Blob storage for flat, named documents.
+
+This does not build on ``StorageIO`` (``pyrit/memory/storage/storage.py``), which is
+async, owned by memory, and offers neither the conditional write nor the exclusive lock
+that a safe read-modify-write needs. Those two primitives are the whole reason this
+module exists, so they could not be layered on top.
+"""
 
 from __future__ import annotations
 
@@ -370,24 +377,36 @@ class FileDocumentStorage:
         """
         Write a blob behind a precondition the service evaluates, not an unconditional overwrite.
 
+        A create and an update fail for different reasons, so they are guarded separately.
+        On create, a missing blob means a missing container rather than a lost race, and
+        reporting it as a conflict would send the operator looking for a concurrent edit.
+
         Returns:
             str: The version token for the newly stored content.
 
         Raises:
             DocumentConflictError: If the stored version does not match *expected_version*.
+            AzureError: If the container is unreachable or does not exist.
         """
         from azure.core import MatchConditions
         from azure.core.exceptions import ResourceExistsError, ResourceModifiedError, ResourceNotFoundError
 
         blob_name = self._get_blob_name(name)
         with self._open_container_client() as client:
-            try:
-                if expected_version is None:
+            if expected_version is None:
+                try:
                     client.upload_blob(name=blob_name, data=content, overwrite=False)
-                else:
-                    etag = self._read_unmodified_blob_etag(
-                        client=client, blob_name=blob_name, name=name, expected_version=expected_version
-                    )
+                except ResourceExistsError:
+                    raise self._conflict_error(
+                        name=name,
+                        expected_version=None,
+                        actual_version=self._read_blob_version(client=client, blob_name=blob_name),
+                    ) from None
+            else:
+                etag = self._read_unmodified_blob_etag(
+                    client=client, blob_name=blob_name, name=name, expected_version=expected_version
+                )
+                try:
                     client.upload_blob(
                         name=blob_name,
                         data=content,
@@ -395,12 +414,12 @@ class FileDocumentStorage:
                         etag=etag,
                         match_condition=MatchConditions.IfNotModified,
                     )
-            except (ResourceExistsError, ResourceModifiedError, ResourceNotFoundError):
-                raise self._conflict_error(
-                    name=name,
-                    expected_version=expected_version,
-                    actual_version=self._read_blob_version(client=client, blob_name=blob_name),
-                ) from None
+                except (ResourceModifiedError, ResourceNotFoundError):
+                    raise self._conflict_error(
+                        name=name,
+                        expected_version=expected_version,
+                        actual_version=self._read_blob_version(client=client, blob_name=blob_name),
+                    ) from None
         return self._compute_version(content)
 
     def _read_unmodified_blob_etag(
