@@ -174,6 +174,8 @@ scenario_presets_source: https://account.blob.core.windows.net/pyrit-storage/sce
 
 Point several deployments at the same container to share presets between them. A SAS query string may be included; otherwise, PyRIT uses `DefaultAzureCredential`. The default is `~/.pyrit/scenario_presets`.
 
+In a local directory, PyRIT writes a small hidden `.<name>.json.lock` file beside each preset to serialize concurrent writers. These files remain after a preset is deleted, and are safe to remove when no PyRIT process is running.
+
 ### `initialization_scripts`
 
 Local paths to custom Python scripts containing `PyRITInitializer` subclasses. Paths can be absolute or relative to the current working directory.

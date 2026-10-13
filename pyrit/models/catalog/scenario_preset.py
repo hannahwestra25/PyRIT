@@ -32,6 +32,8 @@ from pyrit.models.catalog.scenario import (
 )
 from pyrit.models.identifiers.class_name_utils import validate_registry_name
 
+PRESET_SCHEMA_VERSION = 1
+
 
 class ScenarioPreset(BaseModel):
     """
@@ -51,11 +53,17 @@ class ScenarioPreset(BaseModel):
     ``author`` is filled in from the signed-in user when a preset is created through the
     API and is informational only — these documents are hand-editable, so it records
     provenance rather than proving it.
+
+    A document names what to build by *registered name*, not by class identity, because
+    a preset is meant to move between deployments that register the same name from
+    different code. ``schema_version`` describes the shape of the document itself, so a
+    reader can tell an old document from a malformed one.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(..., description="Unique preset name, used as the storage key and as the reference from scans")
+    schema_version: int = Field(PRESET_SCHEMA_VERSION, ge=1, description="Shape of this document")
     scenario_name: _RequestName = Field(..., min_length=1, description="Registered scenario this preset configures")
     description: str | None = Field(None, description="Human-readable summary of what this preset tests")
     author: str | None = Field(
@@ -99,6 +107,28 @@ class ScenarioPreset(BaseModel):
             dict[str, list[str]] | None: Validated filters.
         """
         return _validate_dataset_filter_mapping(value)
+
+    @field_validator("schema_version")
+    @classmethod
+    def _validate_schema_version(cls, value: int) -> int:
+        """
+        Reject a document written by a newer PyRIT than this one.
+
+        Unknown fields are already refused, so without this check a future document that
+        only reinterprets existing fields would parse and run as something else.
+
+        Returns:
+            int: The validated schema version.
+
+        Raises:
+            ValueError: If the document declares a schema this build cannot read.
+        """
+        if value > PRESET_SCHEMA_VERSION:
+            raise ValueError(
+                f"Preset schema version {value} is newer than this build reads "
+                f"(up to {PRESET_SCHEMA_VERSION}); upgrade PyRIT to use this preset."
+            )
+        return value
 
 
 class StoredPreset(BaseModel):

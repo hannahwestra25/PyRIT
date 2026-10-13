@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from pyrit.models.catalog.scenario_preset import ScenarioPreset
+from pyrit.models.catalog.scenario_preset import PRESET_SCHEMA_VERSION, ScenarioPreset
 from pyrit.registry.file_document_storage import _release_exclusive_lock, _try_acquire_exclusive_lock
 from pyrit.registry.scenario_preset_storage import ScenarioPresetConflictError, ScenarioPresetStorage
 
@@ -91,6 +91,28 @@ def test_version_is_not_stored_inside_the_document(tmp_path: Path) -> None:
 
     assert saved.version
     assert "version" not in json.loads((tmp_path / "nightly.json").read_text(encoding="utf-8"))
+
+
+def test_stored_document_records_the_shape_it_was_written_in(tmp_path: Path) -> None:
+    """Test that a document declares its own shape so a later reader can tell old from malformed."""
+    storage = ScenarioPresetStorage(source=str(tmp_path))
+
+    storage.save_preset(preset=_make_preset(), expected_version=None)
+
+    stored = json.loads((tmp_path / "nightly.json").read_text(encoding="utf-8"))
+    assert stored["schema_version"] == PRESET_SCHEMA_VERSION
+
+
+def test_a_document_from_a_newer_build_is_skipped_rather_than_misread(tmp_path: Path) -> None:
+    """Test that a shape this build cannot read is treated as unusable, not reinterpreted."""
+    (tmp_path / "future.json").write_text(
+        json.dumps({"scenario_name": "foundry.red_team_agent", "schema_version": PRESET_SCHEMA_VERSION + 1}),
+        encoding="utf-8",
+    )
+    storage = ScenarioPresetStorage(source=str(tmp_path))
+
+    assert storage.load_preset("future") is None
+    assert storage.list_presets() == {}
 
 
 def test_each_save_produces_a_new_version(tmp_path: Path) -> None:
@@ -716,6 +738,20 @@ def test_blob_create_refuses_to_overwrite_a_document_another_writer_just_created
 
     assert client.upload_blob.call_args.kwargs["overwrite"] is False
     assert error.value.actual_version == hashlib.sha256(document).hexdigest()
+
+
+def test_blob_create_against_a_missing_container_is_not_reported_as_a_conflict() -> None:
+    """Test that an absent container surfaces as a storage error instead of a phantom concurrent edit."""
+    from azure.core.exceptions import AzureError, ResourceNotFoundError
+
+    client = MagicMock()
+    client.__enter__.return_value = client
+    client.upload_blob.side_effect = ResourceNotFoundError("container not found")
+    storage = ScenarioPresetStorage(source="https://account.blob.core.windows.net/absent?sig=secret")
+
+    with patch("azure.storage.blob.ContainerClient.from_container_url", return_value=client):
+        with pytest.raises(AzureError):
+            storage.save_preset(preset=_make_preset(), expected_version=None)
 
 
 def test_blob_update_rejected_by_the_service_is_reported_as_a_conflict() -> None:

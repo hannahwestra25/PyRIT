@@ -28,29 +28,17 @@ class ScenarioPresetRegistry:
     the vocabulary but none of the machinery, and inheriting it would leave the build,
     identifier, and discovery surface permanently unimplemented.
 
-    **Storage is read through on every call. This registry is not an instance cache.**
-    Every lookup goes to storage and reflects what is stored right now. That is a
-    deliberate decision, not an oversight, and these are the reasons:
+    **Storage is read through on every call; this registry holds no presets.**
 
-    - The version that guards every write is ``sha256`` of the stored bytes, chosen so
-      that "an edit made by hand or by another tool invalidates it too". A version
-      computed from cached bytes can only describe what this process last read or wrote,
-      so a cache defeats the mechanism by construction rather than merely aging it.
-    - Multiple workers and multiple replicas are a supported topology; the backend
-      probes ``WEB_CONCURRENCY``, ``UVICORN_WORKERS``, ``PYRIT_API_WORKERS``, and
-      ``PYRIT_REPLICAS`` precisely because more than one process may be serving. Each
-      process would hold its own cache, so a preset edited through one worker would keep
-      launching at its old configuration through another.
-    - ``resolve_preset`` compares a client-supplied ``expected_version`` against the
-      stored version to confirm the operator is launching the configuration they
-      reviewed. Served from a cache, that comparison tests the cache against itself and
-      always passes, and PyRIT would launch a configuration nobody confirmed.
-    - ``get_preset_version`` exists to recover a document that cannot be parsed, and
-      ``list_presets`` deliberately omits those documents. Neither is reachable from a
-      map of successfully parsed instances.
-
-    A caching preset registry was previously removed for these reasons. Reintroducing
-    one would reintroduce the same defects, so it is not an optimization left for later.
+    The version guarding every write is ``sha256`` of the stored bytes, chosen so that an
+    edit made by hand or by another tool invalidates it too. A version computed from
+    cached bytes could only describe what this process last read or wrote. Multiple
+    workers and replicas are a supported topology, so each process would cache
+    independently. ``resolve_preset`` compares a client-supplied version against the
+    stored one to confirm the operator is launching the configuration they reviewed;
+    served from a cache that comparison tests the cache against itself. And
+    ``get_preset_version`` must reach documents that cannot be parsed at all, which a map
+    of parsed instances cannot hold.
     """
 
     _singleton: ScenarioPresetRegistry | None = None
@@ -95,38 +83,24 @@ class ScenarioPresetRegistry:
         """
         self._storage = ScenarioPresetStorage(source=source)
 
-    def validate_stored_presets(self) -> int:
+    def scan_stored_presets(self) -> int:
         """
-        Read stored presets once so unusable documents are reported at startup.
+        Read every stored preset once so unusable documents are reported at startup.
 
-        Without this pass a preset that cannot be parsed stays invisible until someone
-        opens the library, because ``list_presets`` skips it by design. Reading the
-        source at boot moves every such failure into the startup log, named and with its
-        reason, which is where an operator looks when a preset they wrote is missing.
+        ``list_presets`` skips a document it cannot parse, so without this pass a broken
+        preset stays invisible until someone opens the library and wonders where it went.
 
-        This validates each document against the full ``ScenarioPreset`` schema. It
-        deliberately does **not** check whether a preset resolves against this
-        deployment's scenarios, converters, and parameters, which is what
-        ``check_preset`` does, for three independent reasons:
+        The pass checks the schema only. Resolving a preset against this deployment, as
+        ``check_preset`` does, needs scenario metadata, and building that instantiates
+        every registered scenario class — which this early in boot has neither its
+        environment nor its memory nor its techniques, so the pass would raise rather
+        than merely be slow.
 
-        - Reading scenario metadata builds it for the whole catalog, and building it
-          instantiates every registered scenario class. That is unbounded work on the
-          boot path, proportional to the number of scenarios rather than to the number
-          of presets.
-        - That build requires resolved environment variables, an initialized
-          ``CentralMemory``, and a populated ``AttackTechniqueRegistry``. None of them is
-          established when the preset source is configured, so the pass would not merely
-          be slow, it would raise.
-        - Initializers that register scenarios have not run yet at that point, so every
-          preset naming a scenario they contribute would be reported as unresolvable.
-          Reporting a healthy preset as broken is worse than reporting nothing.
-
-        Failures are logged rather than raised. A library of presets is operator data,
-        and unusable operator data must never stop the service that would let the
-        operator repair it.
+        Failures are logged rather than raised: unusable operator data must not stop the
+        service that would let the operator repair it.
 
         Returns:
-            int: The number of presets that loaded cleanly.
+            int: The number of presets that parsed cleanly.
         """
         try:
             presets = self._get_storage().list_presets()
@@ -167,7 +141,8 @@ class ScenarioPresetRegistry:
         """
         Read the version of one stored document without parsing it.
 
-        A document that cannot be parsed is otherwise unreachable, so exposing its
+        This is the recovery path, not the ordinary way to read a version: a document
+        that cannot be parsed is unreachable through ``get_preset``, so exposing its
         version lets a caller offer to overwrite the broken file instead of leaving the
         name permanently unusable.
 
