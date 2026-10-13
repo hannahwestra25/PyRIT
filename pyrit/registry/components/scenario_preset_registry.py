@@ -22,6 +22,23 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+class ScenarioPresetNameRegisteredError(ValueError):
+    """A preset name is owned by code in this deployment and cannot be stored."""
+
+    def __init__(self, name: str) -> None:
+        """
+        Initialize the error with the name code already owns.
+
+        Args:
+            name (str): The preset name a document tried to claim.
+        """
+        self.name = name
+        super().__init__(
+            f"Scenario preset '{name}' is registered by code in this deployment and cannot be "
+            f"saved as a document. Unlike a version conflict, re-reading will not clear this."
+        )
+
+
 @dataclass(frozen=True)
 class ScenarioPresetMetadata(RegistryMetadata):
     """
@@ -218,15 +235,13 @@ class ScenarioPresetRegistry(Registry["ScenarioPreset", ScenarioPresetMetadata])
 
         Raises:
             ScenarioPresetConflictError: If the stored version does not match *expected_version*.
-            ValueError: If the preset name is not a legal preset name, or is registered by code.
+            ScenarioPresetNameRegisteredError: If code already registered this name.
+            ValueError: If the preset name is not a legal preset name.
         """
         try:
             self.instances.validate_name_available(preset.name)
         except ValueError as exc:
-            raise ValueError(
-                f"Scenario preset '{preset.name}' is registered by code in this deployment "
-                f"and cannot be saved as a document."
-            ) from exc
+            raise ScenarioPresetNameRegisteredError(preset.name) from exc
 
         stored = self._get_storage().save_preset(preset=preset, expected_version=expected_version)
         logger.info(f"Saved scenario preset '{preset.name}'.")
@@ -256,7 +271,7 @@ class ScenarioPresetRegistry(Registry["ScenarioPreset", ScenarioPresetMetadata])
 
         try:
             self.save_preset(preset=preset, expected_version=None)
-        except ScenarioPresetConflictError:
+        except (ScenarioPresetConflictError, ScenarioPresetNameRegisteredError):
             logger.debug(f"Scenario preset '{preset.name}' already exists; leaving the stored preset alone.")
             return False
         return True

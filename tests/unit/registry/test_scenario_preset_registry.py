@@ -14,7 +14,10 @@ import pytest
 from pyrit.models import Parameter
 from pyrit.models.catalog.scenario_preset import ScenarioPreset
 from pyrit.registry.components.converter_registry import ConverterRegistry
-from pyrit.registry.components.scenario_preset_registry import ScenarioPresetRegistry
+from pyrit.registry.components.scenario_preset_registry import (
+    ScenarioPresetNameRegisteredError,
+    ScenarioPresetRegistry,
+)
 from pyrit.registry.components.scenario_registry import ScenarioMetadata, ScenarioRegistry
 from pyrit.registry.scenario_preset_storage import ScenarioPresetConflictError, ScenarioPresetStorage
 from pyrit.scenario.core.scenario_technique import ScenarioTechnique
@@ -293,10 +296,38 @@ class TestRegisteredPresets:
     def test_saving_over_a_registered_name_is_refused(self, registry: ScenarioPresetRegistry) -> None:
         registry.register_preset(preset=_preset())
 
-        with pytest.raises(ValueError, match="registered by code"):
+        with pytest.raises(ScenarioPresetNameRegisteredError) as caught:
             registry.save_preset(preset=_preset(), expected_version=None)
 
+        assert caught.value.name == "quick_scan"
         assert registry.get_preset_version(name="quick_scan") is None
+
+    def test_a_registered_name_and_an_illegal_name_raise_distinguishable_types(
+        self, registry: ScenarioPresetRegistry
+    ) -> None:
+        """A caller mapping these to different statuses must not have to match on the message."""
+        registry.register_preset(preset=_preset())
+
+        with pytest.raises(ScenarioPresetNameRegisteredError):
+            registry.save_preset(preset=_preset(), expected_version=None)
+
+        illegal_name = _preset(name="placeholder").model_copy(update={"name": "not/a/legal/name"})
+        with pytest.raises(ValueError) as illegal:
+            registry.save_preset(preset=illegal_name, expected_version=None)
+
+        assert not isinstance(illegal.value, ScenarioPresetNameRegisteredError)
+
+    def test_a_registered_name_is_not_reported_as_a_version_conflict(
+        self, registry: ScenarioPresetRegistry
+    ) -> None:
+        """Re-reading clears a version conflict but never clears this, so the types stay apart."""
+        registry.register_preset(preset=_preset())
+
+        with pytest.raises(ScenarioPresetNameRegisteredError) as caught:
+            registry.save_preset(preset=_preset(), expected_version=None)
+
+        assert not isinstance(caught.value, ScenarioPresetConflictError)
+        assert isinstance(caught.value, ValueError)
 
     def test_ensuring_a_registered_name_writes_nothing(self, registry: ScenarioPresetRegistry) -> None:
         registry.register_preset(preset=_preset())

@@ -24,7 +24,11 @@ if TYPE_CHECKING:
     from pyrit.registry.components.attack_technique_registry import AttackTechniqueMetadata, AttackTechniqueRegistry
     from pyrit.registry.components.converter_registry import ConverterMetadata, ConverterRegistry
     from pyrit.registry.components.initializer_registry import InitializerMetadata, InitializerRegistry
-    from pyrit.registry.components.scenario_preset_registry import ScenarioPresetMetadata, ScenarioPresetRegistry
+    from pyrit.registry.components.scenario_preset_registry import (
+        ScenarioPresetMetadata,
+        ScenarioPresetNameRegisteredError,
+        ScenarioPresetRegistry,
+    )
     from pyrit.registry.components.scenario_registry import ScenarioMetadata, ScenarioRegistry
     from pyrit.registry.components.scorer_registry import ScorerMetadata, ScorerRegistry
     from pyrit.registry.components.target_registry import TargetMetadata, TargetRegistry
@@ -43,6 +47,7 @@ _LAZY_EXPORTS: dict[str, str | tuple[str, str | None]] = {
     "ScenarioMetadata": "pyrit.registry.components.scenario_registry",
     "ScenarioPresetRegistry": "pyrit.registry.components.scenario_preset_registry",
     "ScenarioPresetMetadata": "pyrit.registry.components.scenario_preset_registry",
+    "ScenarioPresetNameRegisteredError": "pyrit.registry.components.scenario_preset_registry",
     "TargetRegistry": "pyrit.registry.components.target_registry",
     "TargetMetadata": "pyrit.registry.components.target_registry",
 }
