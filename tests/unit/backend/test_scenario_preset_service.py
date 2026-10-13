@@ -71,7 +71,7 @@ def preset_registry(tmp_path: Path) -> Iterator[ScenarioPresetRegistry]:
     """
     instance = ScenarioPresetRegistry(storage=ScenarioPresetStorage(source=str(tmp_path)))
     with (
-        patch.object(ScenarioPresetRegistry, "_singleton", instance),
+        patch.object(ScenarioPresetRegistry, "get_registry_singleton", return_value=instance),
         patch.object(instance, "check_preset", return_value=[]),
     ):
         yield instance

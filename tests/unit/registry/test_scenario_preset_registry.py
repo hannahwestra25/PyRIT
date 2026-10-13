@@ -16,6 +16,8 @@ from pyrit.registry.components.converter_registry import ConverterRegistry
 from pyrit.registry.components.scenario_registry import ScenarioMetadata, ScenarioRegistry
 from pyrit.registry.scenario_preset_registry import ScenarioPresetRegistry
 from pyrit.registry.scenario_preset_storage import ScenarioPresetConflictError, ScenarioPresetStorage
+from pyrit.scenario.core.scenario_technique import ScenarioTechnique
+from unit.mocks import make_technique_class
 
 SCENARIO_NAME = "foundry.red_team_agent"
 
@@ -25,6 +27,7 @@ def _metadata(
     all_techniques: tuple[str, ...] = ("crescendo", "flip"),
     aggregate_techniques: tuple[str, ...] = (),
     supported_parameters: tuple[str, ...] = ("max_turns",),
+    param_type: type = str,
     baseline_policy: str = "enabled",
 ) -> ScenarioMetadata:
     """Build real registry metadata carrying only the fields preset validation reads."""
@@ -35,10 +38,11 @@ def _metadata(
         SCENARIO_NAME,
         default_technique=all_techniques[0],
         all_techniques=all_techniques,
+        technique_class=make_technique_class(techniques=all_techniques, aggregates=aggregate_techniques),
         aggregate_techniques=aggregate_techniques,
         default_datasets=("harmbench",),
         supported_parameters=tuple(
-            Parameter(name=name, description="", param_type=str) for name in supported_parameters
+            Parameter(name=name, description="", param_type=param_type) for name in supported_parameters
         ),
         baseline_policy=baseline_policy,  # type: ignore[arg-type]
     )
@@ -185,6 +189,33 @@ class TestPresetCrud:
     ) -> None:
         with pytest.raises(ValueError):
             registry.get_preset(name="../escape")
+
+
+class TestEnsurePreset:
+    """Code contributes a preset without overwriting what the operator has since done to it."""
+
+    def test_the_preset_is_created_when_the_name_is_free(self, registry: ScenarioPresetRegistry) -> None:
+        assert registry.ensure_preset(preset=_preset()) is True
+        assert registry.get_preset(name="quick_scan") is not None
+
+    def test_an_existing_preset_is_left_exactly_as_the_operator_left_it(
+        self, registry: ScenarioPresetRegistry
+    ) -> None:
+        registry.save_preset(preset=_preset(techniques=["flip"]), expected_version=None)
+
+        assert registry.ensure_preset(preset=_preset(techniques=["crescendo"])) is False
+
+        stored = registry.get_preset(name="quick_scan")
+        assert stored is not None
+        assert stored.preset.techniques == ["flip"]
+
+    def test_repeating_the_call_is_not_an_error(self, registry: ScenarioPresetRegistry) -> None:
+        assert registry.ensure_preset(preset=_preset()) is True
+        assert registry.ensure_preset(preset=_preset()) is False
+
+    def test_an_illegal_name_is_still_refused(self, registry: ScenarioPresetRegistry) -> None:
+        with pytest.raises(ValueError):
+            registry.ensure_preset(preset=_preset("../escape"))
 
 
 class TestReadThrough:
@@ -363,11 +394,21 @@ class TestAdvisoryValidation:
     def test_undeclared_scenario_parameters_are_reported(
         self, registry: ScenarioPresetRegistry, scenario_registry: MagicMock
     ) -> None:
-        issues = registry.check_preset(preset=_preset(scenario_params={"max_turns": 1, "mystery": 2}))
+        issues = registry.check_preset(preset=_preset(scenario_params={"max_turns": "1", "mystery": 2}))
 
         assert [issue.field for issue in issues] == ["scenario_params"]
-        assert "mystery" in issues[0].message
-        assert "max_turns" not in issues[0].message
+        assert "unknown parameter(s): mystery" in issues[0].message
+
+    def test_a_declared_parameter_the_scenario_cannot_coerce_is_reported(
+        self, registry: ScenarioPresetRegistry, scenario_registry: MagicMock
+    ) -> None:
+        scenario_registry.get_registered_class_metadata.return_value = _metadata(param_type=int)
+
+        issues = registry.check_preset(preset=_preset(scenario_params={"max_turns": "banana"}))
+
+        assert [issue.field for issue in issues] == ["scenario_params"]
+        assert "max_turns" in issues[0].message
+        assert "banana" in issues[0].message
 
     def test_a_baseline_the_scenario_forbids_is_reported(
         self, registry: ScenarioPresetRegistry, scenario_registry: MagicMock
@@ -406,14 +447,14 @@ class TestAdvisoryValidation:
         ]
 
 
-class TestStartupValidation:
+class TestStartupScan:
     """Boot surfaces unusable documents without doing the work a launch would."""
 
-    def test_it_counts_the_presets_that_loaded(self, registry: ScenarioPresetRegistry) -> None:
+    def test_it_counts_the_presets_that_parsed(self, registry: ScenarioPresetRegistry) -> None:
         for name in ("alpha", "beta"):
             registry.save_preset(preset=_preset(name), expected_version=None)
 
-        assert registry.validate_stored_presets() == 2
+        assert registry.scan_stored_presets() == 2
 
     def test_a_malformed_document_is_reported_without_failing_the_pass(
         self, registry: ScenarioPresetRegistry, tmp_path: Path, caplog: pytest.LogCaptureFixture
@@ -422,7 +463,7 @@ class TestStartupValidation:
         (tmp_path / "broken.json").write_text("{not json", encoding="utf-8")
 
         with caplog.at_level("WARNING"):
-            loaded = registry.validate_stored_presets()
+            loaded = registry.scan_stored_presets()
 
         assert loaded == 1
         assert "broken" in caplog.text
@@ -435,7 +476,7 @@ class TestStartupValidation:
         )
 
         with caplog.at_level("WARNING"):
-            loaded = registry.validate_stored_presets()
+            loaded = registry.scan_stored_presets()
 
         assert loaded == 0
         assert "typo" in caplog.text
@@ -448,7 +489,7 @@ class TestStartupValidation:
         registry._storage = storage
 
         with caplog.at_level("ERROR"):
-            assert registry.validate_stored_presets() == 0
+            assert registry.scan_stored_presets() == 0
 
         assert "Could not read scenario presets" in caplog.text
 
@@ -457,7 +498,7 @@ class TestStartupValidation:
     ) -> None:
         registry.save_preset(preset=_preset(), expected_version=None)
 
-        registry.validate_stored_presets()
+        registry.scan_stored_presets()
 
         assert scenario_registry.get_registered_class_metadata.call_count == 0
 
@@ -490,8 +531,11 @@ class TestSourceConfiguration:
             ScenarioPresetRegistry()
 
     def test_the_singleton_is_shared(self) -> None:
-        with patch.object(ScenarioPresetRegistry, "_singleton", None):
+        ScenarioPresetRegistry.reset_registry_singleton()
+        try:
             first = ScenarioPresetRegistry.get_registry_singleton()
             second = ScenarioPresetRegistry.get_registry_singleton()
 
             assert first is second
+        finally:
+            ScenarioPresetRegistry.reset_registry_singleton()

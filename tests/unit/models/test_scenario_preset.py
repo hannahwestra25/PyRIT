@@ -5,7 +5,7 @@
 
 import pytest
 
-from pyrit.models.catalog.scenario_preset import ScenarioPreset
+from pyrit.models.catalog.scenario_preset import PRESET_SCHEMA_VERSION, ScenarioPreset
 from pyrit.models.request_limits import MAX_IDENTIFIER_LENGTH, MAX_ITEMS
 
 
@@ -25,6 +25,21 @@ def test_init_defaults_every_optional_field_to_none() -> None:
 def test_preset_carries_no_storage_version() -> None:
     """Test that storage metadata stays out of the model it describes."""
     assert "version" not in ScenarioPreset.model_fields
+
+
+def test_schema_version_defaults_so_a_document_without_it_still_reads() -> None:
+    """Test that a document written before the field existed is read as the first shape."""
+    assert ScenarioPreset(name="nightly", scenario_name="foundry.red_team_agent").schema_version == 1
+
+
+def test_init_rejects_a_document_shape_this_build_cannot_read() -> None:
+    """Test that a future document fails loudly instead of being reinterpreted as this shape."""
+    with pytest.raises(ValueError, match="newer than this build reads"):
+        ScenarioPreset(
+            name="nightly",
+            scenario_name="foundry.red_team_agent",
+            schema_version=PRESET_SCHEMA_VERSION + 1,
+        )
 
 
 def test_init_rejects_unknown_field() -> None:

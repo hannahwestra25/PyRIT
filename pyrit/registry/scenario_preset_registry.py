@@ -6,55 +6,53 @@
 from __future__ import annotations
 
 import logging
-import threading
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from pyrit.models.catalog.scenario_preset import PresetIssue, ScenarioPreset, StoredPreset
+from pyrit.registry.registry import Registry
+from pyrit.registry.registry_metadata import RegistryMetadata
 from pyrit.registry.scenario_preset_storage import ScenarioPresetConflictError, ScenarioPresetStorage
 
 if TYPE_CHECKING:
     from pyrit.registry.components.scenario_registry import ScenarioMetadata
+    from pyrit.scenario.core.technique_tokens import TechniqueIssueKind
 
 logger = logging.getLogger(__name__)
 
 
-class ScenarioPresetRegistry:
+@dataclass(frozen=True)
+class ScenarioPresetMetadata(RegistryMetadata):
+    """
+    Metadata describing a buildable preset class.
+
+    Placeholder for a catalog that is intentionally empty: a preset is a document, not a
+    class this registry constructs. It carries only the common ``RegistryMetadata``
+    fields.
+    """
+
+
+class ScenarioPresetRegistry(Registry["ScenarioPreset", ScenarioPresetMetadata]):
     """
     The single owner of scenario preset storage, validation, and resolution.
 
-    A preset is inert JSON rather than a component class, so this registry deliberately
-    does not extend ``Registry``. ``pyrit.registry.components`` is documented as the home
-    for class catalogs that build instances from classes; a catalog of documents shares
-    the vocabulary but none of the machinery, and inheriting it would leave the build,
-    identifier, and discovery surface permanently unimplemented.
+    A preset is inert JSON rather than a component class, so the buildable class catalog
+    inherited from ``Registry`` stays empty and ``_discover`` registers nothing. What the
+    base contributes, and what this registry relies on, is the shared singleton
+    machinery every other registry is reached through.
 
-    **Storage is read through on every call. This registry is not an instance cache.**
-    Every lookup goes to storage and reflects what is stored right now. That is a
-    deliberate decision, not an oversight, and these are the reasons:
+    **Storage is read through on every call; this registry holds no presets.**
 
-    - The version that guards every write is ``sha256`` of the stored bytes, chosen so
-      that "an edit made by hand or by another tool invalidates it too". A version
-      computed from cached bytes can only describe what this process last read or wrote,
-      so a cache defeats the mechanism by construction rather than merely aging it.
-    - Multiple workers and multiple replicas are a supported topology; the backend
-      probes ``WEB_CONCURRENCY``, ``UVICORN_WORKERS``, ``PYRIT_API_WORKERS``, and
-      ``PYRIT_REPLICAS`` precisely because more than one process may be serving. Each
-      process would hold its own cache, so a preset edited through one worker would keep
-      launching at its old configuration through another.
-    - ``resolve_preset`` compares a client-supplied ``expected_version`` against the
-      stored version to confirm the operator is launching the configuration they
-      reviewed. Served from a cache, that comparison tests the cache against itself and
-      always passes, and PyRIT would launch a configuration nobody confirmed.
-    - ``get_preset_version`` exists to recover a document that cannot be parsed, and
-      ``list_presets`` deliberately omits those documents. Neither is reachable from a
-      map of successfully parsed instances.
-
-    A caching preset registry was previously removed for these reasons. Reintroducing
-    one would reintroduce the same defects, so it is not an optimization left for later.
+    The version guarding every write is ``sha256`` of the stored bytes, chosen so that an
+    edit made by hand or by another tool invalidates it too. A version computed from
+    cached bytes could only describe what this process last read or wrote. Multiple
+    workers and replicas are a supported topology, so each process would cache
+    independently. ``resolve_preset`` compares a client-supplied version against the
+    stored one to confirm the operator is launching the configuration they reviewed;
+    served from a cache that comparison tests the cache against itself. And
+    ``get_preset_version`` must reach documents that cannot be parsed at all, which a map
+    of parsed instances cannot hold.
     """
-
-    _singleton: ScenarioPresetRegistry | None = None
-    _singleton_lock = threading.Lock()
 
     def __init__(self, *, storage: ScenarioPresetStorage | None = None) -> None:
         """
@@ -65,20 +63,15 @@ class ScenarioPresetRegistry:
                 through. Defaults to the standard directory, constructed on first use so
                 that merely importing the registry never creates a directory.
         """
+        super().__init__()
         self._storage = storage
 
-    @classmethod
-    def get_registry_singleton(cls) -> ScenarioPresetRegistry:
-        """
-        Get the process-wide preset registry.
+    def _discover(self) -> None:
+        """Register no classes: a preset is a document, not a class this registry builds."""
 
-        Returns:
-            ScenarioPresetRegistry: The singleton registry.
-        """
-        with cls._singleton_lock:
-            if cls._singleton is None:
-                cls._singleton = cls()
-            return cls._singleton
+    def _metadata_class(self) -> type[ScenarioPresetMetadata]:
+        """Return ``ScenarioPresetMetadata``; unused while the buildable catalog is empty."""
+        return ScenarioPresetMetadata
 
     @property
     def source(self) -> str:
@@ -95,38 +88,24 @@ class ScenarioPresetRegistry:
         """
         self._storage = ScenarioPresetStorage(source=source)
 
-    def validate_stored_presets(self) -> int:
+    def scan_stored_presets(self) -> int:
         """
-        Read stored presets once so unusable documents are reported at startup.
+        Read every stored preset once so unusable documents are reported at startup.
 
-        Without this pass a preset that cannot be parsed stays invisible until someone
-        opens the library, because ``list_presets`` skips it by design. Reading the
-        source at boot moves every such failure into the startup log, named and with its
-        reason, which is where an operator looks when a preset they wrote is missing.
+        ``list_presets`` skips a document it cannot parse, so without this pass a broken
+        preset stays invisible until someone opens the library and wonders where it went.
 
-        This validates each document against the full ``ScenarioPreset`` schema. It
-        deliberately does **not** check whether a preset resolves against this
-        deployment's scenarios, converters, and parameters, which is what
-        ``check_preset`` does, for three independent reasons:
+        The pass checks the schema only. Resolving a preset against this deployment, as
+        ``check_preset`` does, needs scenario metadata, and building that instantiates
+        every registered scenario class — which this early in boot has neither its
+        environment nor its memory nor its techniques, so the pass would raise rather
+        than merely be slow.
 
-        - Reading scenario metadata builds it for the whole catalog, and building it
-          instantiates every registered scenario class. That is unbounded work on the
-          boot path, proportional to the number of scenarios rather than to the number
-          of presets.
-        - That build requires resolved environment variables, an initialized
-          ``CentralMemory``, and a populated ``AttackTechniqueRegistry``. None of them is
-          established when the preset source is configured, so the pass would not merely
-          be slow, it would raise.
-        - Initializers that register scenarios have not run yet at that point, so every
-          preset naming a scenario they contribute would be reported as unresolvable.
-          Reporting a healthy preset as broken is worse than reporting nothing.
-
-        Failures are logged rather than raised. A library of presets is operator data,
-        and unusable operator data must never stop the service that would let the
-        operator repair it.
+        Failures are logged rather than raised: unusable operator data must not stop the
+        service that would let the operator repair it.
 
         Returns:
-            int: The number of presets that loaded cleanly.
+            int: The number of presets that parsed cleanly.
         """
         try:
             presets = self._get_storage().list_presets()
@@ -167,7 +146,8 @@ class ScenarioPresetRegistry:
         """
         Read the version of one stored document without parsing it.
 
-        A document that cannot be parsed is otherwise unreachable, so exposing its
+        This is the recovery path, not the ordinary way to read a version: a document
+        that cannot be parsed is unreachable through ``get_preset``, so exposing its
         version lets a caller offer to overwrite the broken file instead of leaving the
         name permanently unusable.
 
@@ -206,9 +186,42 @@ class ScenarioPresetRegistry:
         logger.info(f"Saved scenario preset '{preset.name}'.")
         return stored
 
+    def ensure_preset(self, *, preset: ScenarioPreset) -> bool:
+        """
+        Persist one preset only if nothing is stored under its name.
+
+        This is how code contributes a preset — an initializer shipping a starting
+        library, for instance. It is deliberately create-if-absent rather than a write:
+        the stored document is the operator's, so a preset they have since edited, or
+        deliberately replaced, is left alone.
+
+        The create and the existence test are the same conditional write, so two workers
+        starting together cannot both decide the name is free. Nothing is reported when
+        the name is taken; the caller wanted a preset to exist, and one does.
+
+        Args:
+            preset (ScenarioPreset): The preset to persist if its name is free.
+
+        Returns:
+            bool: True if this call created the preset, False if one was already stored.
+
+        Raises:
+            ValueError: If the preset name is not a legal preset name.
+        """
+        try:
+            self.save_preset(preset=preset, expected_version=None)
+        except ScenarioPresetConflictError:
+            logger.debug(f"Scenario preset '{preset.name}' already exists; leaving the stored preset alone.")
+            return False
+        return True
+
     def delete_preset(self, *, name: str) -> bool:
         """
         Delete one stored preset, reporting whether it was there to delete.
+
+        The delete is unconditional by design. A version is what guards an edit from
+        discarding someone else's concurrent edit; a delete has no such content to lose,
+        and an operator removing a preset means it should be gone whatever it last said.
 
         The answer comes from the delete itself, so it stays correct under concurrency:
         when two callers race to remove the same preset, exactly one is told it removed
@@ -223,6 +236,7 @@ class ScenarioPresetRegistry:
 
         Raises:
             ValueError: If *name* is not a legal preset name.
+            TimeoutError: If a local delete could not acquire the document lock.
         """
         deleted = self._get_storage().delete_preset(name)
         if deleted:
@@ -265,11 +279,11 @@ class ScenarioPresetRegistry:
         """
         Check one preset against this deployment's registered scenarios and converters.
 
-        This is the only validation path. A preset is checked with the same token grammar
-        and the same registries the launch path uses, so a preset reported as runnable
-        runs and a preset reported as broken is broken. Re-deriving any part of that
-        check elsewhere would let the two answers drift apart, which is how an operator
-        ends up being told a working preset is invalid.
+        This is the only validation path. A preset is resolved by the same code the
+        launch path resolves it with, so a preset reported as runnable runs and a preset
+        reported as broken is broken. Re-deriving any part of that check here would let
+        the two answers drift apart, which is how an operator ends up being told a
+        working preset is invalid.
 
         Results are advisory. Nothing here rejects a preset.
 
@@ -291,8 +305,8 @@ class ScenarioPresetRegistry:
             ]
 
         return [
-            *_unknown_technique_issues(preset=preset, metadata=metadata),
-            *_unknown_parameter_issues(preset=preset, metadata=metadata),
+            *_technique_issues(preset=preset, metadata=metadata),
+            *_parameter_issues(preset=preset, metadata=metadata),
             *_forbidden_baseline_issues(preset=preset, metadata=metadata),
         ]
 
@@ -308,29 +322,18 @@ class ScenarioPresetRegistry:
         return self._storage
 
 
-def _technique_issues(*, names: list[str], description: str) -> list[PresetIssue]:
+def _technique_issues(*, preset: ScenarioPreset, metadata: ScenarioMetadata) -> list[PresetIssue]:
     """
-    Build the at-most-one issue describing a kind of unresolvable technique reference.
+    Report technique references this deployment cannot resolve.
 
-    Args:
-        names (list[str]): The offending names, possibly with repeats.
-        description (str): What is wrong with them, phrased to read before a name list.
+    The resolution is the launch path's own, called on the scenario's technique catalog
+    rather than on the name tuples projected from it, so a preset reported as broken is
+    one the launch path would reject and a preset reported as runnable runs. Re-deriving
+    any part of it here is how an operator ends up being told a working preset is
+    invalid.
 
-    Returns:
-        list[PresetIssue]: A single issue, or an empty list when nothing was offending.
-    """
-    if not names:
-        return []
-    return [PresetIssue(field="techniques", message=f"{description}: {', '.join(sorted(set(names)))}.")]
-
-
-def _unknown_technique_issues(*, preset: ScenarioPreset, metadata: ScenarioMetadata) -> list[PresetIssue]:
-    """
-    Report techniques and converter modifiers this deployment cannot resolve.
-
-    Tokens are parsed with the same grammar the launch path uses, because comparing a
-    whole token against the scenario's technique names would report a runnable preset
-    such as ``role_play:converter.translation_spanish`` as broken.
+    Issues are grouped by kind because an operator repairing a preset wants one line
+    naming every unknown technique, not one line per token.
 
     Args:
         preset (ScenarioPreset): The preset to check.
@@ -342,67 +345,61 @@ def _unknown_technique_issues(*, preset: ScenarioPreset, metadata: ScenarioMetad
     if not preset.techniques:
         return []
 
-    from pyrit.registry.components.converter_registry import ConverterRegistry
-    from pyrit.scenario.core._technique_tokens import (
-        CONVERTER_MODIFIER_PREFIX,
-        converter_name_from_modifier,
-        parse_technique_token,
+    from pyrit.scenario.core.technique_tokens import CONVERTER_MODIFIER_PREFIX, resolve_technique_tokens
+
+    resolution = resolve_technique_tokens(
+        tokens=preset.techniques,
+        technique_class=metadata.technique_class,
+        scenario_name=metadata.registry_name,
     )
 
-    known = set(metadata.all_techniques) | set(metadata.aggregate_techniques)
-    registered_converters = ConverterRegistry.get_registry_singleton().instances
-    unknown_techniques: list[str] = []
-    unknown_converters: list[str] = []
-    malformed_modifiers: list[str] = []
+    descriptions: tuple[tuple[TechniqueIssueKind, str], ...] = (
+        ("unknown_technique", f"Scenario '{metadata.registry_name}' does not define"),
+        ("unknown_converter", "This deployment has no registered converter named"),
+        ("malformed_modifier", f"Technique modifiers must use the '{CONVERTER_MODIFIER_PREFIX}' prefix; got"),
+    )
 
-    for token in preset.techniques:
-        base_name, modifiers = parse_technique_token(token)
-        if base_name not in known:
-            unknown_techniques.append(base_name)
-        for modifier in modifiers:
-            converter_name = converter_name_from_modifier(modifier)
-            if converter_name is None:
-                malformed_modifiers.append(modifier)
-            elif registered_converters.get(converter_name) is None:
-                unknown_converters.append(converter_name)
-
-    return [
-        *_technique_issues(
-            names=unknown_techniques, description=f"Scenario '{metadata.registry_name}' does not define"
-        ),
-        *_technique_issues(names=unknown_converters, description="This deployment has no registered converter named"),
-        *_technique_issues(
-            names=malformed_modifiers,
-            description=f"Technique modifiers must use the '{CONVERTER_MODIFIER_PREFIX}' prefix; got",
-        ),
-    ]
+    issues: list[PresetIssue] = []
+    for kind, description in descriptions:
+        names = sorted({issue.name for issue in resolution.issues if issue.kind == kind})
+        if names:
+            issues.append(PresetIssue(field="techniques", message=f"{description}: {', '.join(names)}."))
+    return issues
 
 
-def _unknown_parameter_issues(*, preset: ScenarioPreset, metadata: ScenarioMetadata) -> list[PresetIssue]:
+def _parameter_issues(*, preset: ScenarioPreset, metadata: ScenarioMetadata) -> list[PresetIssue]:
     """
-    Report scenario parameters the scenario does not declare.
+    Report scenario parameters this scenario will not accept.
+
+    This runs the resolution the launch path runs rather than comparing names against
+    the declaration, because a declared parameter carrying a value it cannot be coerced
+    to passes a name comparison and then fails the run — the operator is told the preset
+    is fine and finds out otherwise at launch.
+
+    Resolution stops at the first value it cannot coerce, so at most one coercion
+    failure is reported per check; undeclared names are still reported together.
 
     Args:
         preset (ScenarioPreset): The preset to check.
         metadata (ScenarioMetadata): Registry metadata for the scenario it names.
 
     Returns:
-        list[PresetIssue]: One issue naming every undeclared parameter, or an empty list.
+        list[PresetIssue]: A single issue describing what will not resolve, or an empty list.
     """
     if not preset.scenario_params:
         return []
 
-    declared = {parameter.name for parameter in metadata.supported_parameters}
-    unknown = [name for name in preset.scenario_params if name not in declared]
-    if not unknown:
-        return []
+    from pyrit.registry.resolution import resolve_declared_params
 
-    return [
-        PresetIssue(
-            field="scenario_params",
-            message=f"Scenario '{metadata.registry_name}' does not declare: {', '.join(sorted(unknown))}.",
+    try:
+        resolve_declared_params(
+            declared=list(metadata.supported_parameters),
+            raw_args=preset.scenario_params,
+            owner=f"Scenario '{metadata.registry_name}'",
         )
-    ]
+    except ValueError as error:
+        return [PresetIssue(field="scenario_params", message=str(error))]
+    return []
 
 
 def _forbidden_baseline_issues(*, preset: ScenarioPreset, metadata: ScenarioMetadata) -> list[PresetIssue]:

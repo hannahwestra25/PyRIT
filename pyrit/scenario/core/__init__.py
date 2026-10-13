@@ -15,11 +15,14 @@ if TYPE_CHECKING:
         resolve_technique_factories,
         resolve_technique_factories_for_techniques,
     )
-    from pyrit.scenario.core._technique_tokens import (
+    from pyrit.scenario.core.technique_tokens import (
         CONVERTER_MODIFIER_PREFIX,
         TechniqueToken,
+        TechniqueTokenIssue,
+        TechniqueTokenResolution,
         converter_name_from_modifier,
         parse_technique_token,
+        resolve_technique_tokens,
     )
     from pyrit.scenario.core.atomic_attack import AtomicAttack
     from pyrit.scenario.core.attack_technique import AttackTechnique
@@ -47,7 +50,7 @@ _LAZY_EXPORTS: dict[str, str | tuple[str, str | None]] = {
     "AttackTechnique": "pyrit.scenario.core.attack_technique",
     "AttackTechniqueFactory": "pyrit.scenario.core.attack_technique_factory",
     "BaselineAttackPolicy": "pyrit.scenario.core.scenario",
-    "CONVERTER_MODIFIER_PREFIX": "pyrit.scenario.core._technique_tokens",
+    "CONVERTER_MODIFIER_PREFIX": "pyrit.scenario.core.technique_tokens",
     "CompoundDatasetAttackConfiguration": "pyrit.scenario.core.dataset_configuration",
     "DatasetAttackConfiguration": "pyrit.scenario.core.dataset_configuration",
     "DatasetConfiguration": "pyrit.scenario.core.dataset_configuration",
@@ -61,14 +64,17 @@ _LAZY_EXPORTS: dict[str, str | tuple[str, str | None]] = {
     "ScenarioTechnique": "pyrit.scenario.core.scenario_technique",
     "ScorerOverridePolicy": "pyrit.scenario.core.attack_technique_factory",
     "TechniqueResolutionError": "pyrit.scenario.core._technique_resolution",
-    "TechniqueToken": "pyrit.scenario.core._technique_tokens",
-    "converter_name_from_modifier": "pyrit.scenario.core._technique_tokens",
+    "TechniqueToken": "pyrit.scenario.core.technique_tokens",
+    "TechniqueTokenIssue": "pyrit.scenario.core.technique_tokens",
+    "TechniqueTokenResolution": "pyrit.scenario.core.technique_tokens",
+    "converter_name_from_modifier": "pyrit.scenario.core.technique_tokens",
     "get_default_scorer_target": "pyrit.scenario.core.scenario_target_defaults",
     "get_default_adversarial_target": "pyrit.scenario.core.scenario_target_defaults",
     "override_default_adversarial_target": "pyrit.scenario.core.scenario_target_defaults",
-    "parse_technique_token": "pyrit.scenario.core._technique_tokens",
+    "parse_technique_token": "pyrit.scenario.core.technique_tokens",
     "resolve_technique_factories": "pyrit.scenario.core._technique_resolution",
     "resolve_technique_factories_for_techniques": "pyrit.scenario.core._technique_resolution",
+    "resolve_technique_tokens": "pyrit.scenario.core.technique_tokens",
 }
 
 __all__ = list(_LAZY_EXPORTS)
