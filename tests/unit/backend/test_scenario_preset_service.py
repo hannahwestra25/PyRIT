@@ -21,6 +21,7 @@ from pyrit.models.catalog import PresetIssue, RegisteredScenario, ScenarioPreset
 from pyrit.models.catalog.scenario import ScenarioRunSizeComponent, ScenarioRunSizeEstimate
 from pyrit.registry import (
     ScenarioPresetConflictError,
+    ScenarioPresetNameRegisteredError,
     ScenarioPresetRegistry,
     ScenarioPresetStorage,
 )
@@ -195,6 +196,65 @@ class TestPresetCrud:
         self, service: ScenarioPresetService
     ) -> None:
         assert await service.delete_preset_async(name="missing") is False
+
+
+class TestRegisteredPresets:
+    """A preset contributed by code has no stored document behind it."""
+
+    async def test_listing_a_registered_preset_reports_no_version(
+        self,
+        service: ScenarioPresetService,
+        preset_registry: ScenarioPresetRegistry,
+        registered_scenario: RegisteredScenario,
+    ) -> None:
+        preset_registry.register_preset(preset=_preset("builtin_smoke"))
+
+        response = await service.list_presets_async(include_estimates=False)
+
+        assert [(item.preset.name, item.origin, item.version) for item in response.items] == [
+            ("builtin_smoke", "registered", None)
+        ]
+
+    async def test_getting_a_registered_preset_reports_no_version(
+        self,
+        service: ScenarioPresetService,
+        preset_registry: ScenarioPresetRegistry,
+        registered_scenario: RegisteredScenario,
+    ) -> None:
+        preset_registry.register_preset(preset=_preset("builtin_smoke"))
+
+        response = await service.get_preset_async(name="builtin_smoke")
+
+        assert response is not None
+        assert response.origin == "registered"
+        assert response.version is None
+
+    async def test_a_stored_preset_is_still_reported_as_stored_and_versioned(
+        self,
+        service: ScenarioPresetService,
+        preset_registry: ScenarioPresetRegistry,
+        registered_scenario: RegisteredScenario,
+    ) -> None:
+        preset_registry.register_preset(preset=_preset("builtin_smoke"))
+        await service.save_preset_async(preset=_preset("nightly"), expected_version=None)
+
+        response = await service.list_presets_async(include_estimates=False)
+        by_name = {item.preset.name: item for item in response.items}
+
+        assert by_name["nightly"].origin == "stored"
+        assert by_name["nightly"].version is not None
+        assert by_name["builtin_smoke"].version is None
+
+    async def test_saving_over_a_registered_name_is_rejected(
+        self,
+        service: ScenarioPresetService,
+        preset_registry: ScenarioPresetRegistry,
+        registered_scenario: RegisteredScenario,
+    ) -> None:
+        preset_registry.register_preset(preset=_preset("builtin_smoke"))
+
+        with pytest.raises(ScenarioPresetNameRegisteredError):
+            await service.save_preset_async(preset=_preset("builtin_smoke"), expected_version=None)
 
 
 class TestAdvisoryIssues:

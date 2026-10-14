@@ -1056,8 +1056,13 @@ export interface PresetIssue {
 
 export interface ScenarioPresetResponse {
   preset: ScenarioPreset
-  /** Opaque document version; required to update the preset. */
-  version: string
+  /**
+   * Whether a stored document or registering code contributed this preset. A
+   * registered preset cannot be updated or deleted through the API.
+   */
+  origin: 'stored' | 'registered'
+  /** Opaque document version; required to update the preset. Null when registered in code. */
+  version: string | null
   /** Empty when the preset is runnable here. Never blocks a save. */
   issues: PresetIssue[]
   /**

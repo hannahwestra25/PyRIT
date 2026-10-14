@@ -13,7 +13,7 @@ size attached to a listing, and the launch-owned fields that a preset
 deliberately does not carry.
 """
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -30,10 +30,23 @@ __all__ = [
 
 
 class ScenarioPresetResponse(BaseModel):
-    """A stored preset, the version of the document it was read from, and its advisory issues."""
+    """A preset, the version of the document it was read from, and its advisory issues."""
 
-    preset: ScenarioPreset = Field(..., description="The stored preset")
-    version: str = Field(..., description="Opaque version of the stored document; required to update it")
+    preset: ScenarioPreset = Field(..., description="The preset")
+    origin: Literal["stored", "registered"] = Field(
+        "stored",
+        description=(
+            "Whether a stored document or registering code contributed this preset. A registered preset "
+            "is held in memory by the code that registered it and cannot be updated or deleted here."
+        ),
+    )
+    version: str | None = Field(
+        ...,
+        description=(
+            "Opaque version of the stored document, required to update it. None for a registered preset, "
+            "which has no document to guard and nothing to round-trip into a write."
+        ),
+    )
     issues: list[PresetIssue] = Field(
         default_factory=list,
         description="Advisory problems resolving this preset against the live registry; empty when it is runnable",

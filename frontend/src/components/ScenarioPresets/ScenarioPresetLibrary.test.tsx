@@ -45,7 +45,11 @@ function makeItem(
   issues: PresetIssue[] = [],
   runSize: ScenarioRunSizeEstimateResponse | null = null,
 ): ScenarioPresetResponse {
-  return { preset, version: 'v1', issues, run_size: runSize }
+  return { preset, origin: 'stored', version: 'v1', issues, run_size: runSize }
+}
+
+function makeRegisteredItem(preset: ScenarioPreset = NIGHTLY_PRESET): ScenarioPresetResponse {
+  return { preset, origin: 'registered', version: null, issues: [], run_size: null }
 }
 
 function makeRunSize(attacks: number): ScenarioRunSizeEstimateResponse {
@@ -202,6 +206,16 @@ describe('ScenarioPresetLibrary', () => {
 
     expect(await screen.findByTestId('launch-preset-nightly_probe')).toBeEnabled()
     expect(screen.queryByTestId('preset-issues-nightly_probe')).not.toBeInTheDocument()
+  })
+
+  it('offers no edit or delete for a preset defined in code, but still allows launch', async () => {
+    mockList.mockResolvedValue({ source: 'presets.yaml', items: [makeRegisteredItem()] })
+
+    renderLibrary()
+
+    expect(await screen.findByTestId('edit-preset-nightly_probe')).toBeDisabled()
+    expect(screen.getByTestId('delete-preset-nightly_probe')).toBeDisabled()
+    expect(screen.getByTestId('launch-preset-nightly_probe')).toBeEnabled()
   })
 
   it('surfaces a load failure with a retry that refetches', async () => {

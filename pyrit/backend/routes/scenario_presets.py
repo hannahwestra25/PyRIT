@@ -32,7 +32,7 @@ from pyrit.backend.models.scenario_presets import (
 )
 from pyrit.backend.services.scenario_preset_service import get_scenario_preset_service
 from pyrit.models.catalog import RunScenarioRequest, ScenarioPreset
-from pyrit.registry import ScenarioPresetConflictError
+from pyrit.registry import ScenarioPresetConflictError, ScenarioPresetNameRegisteredError
 
 router = APIRouter(prefix="/scenario-presets", tags=["scenario-presets"])
 
@@ -134,7 +134,10 @@ async def get_scenario_preset(name: str) -> ScenarioPresetResponse:  # pyrit-asy
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_admin)],
     responses={
-        409: {"model": ProblemDetail, "description": "A preset is already stored under this name"},
+        409: {
+            "model": ProblemDetail,
+            "description": "A preset is already stored under this name, or the name is registered in code",
+        },
     },
 )
 async def create_scenario_preset(  # pyrit-async-suffix-exempt
@@ -162,6 +165,11 @@ async def create_scenario_preset(  # pyrit-async-suffix-exempt
 
     try:
         return await get_scenario_preset_service().save_preset_async(preset=preset, expected_version=None)
+    except ScenarioPresetNameRegisteredError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Scenario preset '{preset.name}' is registered in code and cannot be stored",
+        ) from exc
     except ScenarioPresetConflictError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -177,7 +185,10 @@ async def create_scenario_preset(  # pyrit-async-suffix-exempt
     dependencies=[Depends(require_admin)],
     responses={
         400: {"model": ProblemDetail, "description": "Body name does not match the path"},
-        409: {"model": ProblemDetail, "description": "The preset changed after it was read"},
+        409: {
+            "model": ProblemDetail,
+            "description": "The preset changed after it was read, or the name is registered in code",
+        },
     },
 )
 async def update_scenario_preset(  # pyrit-async-suffix-exempt
@@ -198,7 +209,8 @@ async def update_scenario_preset(  # pyrit-async-suffix-exempt
         ScenarioPresetResponse: The persisted preset, its new version, and its advisory issues.
 
     Raises:
-        HTTPException: 400 if the body names a different preset, 409 if the stored version moved.
+        HTTPException: 400 if the body names a different preset, 409 if the stored version
+            moved or the name is registered in code.
     """
     if body.preset.name != name:
         raise HTTPException(
@@ -210,6 +222,11 @@ async def update_scenario_preset(  # pyrit-async-suffix-exempt
         return await get_scenario_preset_service().save_preset_async(
             preset=body.preset, expected_version=body.expected_version
         )
+    except ScenarioPresetNameRegisteredError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Scenario preset '{name}' is registered in code and cannot be stored",
+        ) from exc
     except ScenarioPresetConflictError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

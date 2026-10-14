@@ -8,7 +8,7 @@ Scenario preset service for CRUD and launch resolution.
 import asyncio
 import logging
 from functools import lru_cache
-from typing import Any
+from typing import Any, Literal
 
 from pyrit.backend.models.scenario_presets import (
     ResolveScenarioPresetRequest,
@@ -21,7 +21,6 @@ from pyrit.models.catalog import (
     ScenarioPreset,
     ScenarioRunSizeEstimate,
     ScenarioRunSizeEstimateRequest,
-    StoredPreset,
 )
 from pyrit.registry import ScenarioPresetRegistry
 
@@ -71,8 +70,10 @@ class ScenarioPresetService:
         Returns:
             ScenarioPresetResponse | None: The preset, or None if nothing is stored under *name*.
         """
-        stored = await asyncio.to_thread(ScenarioPresetRegistry.get_registry_singleton().get_preset, name=name)
-        return None if stored is None else await self._to_response_async(stored)
+        entry = await asyncio.to_thread(ScenarioPresetRegistry.get_registry_singleton().get_preset, name=name)
+        if entry is None:
+            return None
+        return await self._to_response_async(preset=entry.preset, version=entry.version, origin=entry.origin)
 
     async def save_preset_async(
         self,
@@ -102,7 +103,7 @@ class ScenarioPresetService:
             preset=preset,
             expected_version=expected_version,
         )
-        return await self._to_response_async(stored)
+        return await self._to_response_async(preset=stored.preset, version=stored.version, origin="stored")
 
     async def delete_preset_async(self, *, name: str) -> bool:
         """
@@ -199,26 +200,34 @@ class ScenarioPresetService:
         """
         return [
             ScenarioPresetResponse(
-                preset=stored.preset, version=stored.version, issues=registry.check_preset(preset=stored.preset)
+                preset=entry.preset,
+                origin=entry.origin,
+                version=entry.version,
+                issues=registry.check_preset(preset=entry.preset),
             )
-            for stored in registry.list_presets()
+            for entry in registry.list_presets()
         ]
 
     @staticmethod
-    async def _to_response_async(stored: StoredPreset) -> ScenarioPresetResponse:
+    async def _to_response_async(
+        *, preset: ScenarioPreset, version: str | None, origin: Literal["stored", "registered"]
+    ) -> ScenarioPresetResponse:
         """
-        Attach advisory issues to a stored preset.
+        Attach advisory issues to a preset.
 
         Args:
-            stored (StoredPreset): The preset and the version it was read from.
+            preset (ScenarioPreset): The preset to describe.
+            version (str | None): The version of the document it was read from, or None
+                for a preset registered in code.
+            origin (Literal["stored", "registered"]): Which layer contributed the preset.
 
         Returns:
             ScenarioPresetResponse: The wire representation of the preset.
         """
         issues = await asyncio.to_thread(
-            ScenarioPresetRegistry.get_registry_singleton().check_preset, preset=stored.preset
+            ScenarioPresetRegistry.get_registry_singleton().check_preset, preset=preset
         )
-        return ScenarioPresetResponse(preset=stored.preset, version=stored.version, issues=issues)
+        return ScenarioPresetResponse(preset=preset, origin=origin, version=version, issues=issues)
 
     async def _estimate_run_size_async(self, *, preset: ScenarioPreset) -> ScenarioRunSizeEstimate | None:
         """

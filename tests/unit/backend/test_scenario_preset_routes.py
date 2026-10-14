@@ -20,7 +20,7 @@ from pyrit.backend.models.scenario_presets import (
 from pyrit.backend.services.scenario_preset_service import ScenarioPresetService
 from pyrit.models.catalog import ScenarioPreset, ScenarioRunSizeEstimate
 from pyrit.models.catalog.scenario import ScenarioRunSizeComponent
-from pyrit.registry import ScenarioPresetConflictError
+from pyrit.registry import ScenarioPresetConflictError, ScenarioPresetNameRegisteredError
 
 PRESET_NAME = "quick_scan"
 SCENARIO_NAME = "foundry.red_team_agent"
@@ -79,12 +79,19 @@ def _preset(name: str = PRESET_NAME) -> ScenarioPreset:
 def _response(
     *,
     name: str = PRESET_NAME,
-    version: str = "v1",
+    version: str | None = "v1",
+    origin: str = "stored",
     issues: list[PresetIssue] | None = None,
     run_size: ScenarioRunSizeEstimate | None = None,
 ):
     """Build a preset response envelope."""
-    return ScenarioPresetResponse(preset=_preset(name), version=version, issues=issues or [], run_size=run_size)
+    return ScenarioPresetResponse(
+        preset=_preset(name),
+        origin=origin,  # type: ignore[arg-type]
+        version=version,
+        issues=issues or [],
+        run_size=run_size,
+    )
 
 
 class TestListPresets:
@@ -102,6 +109,21 @@ class TestListPresets:
         assert body["source"] == "/tmp/presets"
         assert body["items"][0]["preset"]["name"] == PRESET_NAME
         assert body["items"][0]["version"] == "v1"
+
+    def test_list_serializes_a_registered_preset_with_a_null_version(
+        self, client: TestClient, service: MagicMock
+    ) -> None:
+        service.list_presets_async = AsyncMock(
+            return_value=ScenarioPresetListResponse(
+                source="/tmp", items=[_response(origin="registered", version=None)]
+            )
+        )
+
+        response = client.get("/api/scenario-presets")
+
+        assert response.status_code == 200
+        assert response.json()["items"][0]["version"] is None
+        assert response.json()["items"][0]["origin"] == "registered"
 
     def test_list_reports_advisory_issues(self, client: TestClient, service: MagicMock) -> None:
         issue = PresetIssue(field="scenario_name", message="Scenario is not registered in this deployment.")
@@ -198,6 +220,13 @@ class TestCreatePreset:
 
         assert response.status_code == 409
 
+    def test_create_over_a_registered_name_is_a_conflict(self, client: TestClient, service: MagicMock) -> None:
+        service.save_preset_async = AsyncMock(side_effect=ScenarioPresetNameRegisteredError(name=PRESET_NAME))
+
+        response = client.post("/api/scenario-presets", json=_preset().model_dump())
+
+        assert response.status_code == 409
+
     def test_create_requires_admin(self, anonymous_client: TestClient, service: MagicMock) -> None:
         service.save_preset_async = AsyncMock(return_value=_response())
 
@@ -271,6 +300,16 @@ class TestUpdatePreset:
         service.save_preset_async = AsyncMock(
             side_effect=ScenarioPresetConflictError(name=PRESET_NAME, expected_version="v1", actual_version="v2")
         )
+
+        response = client.put(
+            f"/api/scenario-presets/{PRESET_NAME}",
+            json={"preset": _preset().model_dump(), "expected_version": "v1"},
+        )
+
+        assert response.status_code == 409
+
+    def test_update_of_a_registered_name_is_a_conflict(self, client: TestClient, service: MagicMock) -> None:
+        service.save_preset_async = AsyncMock(side_effect=ScenarioPresetNameRegisteredError(name=PRESET_NAME))
 
         response = client.put(
             f"/api/scenario-presets/{PRESET_NAME}",

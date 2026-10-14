@@ -49,7 +49,8 @@ type LoadStatus = 'loading' | 'ready' | 'not-found' | 'error'
 
 interface LoadedPreset {
   preset: ScenarioPreset
-  version: string
+  /** Null for a preset registered in code, which has no document to update. */
+  version: string | null
 }
 
 export default function ScenarioPresetEditor({ mode }: { mode: 'create' | 'edit' }) {
@@ -222,10 +223,14 @@ function ScenarioPresetEditorContent({ mode, presetName }: ScenarioPresetEditorC
 
     setSaving(true)
     try {
-      if (loaded) {
-        await scenarioPresetsApi.update(loaded.preset.name, preset, loaded.version)
-      } else {
+      if (loaded === null) {
         await scenarioPresetsApi.create(preset)
+      } else if (loaded.version === null) {
+        setSaveError(`Preset '${loaded.preset.name}' is defined in code and cannot be edited here.`)
+        setSaving(false)
+        return
+      } else {
+        await scenarioPresetsApi.update(loaded.preset.name, preset, loaded.version)
       }
       navigate(PRESETS_ROUTE)
     } catch (err) {

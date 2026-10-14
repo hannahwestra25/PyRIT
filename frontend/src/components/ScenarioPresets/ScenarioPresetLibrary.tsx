@@ -39,6 +39,8 @@ import LaunchPresetDialog from './LaunchPresetDialog'
 import { useScenarioPresetLibraryStyles } from './ScenarioPresetLibrary.styles'
 import { NEW_PRESET_ROUTE, presetEditorRoutePath } from './presetRoutes'
 
+const DEFINED_IN_CODE_HINT = 'Defined in code, so it cannot be edited or deleted here.'
+
 interface ScenarioPresetLibraryProps {
   targets: TargetInstance[]
   defaultObjectiveTarget: TargetInstance | null
@@ -250,6 +252,7 @@ export default function ScenarioPresetLibrary({
             <TableBody>
               {items.map((item) => {
                 const runnable = item.issues.length === 0
+                const editable = item.origin === 'stored'
                 const estimateState = item.run_size
                   ? mapScenarioRunEstimate(item.run_size, 'request')
                   : null
@@ -323,6 +326,8 @@ export default function ScenarioPresetLibrary({
                           className={styles.touchTarget}
                           appearance="subtle"
                           icon={<EditRegular />}
+                          disabled={!editable}
+                          title={editable ? undefined : DEFINED_IN_CODE_HINT}
                           onClick={() => navigate(presetEditorRoutePath(item.preset.name))}
                           data-testid={`edit-preset-${item.preset.name}`}
                         >
@@ -332,6 +337,8 @@ export default function ScenarioPresetLibrary({
                           className={styles.touchTarget}
                           appearance="subtle"
                           icon={<DeleteRegular />}
+                          disabled={!editable}
+                          title={editable ? undefined : DEFINED_IN_CODE_HINT}
                           onClick={() => {
                             setActionError(null)
                             setPendingDelete(item)

@@ -35,7 +35,7 @@ import { useLaunchPresetDialogStyles } from './LaunchPresetDialog.styles'
 
 interface LaunchPresetDialogProps {
   preset: ScenarioPreset
-  version: string
+  version: string | null
   targets: TargetInstance[]
   defaultObjectiveTarget: TargetInstance | null
   defaultAdversarialTarget: TargetInstance | null
