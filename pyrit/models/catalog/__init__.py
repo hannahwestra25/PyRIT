@@ -28,6 +28,8 @@ if TYPE_CHECKING:
         ScenarioDatasetSizeCap,
         ScenarioDatasetSummary,
         ScenarioDefaultRunSizeEstimate,
+        ScenarioProducerCategoryCounts,
+        ScenarioProducerCounts,
         ScenarioRunListItem,
         ScenarioRunSizeComponent,
         ScenarioRunSizeEstimate,
@@ -38,13 +40,14 @@ if TYPE_CHECKING:
         ScenarioRunSummary,
         ScenarioTechniqueSummary,
     )
-    from pyrit.models.catalog.scenario_preset import PresetIssue, ScenarioPreset, StoredPreset
+    from pyrit.models.catalog.scenario_preset import PresetEntry, PresetIssue, ScenarioPreset, StoredPreset
     from pyrit.models.catalog.scorer import ScorerInstance
     from pyrit.models.catalog.target import TargetInstance
 
 _LAZY_EXPORTS: dict[str, str] = {
     "AttackErrorSummary": "pyrit.models.catalog.scenario",
     "AttackRetrySummary": "pyrit.models.catalog.scenario",
+    "PresetEntry": "pyrit.models.catalog.scenario_preset",
     "PresetIssue": "pyrit.models.catalog.scenario_preset",
     "RegisteredInitializer": "pyrit.models.catalog.initializer",
     "ScorerInstance": "pyrit.models.catalog.scorer",
@@ -54,6 +57,8 @@ _LAZY_EXPORTS: dict[str, str] = {
     "ScenarioDatasetSummary": "pyrit.models.catalog.scenario",
     "ScenarioDefaultRunSizeEstimate": "pyrit.models.catalog.scenario",
     "ScenarioPreset": "pyrit.models.catalog.scenario_preset",
+    "ScenarioProducerCategoryCounts": "pyrit.models.catalog.scenario",
+    "ScenarioProducerCounts": "pyrit.models.catalog.scenario",
     "ScenarioRunListItem": "pyrit.models.catalog.scenario",
     "ScenarioRunSizeComponent": "pyrit.models.catalog.scenario",
     "ScenarioRunSizeEstimate": "pyrit.models.catalog.scenario",

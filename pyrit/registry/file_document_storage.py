@@ -117,48 +117,23 @@ class FileDocumentStorage:
     """
     Read and write flat, named text documents in a directory or blob container.
 
-    Documents live directly under the configured source, one file per name, with a
-    fixed extension. Nested paths are ignored so a virtual directory prefix behaves
-    the same way in both backends.
+    Documents live directly under the configured source, one file per name, with a fixed
+    extension; nested paths are ignored so both backends behave alike. Names are validated
+    here rather than in each subclass, because a name becomes a path component and an
+    unvalidated one would reach a file outside the configured source.
 
-    Every operation that addresses a single document validates the name first. The
-    name becomes a path component in both backends, so an unvalidated name would let
-    a caller read, overwrite, or delete a file outside the configured source. The
-    check lives here rather than in each subclass so no document API can omit it.
+    Content is raw bytes: decoding belongs to the subclasses, which can skip just the one
+    document they cannot interpret, and text mode would rewrite line endings per platform
+    so a caller's hash no longer matched what is stored.
 
-    Listing applies the same rule before it reads anything, so every name it returns can
-    be passed back to the single-document operations. Names come from the file system
-    rather than from a caller, so the source can hold files this class cannot address or
-    cannot read; those are skipped with a warning rather than failing the whole listing.
+    Two separate mechanisms protect a write. Local writes stage content beside the
+    destination and move it into place, so a reader never sees a half-written document.
+    The version check in ``_save_document_conditional`` stops a second writer discarding
+    the first's edit, enforced by ``overwrite=False`` and ``If-Match`` ETags on blob and by
+    an OS advisory lock held across the whole read-compare-replace locally. That lock binds
+    only writers using this class; a direct edit is caught by the version instead.
 
-    Documents are read and written as raw bytes. Decoding belongs to the subclasses,
-    which know how to report a document they cannot interpret and can skip just that one.
-    Bytes also keep what a caller hashes identical to what is stored, which text mode
-    would not: it rewrites line endings per platform.
-
-    Local writes stage the content beside the destination and move it into place, so an
-    interrupted write leaves the previous document intact rather than truncating it.
-
-    Conditional writes go through ``_save_document_conditional``, which refuses a write
-    whose stored state no longer matches the version the caller read. Atomic replacement
-    and conditional writing solve different problems: replacement stops a reader seeing a
-    half-written document, while the version check stops a second writer silently
-    discarding the first writer's edit. Each backend enforces the check with its own
-    primitive, so the comparison and the write cannot be separated by another writer:
-
-    - Blob creates upload with ``overwrite=False`` and updates send the ETag read moments
-      earlier as an ``If-Match`` precondition, both evaluated by the service.
-    - Local writes hold an OS advisory lock on a sibling file for the whole
-      read-compare-replace sequence, which serializes every writer that goes through this
-      class, including ones in other processes. The kernel owns the lock, so a writer that
-      dies releases it rather than stranding the document.
-
-    The local guarantee is cooperative: it binds writers using this class, not someone
-    editing the file directly. That case is covered instead by the version itself, which
-    hashes stored bytes and so changes under any edit, whoever made it.
-
-    Subclasses supply the extension and a human-readable label for error messages,
-    then expose a domain-specific API over the protected document operations.
+    Subclasses supply the extension and an error-message label.
     """
 
     LOCK_SUFFIX: str = ".lock"
@@ -377,9 +352,8 @@ class FileDocumentStorage:
         """
         Write a blob behind a precondition the service evaluates, not an unconditional overwrite.
 
-        A create and an update fail for different reasons, so they are guarded separately.
-        On create, a missing blob means a missing container rather than a lost race, and
-        reporting it as a conflict would send the operator looking for a concurrent edit.
+        A create and an update fail for different reasons, so they are guarded separately:
+        on create a missing blob means a missing container rather than a lost race.
 
         Returns:
             str: The version token for the newly stored content.
@@ -540,14 +514,12 @@ class FileDocumentStorage:
         """
         Delete one document, reporting whether it was there to delete.
 
-        The answer comes from the delete itself rather than from a preceding
-        existence check, so two callers racing to remove the same document cannot
-        both be told they removed it.
+        The answer comes from the delete itself rather than a preceding existence check,
+        so two callers racing to remove the same document cannot both be told they did.
 
-        A local delete takes the same lock a conditional write holds, because a delete
-        is a writer. Without it a delete landing inside a save's read-compare-replace
-        sequence is reported as successful and then immediately undone by that replace,
-        while the blob backend reports the same interleaving as a conflict.
+        A local delete takes the same lock a conditional write holds, because a delete is
+        a writer: without it, a delete landing inside a save's read-compare-replace
+        sequence is reported as successful and then immediately undone by that replace.
 
         Args:
             name (str): The document name.

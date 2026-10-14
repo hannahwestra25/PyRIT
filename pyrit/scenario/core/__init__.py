@@ -33,6 +33,8 @@ if TYPE_CHECKING:
         DatasetAttackConfiguration,
         DatasetConfiguration,
         DatasetConstraintError,
+        DatasetFetchPolicy,
+        DatasetSource,
         DatasetSourceKind,
         ResolvedDataset,
         require_nonempty,
@@ -44,6 +46,15 @@ if TYPE_CHECKING:
         override_default_adversarial_target,
     )
     from pyrit.scenario.core.scenario_technique import ScenarioTechnique
+    from pyrit.scenario.core.technique_tokens import (
+        CONVERTER_MODIFIER_PREFIX,
+        TechniqueToken,
+        TechniqueTokenIssue,
+        TechniqueTokenResolution,
+        converter_name_from_modifier,
+        parse_technique_token,
+        resolve_technique_tokens,
+    )
 
 _LAZY_EXPORTS: dict[str, str | tuple[str, str | None]] = {
     "AtomicAttack": "pyrit.scenario.core.atomic_attack",
@@ -55,6 +66,8 @@ _LAZY_EXPORTS: dict[str, str | tuple[str, str | None]] = {
     "DatasetAttackConfiguration": "pyrit.scenario.core.dataset_configuration",
     "DatasetConfiguration": "pyrit.scenario.core.dataset_configuration",
     "DatasetConstraintError": "pyrit.scenario.core.dataset_configuration",
+    "DatasetFetchPolicy": "pyrit.scenario.core.dataset_configuration",
+    "DatasetSource": "pyrit.scenario.core.dataset_configuration",
     "DatasetSourceKind": "pyrit.scenario.core.dataset_configuration",
     "INLINE_DATASET_NAME": "pyrit.scenario.core.dataset_configuration",
     "Parameter": "pyrit.models.parameter",

@@ -37,6 +37,9 @@ def _registered_scenario(
 ) -> RegisteredScenario:
     """Build a registered scenario with only the fields preset validation reads."""
     techniques = all_techniques if all_techniques is not None else ["crescendo", "flip"]
+    parameters = [
+        Parameter(name=name, description="", param_type=str) for name in (supported_parameters or ["max_turns"])
+    ]
     return RegisteredScenario(
         scenario_name=SCENARIO_NAME,
         scenario_type="RedTeamAgentScenario",
@@ -46,9 +49,8 @@ def _registered_scenario(
         aggregate_techniques=aggregate_techniques or [],
         default_datasets=["harmbench"],
         baseline_policy=baseline_policy,
-        supported_parameters=[
-            Parameter(name=name, description="", param_type=str) for name in (supported_parameters or ["max_turns"])
-        ],
+        supported_parameters=parameters,
+        supported_parameter_names=[parameter.name for parameter in parameters],
         default_run_size=ScenarioRunSizeEstimate.unavailable(),
     )
 
@@ -258,8 +260,9 @@ class TestRunRequestResolution:
 
         assert resolved.techniques is None
         assert resolved.dataset_names is None
-        assert resolved.max_dataset_size is None
+        assert resolved.max_dataset_size == "default"
         assert resolved.dataset_filters is None
+        assert resolved.dataset_request is None
         assert resolved.include_baseline is None
         assert resolved.scenario_params is None
 

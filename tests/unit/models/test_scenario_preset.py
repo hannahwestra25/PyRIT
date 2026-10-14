@@ -124,3 +124,59 @@ def test_init_rejects_a_preset_too_large_to_launch() -> None:
             scenario_name="foundry.red_team_agent",
             scenario_params={f"param_{index}": index for index in range(MAX_ITEMS + 1)},
         )
+
+
+def test_identity_covers_configuration_and_ignores_description() -> None:
+    """Test that identity reflects what a preset runs, not how it is labelled."""
+    preset = ScenarioPreset(
+        name="nightly",
+        scenario_name="foundry.red_team_agent",
+        description="Nightly smoke",
+        author="tester",
+        techniques=["crescendo"],
+    )
+
+    relabelled = ScenarioPreset(
+        name="weekly",
+        scenario_name="foundry.red_team_agent",
+        description="Weekly smoke",
+        author="someone else",
+        techniques=["crescendo"],
+    )
+    reconfigured = ScenarioPreset(
+        name="nightly",
+        scenario_name="foundry.red_team_agent",
+        description="Nightly smoke",
+        author="tester",
+        techniques=["flip"],
+    )
+
+    assert preset.get_identifier().unique_name == relabelled.get_identifier().unique_name
+    assert preset.get_identifier().unique_name != reconfigured.get_identifier().unique_name
+
+
+def test_identity_is_rebuilt_so_a_modified_copy_does_not_report_the_original() -> None:
+    """Test that a copy edited through ``model_copy`` is not given the original's identity."""
+    preset = ScenarioPreset(name="nightly", scenario_name="foundry.red_team_agent", techniques=["crescendo"])
+    original = preset.get_identifier().unique_name
+
+    edited = preset.model_copy(update={"techniques": ["flip"]})
+
+    assert edited.get_identifier().unique_name != original
+    assert preset.get_identifier().unique_name == original
+
+
+def test_identity_params_are_json_safe_for_nested_configuration() -> None:
+    """Test that nested configuration survives into the identifier the instance registry reads."""
+    preset = ScenarioPreset(
+        name="nightly",
+        scenario_name="foundry.red_team_agent",
+        dataset_filters={"harm_categories": ["violence"]},
+        scenario_params={"max_turns": 3},
+    )
+
+    params = preset.get_identifier().params
+
+    assert params["dataset_filters"] == {"harm_categories": ["violence"]}
+    assert params["scenario_params"] == {"max_turns": 3}
+    assert "name" not in params

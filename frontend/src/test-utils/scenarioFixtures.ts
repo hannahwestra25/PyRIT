@@ -32,6 +32,11 @@ export function makeScenario(overrides: Partial<RegisteredScenario> = {}): Regis
     include_baseline_by_default: true,
     uses_default_adversarial_target: true,
     supported_parameters: [],
+    supported_parameter_names: overrides.supported_parameter_names ?? [
+      'objective_target', 'scenario_techniques', 'technique_converters', 'dataset_config',
+      'memory_labels', 'max_concurrency', 'max_retries', 'include_baseline',
+      ...(overrides.supported_parameters ?? []).map((parameter) => parameter.name),
+    ],
     default_run_size: {
       dataset_size: { kind: 'indeterminate', detail: 'Default sizing is unavailable.' },
       dataset_limit: { state: 'scenario_default' },

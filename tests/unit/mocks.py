@@ -45,7 +45,9 @@ def make_technique_class(*, techniques: Sequence[str], aggregates: Sequence[str]
     """
     members = [(name.upper(), (name, {"all"})) for name in aggregates]
     members += [(name.upper(), (name, set())) for name in techniques]
-    return ScenarioTechnique("MockTechnique", members)  # type: ignore[call-overload]
+    # The functional Enum API builds a new enum class, but the overload ty selects is the
+    # member-lookup form, so it infers an instance rather than the class this returns.
+    return ScenarioTechnique("MockTechnique", members)  # ty: ignore[invalid-return-type]
 
 
 def make_scenario_identifier(
@@ -407,7 +409,7 @@ async def store_message_async(message: Message) -> Message:
         Message: The same message.
     """
     memory = CentralMemory.get_memory_instance()
-    piece_ids = [piece.id for piece in message.message_pieces if piece.id is not None]
+    piece_ids = [piece.id for piece in message.message_pieces]
     if not piece_ids or await memory.get_message_pieces_async(prompt_ids=piece_ids):
         return message
 
