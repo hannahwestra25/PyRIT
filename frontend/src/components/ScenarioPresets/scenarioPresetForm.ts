@@ -72,17 +72,6 @@ export function unknownPresetTechniques(
 }
 
 /**
- * Starting state for a preset that pins nothing yet. Identical to the launch form's
- * except the dataset cap stays blank. Unlike the technique and baseline controls, a
- * number input can represent "unset" directly, so the editor uses blank to mean
- * "track the scenario" rather than prefilling the default and comparing it back out.
- * The scenario's own cap is still shown as hint text beneath the field.
- */
-export function initialPresetConfigState(scenario: RegisteredScenario): ScenarioConfigFormState {
-  return { ...initialScenarioConfigState(scenario), maxDatasetSize: '' }
-}
-
-/**
  * Parameters the preset stores that this editor renders no control for — a key the
  * scenario no longer declares, or one of the common parameters the launch form owns.
  * They are carried through untouched rather than dropped on an unrelated edit.
@@ -113,20 +102,14 @@ export function presetToConfigState(
   scenario: RegisteredScenario,
   preset: ScenarioPreset,
 ): ScenarioConfigFormState {
-  const defaults = initialPresetConfigState(scenario)
-  const filters = preset.dataset_filters ?? {}
+  const defaults = initialScenarioConfigState(scenario)
   const pinned = preset.techniques ?? []
   return {
     techniques: pinned.length > 0 ? pinned : defaults.techniques,
     includeBaseline: scenario.baseline_policy === 'forbidden'
       ? false
       : preset.include_baseline ?? defaults.includeBaseline,
-    datasetOverride: (preset.dataset_names ?? []).join(', '),
-    maxDatasetSize: preset.max_dataset_size == null
-      ? defaults.maxDatasetSize
-      : String(preset.max_dataset_size),
-    harmCategoriesFilter: (filters.harm_categories ?? []).join(', '),
-    dataTypesFilter: (filters.data_types ?? []).join(', '),
+    datasets: preset.datasets ?? defaults.datasets,
     scenarioParamValues: getInitialFormValues(
       dynamicScenarioParameters(scenario),
       preset.scenario_params ?? null,
@@ -240,14 +223,8 @@ export function configToPreset(
   ) {
     preset.include_baseline = includeBaseline
   }
-  if (config.dataset_names) {
-    preset.dataset_names = config.dataset_names
-  }
-  if (config.max_dataset_size !== undefined) {
-    preset.max_dataset_size = config.max_dataset_size
-  }
-  if (config.dataset_filters) {
-    preset.dataset_filters = config.dataset_filters
+  if (config.datasets) {
+    preset.datasets = config.datasets
   }
   const scenarioParams = presetScenarioParams(config, context, defaults.scenarioParams)
   if (scenarioParams) {

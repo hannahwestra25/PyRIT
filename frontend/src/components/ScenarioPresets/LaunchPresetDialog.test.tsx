@@ -104,15 +104,38 @@ describe('LaunchPresetDialog', () => {
         name: 'nightly_probe',
         scenario_name: 'foundry.red_team_agent',
         techniques: ['crescendo', 'flip'],
-        dataset_names: ['harmbench', 'advbench'],
-        max_dataset_size: 25,
+        datasets: {
+          sources: [{ name: 'harmbench' }, { name: 'advbench' }],
+          max_total: 25,
+        },
         include_baseline: true,
       },
     })
 
     expect(screen.getByTestId('launch-preset-summary')).toHaveTextContent(
-      '2 techniques · harmbench, advbench · max dataset size 25 · baseline included',
+      '2 techniques · harmbench, advbench · max 25 cases · baseline included',
     )
+  })
+
+  it('treats a limit of default as saying nothing about the limit', () => {
+    renderDialog({
+      preset: {
+        ...PRESET,
+        datasets: { sources: [{ name: 'harmbench' }], max_total: 'default', max_per_dataset: 'default' },
+      },
+    })
+
+    const summary = screen.getByTestId('launch-preset-summary')
+    expect(summary).toHaveTextContent('harmbench')
+    expect(summary).not.toHaveTextContent('max')
+  })
+
+  it('reports an unbounded limit the flat schema could not express', () => {
+    renderDialog({
+      preset: { ...PRESET, datasets: { sources: [{ name: 'harmbench' }], max_total: 'all' } },
+    })
+
+    expect(screen.getByTestId('launch-preset-summary')).toHaveTextContent('every case')
   })
 
   it('distinguishes an excluded baseline from an included one', () => {

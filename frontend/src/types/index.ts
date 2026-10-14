@@ -1041,9 +1041,8 @@ export interface ScenarioPreset {
   /** Who created the preset. Descriptive only; never used to authorize a read or a write. */
   author?: string | null
   techniques?: string[] | null
-  dataset_names?: string[] | null
-  max_dataset_size?: number | null
-  dataset_filters?: Record<string, string[]> | null
+  /** Dataset sources, limits, fetch policy, and filters. Omit to use the scenario defaults. */
+  datasets?: ScenarioDatasetRequest | null
   include_baseline?: boolean | null
   scenario_params?: Record<string, unknown> | null
 }

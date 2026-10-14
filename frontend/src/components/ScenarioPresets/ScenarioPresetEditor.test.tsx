@@ -10,6 +10,15 @@ import type { ScenarioPreset } from '@/types'
 import ScenarioPresetEditor from './ScenarioPresetEditor'
 
 jest.mock('@/services/api', () => ({
+  datasetsApi: {
+    listDatasets: jest.fn().mockResolvedValue({
+      items: ['harmbench', 'xstest'].map((name) => ({
+        name, selection_key: `dataset:named:${name}`, loaded: true, provider_available: true,
+        logical_examples: 8, seed_pieces: null, objectives: null, modalities: ['text'],
+        harm_categories: ['violence'], has_unlabeled_harm_categories: false,
+      })),
+    }),
+  },
   scenarioPresetsApi: {
     get: jest.fn(),
     create: jest.fn(),
@@ -49,6 +58,16 @@ function apiError(status: number, detail: string): unknown {
     isAxiosError: true,
     response: { status, data: { detail } },
   }
+}
+
+/** Drives the shared dataset table's limit popover the same way its own suite does. */
+async function editLimit(user: ReturnType<typeof userEvent.setup>, label: string, value: string): Promise<void> {
+  await user.click(await screen.findByRole('button', { name: `Edit ${label}` }))
+  const all = screen.getByRole('checkbox', { name: `All available for ${label}` })
+  if (all instanceof HTMLInputElement && all.checked) await user.click(all)
+  const input = screen.getByRole('textbox', { name: label })
+  await user.clear(input)
+  await user.type(input, value)
 }
 
 function renderCreate() {
@@ -386,39 +405,34 @@ describe('ScenarioPresetEditor edit mode', () => {
     ))
   })
 
-  it('saves the dataset overrides the operator entered', async () => {
+  it('saves the dataset selection the operator made', async () => {
     const user = userEvent.setup()
     renderEdit()
 
-    await user.type(await screen.findByTestId('dataset-override-input'), 'harmbench, xstest')
-    await user.type(screen.getByTestId('max-dataset-size-input'), '25')
-    await user.type(screen.getByTestId('harm-categories-filter-input'), 'violence')
-    await user.type(screen.getByTestId('data-types-filter-input'), 'text')
+    await user.click(await screen.findByRole('combobox', { name: 'Add dataset' }))
+    await user.click(screen.getByRole('option', { name: 'xstest', exact: true }))
+    await editLimit(user, 'Maximum objectives', '25')
     await user.click(screen.getByTestId('save-preset-btn'))
 
-    await waitFor(() => expect(mockUpdate).toHaveBeenCalledWith(
-      'nightly_probe',
-      expect.objectContaining({
-        dataset_names: ['harmbench', 'xstest'],
-        max_dataset_size: 25,
-        dataset_filters: { harm_categories: ['violence'], data_types: ['text'] },
-      }),
-      'v1',
-    ))
+    await waitFor(() => expect(mockUpdate).toHaveBeenCalled())
+    const saved = mockUpdate.mock.calls.at(-1)?.[1] as ScenarioPreset
+    expect(saved.datasets?.sources?.map((source) => source.name)).toEqual(['harmbench', 'xstest'])
+    expect(saved.datasets?.max_total).toBe(25)
   })
 
-  it('rejects a non-positive dataset size before calling the server', async () => {
+  it('refuses to save while the dataset control reports an invalid limit', async () => {
     const user = userEvent.setup()
     renderEdit()
 
-    await user.type(await screen.findByTestId('max-dataset-size-input'), '0')
+    await editLimit(user, 'Maximum objectives', '0')
+    await user.keyboard('{Escape}')
     await user.click(screen.getByTestId('save-preset-btn'))
 
-    expect(await screen.findByText('Max dataset size must be a positive integer.')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByTestId('save-preset-btn')).toBeEnabled())
     expect(mockUpdate).not.toHaveBeenCalled()
   })
 
-  it('cannot pin a dataset cap on a scenario that sizes itself by prompt generation', async () => {
+  it('offers no objective cap on a scenario that sizes itself by prompt generation', async () => {
     const generativeScenario = makeScenario({
       default_run_size: {
         dataset_size: { kind: 'indeterminate', detail: 'Generated at run time.' },
@@ -432,10 +446,8 @@ describe('ScenarioPresetEditor edit mode', () => {
     mockGetScenario.mockResolvedValue(generativeScenario)
     renderEdit()
 
-    expect(await screen.findByTestId('max-dataset-size-input')).toBeDisabled()
-    expect(
-      screen.getByText('This scenario uses prompt-generation limits instead of a dataset size limit.'),
-    ).toBeInTheDocument()
+    expect(await screen.findByRole('combobox', { name: 'Add dataset' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Edit Maximum objectives' })).not.toBeInTheDocument()
   })
 
   it('leaves the editor without saving when cancelled', async () => {

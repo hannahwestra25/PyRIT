@@ -19,6 +19,7 @@ from pyrit.backend.services.scenario_preset_service import (
 from pyrit.models import Parameter
 from pyrit.models.catalog import PresetIssue, RegisteredScenario, ScenarioPreset
 from pyrit.models.catalog.scenario import ScenarioRunSizeComponent, ScenarioRunSizeEstimate
+from pyrit.models.scenario_dataset import DatasetSourceInput, ScenarioDatasetRequest
 from pyrit.registry import (
     ScenarioPresetConflictError,
     ScenarioPresetNameRegisteredError,
@@ -141,9 +142,11 @@ class TestPresetCrud:
         preset = _preset(
             description="Nightly smoke",
             techniques=["crescendo"],
-            dataset_names=["harmbench"],
-            max_dataset_size=25,
-            dataset_filters={"harm_categories": ["violence"]},
+            datasets=ScenarioDatasetRequest(
+                sources=[DatasetSourceInput(name="harmbench", max_size=10)],
+                max_total=25,
+                filters={"harm_categories": ["violence"]},
+            ),
             include_baseline=True,
             scenario_params={"max_turns": 3},
         )
@@ -319,9 +322,7 @@ class TestRunRequestResolution:
         )
 
         assert resolved.techniques is None
-        assert resolved.dataset_names is None
-        assert resolved.max_dataset_size == "default"
-        assert resolved.dataset_filters is None
+        assert resolved.datasets is None
         assert resolved.dataset_request is None
         assert resolved.include_baseline is None
         assert resolved.scenario_params is None
@@ -336,9 +337,11 @@ class TestRunRequestResolution:
     def test_every_preset_field_reaches_the_run_request(self) -> None:
         preset = _preset(
             techniques=["crescendo"],
-            dataset_names=["harmbench"],
-            max_dataset_size=25,
-            dataset_filters={"harm_categories": ["violence"]},
+            datasets=ScenarioDatasetRequest(
+                sources=[DatasetSourceInput(name="harmbench", max_size=10)],
+                max_total=25,
+                filters={"harm_categories": ["violence"]},
+            ),
             include_baseline=True,
             scenario_params={"max_turns": 3},
         )
@@ -349,9 +352,7 @@ class TestRunRequestResolution:
 
         assert resolved.scenario_name == preset.scenario_name
         assert resolved.techniques == preset.techniques
-        assert resolved.dataset_names == preset.dataset_names
-        assert resolved.max_dataset_size == preset.max_dataset_size
-        assert resolved.dataset_filters == preset.dataset_filters
+        assert resolved.datasets == preset.datasets
         assert resolved.include_baseline == preset.include_baseline
         assert resolved.scenario_params == preset.scenario_params
 
@@ -391,9 +392,11 @@ class TestRunSizeEstimates:
     ) -> None:
         preset = _preset(
             techniques=["crescendo"],
-            dataset_names=["harmbench"],
-            max_dataset_size=25,
-            dataset_filters={"harm_categories": ["violence"]},
+            datasets=ScenarioDatasetRequest(
+                sources=[DatasetSourceInput(name="harmbench", max_size=10)],
+                max_total=25,
+                filters={"harm_categories": ["violence"]},
+            ),
             include_baseline=True,
             scenario_params={"max_turns": 3},
         )
@@ -405,9 +408,11 @@ class TestRunSizeEstimates:
         assert estimate_call.kwargs["scenario_name"] == SCENARIO_NAME
         request = estimate_call.kwargs["request"]
         assert request.techniques == ["crescendo"]
-        assert request.dataset_names == ["harmbench"]
-        assert request.max_dataset_size == 25
-        assert request.dataset_filters == {"harm_categories": ["violence"]}
+        assert request.datasets is not None
+        assert request.datasets.sources is not None
+        assert request.datasets.sources[0].name == "harmbench"
+        assert request.datasets.max_total == 25
+        assert request.datasets.filters == {"harm_categories": ["violence"]}
         assert request.include_baseline is True
         assert request.scenario_params == {"max_turns": 3}
 
@@ -420,7 +425,7 @@ class TestRunSizeEstimates:
 
         request = scenario_service.estimate_scenario_run_size_async.call_args.kwargs["request"]
         assert request.techniques is None
-        assert request.dataset_names is None
+        assert request.datasets is None
         assert request.target_name is None
 
     async def test_skipping_estimates_does_no_sizing_work(

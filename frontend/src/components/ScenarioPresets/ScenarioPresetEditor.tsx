@@ -16,15 +16,17 @@ import { useNavigate, useParams } from 'react-router'
 
 import ParameterField from '@/components/Parameters/ParameterField'
 import type { ParameterFormValue } from '@/components/Parameters/parameterForm'
-import ScenarioDatasetFields from '@/components/Scenarios/ScenarioDatasetFields'
+import ScenarioDatasetTable from '@/components/Scenarios/ScenarioDatasetTable'
 import ScenarioTechniqueSelector from '@/components/Scenarios/ScenarioTechniqueSelector'
+import { scenarioDatasetDefaults, scenarioDatasetOptions } from '@/components/Scenarios/datasetPresentation'
 import {
   buildScenarioConfig,
-  defaultMaxDatasetSize,
   dynamicScenarioParameters,
+  initialScenarioConfigState,
   uniqueTechniqueOptions,
   type ScenarioConfigFormState,
 } from '@/components/Scenarios/scenarioConfigForm'
+import { useScenarioDatasets } from '@/hooks/useScenarioDatasets'
 import { scenarioPresetsApi, scenariosApi } from '@/services/api'
 import { toApiError } from '@/services/errors'
 import type { RegisteredScenario, ScenarioPreset } from '@/types'
@@ -35,7 +37,6 @@ import { useScenarioPresetEditorStyles } from './ScenarioPresetEditor.styles'
 import { PRESETS_ROUTE } from './presetRoutes'
 import {
   configToPreset,
-  initialPresetConfigState,
   presetToConfigState,
   uneditableScenarioParams,
   unknownPresetTechniques,
@@ -149,13 +150,22 @@ function ScenarioPresetEditorContent({ mode, presetName }: ScenarioPresetEditorC
     try {
       const full = await scenariosApi.getScenario(nextScenarioName)
       setScenario(full)
-      setConfig(initialPresetConfigState(full))
+      setConfig(initialScenarioConfigState(full))
     } catch (err) {
       setSaveError(toApiError(err).detail)
     } finally {
       setScenarioLoading(false)
     }
   }, [])
+
+  const [datasetError, setDatasetError] = useState<string | null>(null)
+  const datasetMetadata = useScenarioDatasets()
+  const datasetBaseline = useMemo(
+    () => (scenario
+      ? { defaults: scenarioDatasetDefaults(scenario), options: scenarioDatasetOptions(scenario) }
+      : null),
+    [scenario],
+  )
 
   const dynamicParameters = useMemo(
     () => (scenario ? dynamicScenarioParameters(scenario) : []),
@@ -203,14 +213,15 @@ function ScenarioPresetEditorContent({ mode, presetName }: ScenarioPresetEditorC
       techniques: config.techniques,
       dynamicParameters,
       scenarioParamValues: config.scenarioParamValues,
-      datasetOverride: config.datasetOverride,
-      maxDatasetSize: config.maxDatasetSize,
-      harmCategoriesFilter: config.harmCategoriesFilter,
-      dataTypesFilter: config.dataTypesFilter,
+      datasets: config.datasets,
       includeBaseline: config.includeBaseline,
     })
     if (!built.ok) {
       setValidationError(built.error)
+      return
+    }
+    if (datasetError) {
+      setValidationError(datasetError)
       return
     }
     setValidationError(null)
@@ -398,19 +409,21 @@ function ScenarioPresetEditorContent({ mode, presetName }: ScenarioPresetEditorC
                     testIdPrefix="preset-param"
                   />
                 ))}
-                <ScenarioDatasetFields
-                  scenario={scenario}
-                  datasetOverride={config.datasetOverride}
-                  maxDatasetSize={config.maxDatasetSize}
-                  harmCategoriesFilter={config.harmCategoriesFilter}
-                  dataTypesFilter={config.dataTypesFilter}
-                  configuredDefaultMaxDatasetSize={defaultMaxDatasetSize(scenario)}
-                  disabled={saving}
-                  onDatasetOverrideChange={(datasetOverride) => updateConfig({ datasetOverride })}
-                  onMaxDatasetSizeChange={(maxDatasetSize) => updateConfig({ maxDatasetSize })}
-                  onHarmCategoriesFilterChange={(harmCategoriesFilter) => updateConfig({ harmCategoriesFilter })}
-                  onDataTypesFilterChange={(dataTypesFilter) => updateConfig({ dataTypesFilter })}
-                />
+                {datasetBaseline && (
+                  <ScenarioDatasetTable
+                    request={config.datasets}
+                    defaults={datasetBaseline.defaults}
+                    effective={datasetBaseline.defaults}
+                    options={datasetBaseline.options}
+                    datasets={datasetMetadata.items}
+                    disabled={saving}
+                    loading={datasetMetadata.loading}
+                    metadataError={datasetMetadata.error}
+                    onReload={datasetMetadata.reload}
+                    onChange={(datasets) => updateConfig({ datasets })}
+                    onValidationChange={setDatasetError}
+                  />
+                )}
               </div>
             </section>
           </>

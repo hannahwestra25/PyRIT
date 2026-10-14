@@ -61,19 +61,24 @@ function initialTargetName(
  * Restates what the preset pins. The dialog covers the library card, so without
  * this the operator commits to a run knowing only the preset and scenario name.
  * Omitted fields read as scenario defaults because that is what the server does
- * with them.
+ * with them, and a limit of 'default' is an explicit way of saying the same thing.
  */
 function presetSummary(preset: ScenarioPreset): string {
   const techniques = preset.techniques ?? []
-  const datasets = preset.dataset_names ?? []
+  const sources = preset.datasets?.sources ?? []
   const parts = [
     techniques.length === 0
       ? 'Scenario default techniques'
       : `${techniques.length} technique${techniques.length === 1 ? '' : 's'}`,
-    datasets.length === 0 ? 'scenario default datasets' : datasets.join(', '),
+    sources.length === 0 ? 'scenario default datasets' : sources.map((source) => source.name).join(', '),
   ]
-  if (preset.max_dataset_size != null) {
-    parts.push(`max dataset size ${preset.max_dataset_size}`)
+  const total = preset.datasets?.max_total
+  if (total != null && total !== 'default') {
+    parts.push(total === 'all' ? 'every case' : `max ${total} cases`)
+  }
+  const perDataset = preset.datasets?.max_per_dataset
+  if (perDataset != null && perDataset !== 'default') {
+    parts.push(perDataset === 'all' ? 'every case per dataset' : `max ${perDataset} per dataset`)
   }
   if (preset.include_baseline != null) {
     parts.push(preset.include_baseline ? 'baseline included' : 'baseline excluded')

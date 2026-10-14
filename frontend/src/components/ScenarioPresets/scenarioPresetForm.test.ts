@@ -1,6 +1,5 @@
 import {
   buildScenarioConfig,
-  defaultMaxDatasetSize,
   initialScenarioConfigState,
 } from '@/components/Scenarios/scenarioConfigForm'
 import { makeScenario } from '@/test-utils/scenarioFixtures'
@@ -8,7 +7,6 @@ import type { Parameter, ScenarioPreset } from '@/types'
 
 import {
   configToPreset,
-  initialPresetConfigState,
   presetToConfigState,
   uneditableScenarioParams,
   unknownPresetTechniques,
@@ -114,40 +112,6 @@ describe('unknownPresetTechniques', () => {
   })
 })
 
-describe('defaultMaxDatasetSize', () => {
-  it('reads the cap the scenario declares rather than counting loaded seeds', () => {
-    expect(defaultMaxDatasetSize(makeCappedScenario())).toBe('40')
-  })
-
-  it('offers no default when the scenario sizes itself by prompt generation', () => {
-    const scenario = makeScenario({
-      default_run_size: {
-        dataset_size: { kind: 'indeterminate', detail: 'Generated at run time.' },
-        dataset_limit: { state: 'not_applicable' },
-        estimated_attack_count: null,
-        components: [],
-        datasets: [],
-        note: null,
-      },
-    })
-
-    expect(defaultMaxDatasetSize(scenario)).toBe('')
-  })
-
-  it('offers no default when the scenario declares none', () => {
-    expect(defaultMaxDatasetSize(makeScenario())).toBe('')
-  })
-})
-
-describe('initialPresetConfigState', () => {
-  it('leaves the dataset cap blank where the launch form prefills the scenario default', () => {
-    const scenario = makeCappedScenario()
-
-    expect(initialScenarioConfigState(scenario).maxDatasetSize).toBe('40')
-    expect(initialPresetConfigState(scenario).maxDatasetSize).toBe('')
-  })
-})
-
 describe('uneditableScenarioParams', () => {
   it('returns nothing when the preset stores no parameters', () => {
     expect(uneditableScenarioParams(makeScenario(), makePreset())).toEqual({})
@@ -173,10 +137,7 @@ describe('presetToConfigState', () => {
 
     expect(state.techniques).toEqual(['default_technique'])
     expect(state.includeBaseline).toBe(true)
-    expect(state.datasetOverride).toBe('')
-    expect(state.maxDatasetSize).toBe('')
-    expect(state.harmCategoriesFilter).toBe('')
-    expect(state.dataTypesFilter).toBe('')
+    expect(state.datasets).toEqual({})
   })
 
   it('expands the stored fields a preset does carry', () => {
@@ -184,17 +145,20 @@ describe('presetToConfigState', () => {
     const state = presetToConfigState(scenario, makePreset({
       techniques: ['crescendo'],
       include_baseline: false,
-      dataset_names: ['harmbench', 'xstest'],
-      max_dataset_size: 25,
-      dataset_filters: { harm_categories: ['violence'], data_types: ['text'] },
+      datasets: {
+        sources: [{ name: 'harmbench' }, { name: 'xstest' }],
+        max_total: 25,
+        filters: { harm_categories: ['violence'], data_types: ['text'] },
+      },
     }))
 
     expect(state.techniques).toEqual(['crescendo'])
     expect(state.includeBaseline).toBe(false)
-    expect(state.datasetOverride).toBe('harmbench, xstest')
-    expect(state.maxDatasetSize).toBe('25')
-    expect(state.harmCategoriesFilter).toBe('violence')
-    expect(state.dataTypesFilter).toBe('text')
+    expect(state.datasets).toEqual({
+      sources: [{ name: 'harmbench' }, { name: 'xstest' }],
+      max_total: 25,
+      filters: { harm_categories: ['violence'], data_types: ['text'] },
+    })
   })
 
   it('keeps pinned techniques the scenario no longer offers rather than rewriting the selection', () => {
@@ -231,10 +195,10 @@ describe('presetToConfigState', () => {
     expect(state.techniques).toEqual(['all'])
   })
 
-  it('leaves the dataset cap blank when the preset omits it, even where the scenario has one', () => {
+  it('leaves the dataset request empty when the preset omits it, even where the scenario has a cap', () => {
     const state = presetToConfigState(makeCappedScenario(), makePreset())
 
-    expect(state.maxDatasetSize).toBe('')
+    expect(state.datasets).toEqual({})
   })
 
   it('keeps baseline off when the scenario forbids it, whatever the preset stored', () => {
@@ -261,10 +225,7 @@ describe('configToPreset', () => {
       techniques: ['crescendo'],
       dynamicParameters: [],
       scenarioParamValues: {},
-      datasetOverride: '',
-      maxDatasetSize: '',
-      harmCategoriesFilter: '',
-      dataTypesFilter: '',
+      datasets: {},
       includeBaseline: false,
       ...overrides,
     })
@@ -328,13 +289,13 @@ describe('configToPreset', () => {
 
   it('pins nothing when a new preset leaves every scenario-owned field alone', () => {
     const scenario = makeScenario()
-    const state = initialPresetConfigState(scenario)
+    const state = initialScenarioConfigState(scenario)
     const preset = configToPreset(
       IDENTITY,
       buildConfig({
         techniques: state.techniques,
         includeBaseline: state.includeBaseline,
-        maxDatasetSize: state.maxDatasetSize,
+        datasets: state.datasets,
       }),
       { scenario, previous: null },
     )
@@ -352,8 +313,7 @@ describe('configToPreset', () => {
       buildConfig({
         techniques: state.techniques,
         includeBaseline: state.includeBaseline,
-        datasetOverride: state.datasetOverride,
-        maxDatasetSize: state.maxDatasetSize,
+        datasets: state.datasets,
       }),
       { scenario, previous: original },
     )
@@ -478,9 +438,11 @@ describe('configToPreset', () => {
     const original = makePreset({
       techniques: ['crescendo'],
       include_baseline: false,
-      dataset_names: ['harmbench'],
-      max_dataset_size: 25,
-      dataset_filters: { harm_categories: ['violence'] },
+      datasets: {
+        sources: [{ name: 'harmbench' }],
+        max_total: 25,
+        filters: { harm_categories: ['violence'] },
+      },
     })
     const state = presetToConfigState(scenario, original)
 
@@ -489,10 +451,7 @@ describe('configToPreset', () => {
       buildConfig({
         techniques: state.techniques,
         includeBaseline: state.includeBaseline,
-        datasetOverride: state.datasetOverride,
-        maxDatasetSize: state.maxDatasetSize,
-        harmCategoriesFilter: state.harmCategoriesFilter,
-        dataTypesFilter: state.dataTypesFilter,
+        datasets: state.datasets,
       }),
       { scenario, previous: original },
     )

@@ -3,7 +3,12 @@ import {
   getInitialFormValues,
   type ParameterFormValue,
 } from '@/components/Parameters/parameterForm'
-import type { Parameter, RegisteredScenario, ScenarioTechniqueSummary } from '@/types'
+import type {
+  Parameter,
+  RegisteredScenario,
+  ScenarioDatasetRequest,
+  ScenarioTechniqueSummary,
+} from '@/types'
 
 /**
  * Common/opaque parameters every scenario declares via
@@ -35,14 +40,11 @@ export interface SelectableTechnique extends ScenarioTechniqueSummary {
   disabled: boolean
 }
 
-/** The scenario-owned configuration both the launch form and the preset editor collect. */
+/** The scenario-owned configuration the preset editor collects. */
 export interface ScenarioConfigFormState {
   techniques: string[]
   includeBaseline: boolean
-  datasetOverride: string
-  maxDatasetSize: string
-  harmCategoriesFilter: string
-  dataTypesFilter: string
+  datasets: ScenarioDatasetRequest
   scenarioParamValues: Record<string, ParameterFormValue>
 }
 
@@ -50,9 +52,7 @@ export interface ScenarioConfigFormState {
 export interface ScenarioConfigFields {
   techniques: string[]
   include_baseline: boolean
-  dataset_names?: string[]
-  max_dataset_size?: number
-  dataset_filters?: Record<string, string[]>
+  datasets?: ScenarioDatasetRequest
   scenario_params?: Record<string, unknown>
 }
 
@@ -65,27 +65,22 @@ interface TechniqueOptions {
   defaultTechniques: string[]
 }
 
-export function parseDatasetNames(datasetOverride: string): string[] {
-  return datasetOverride
-    .split(',')
-    .map((entry) => entry.trim())
-    .filter((entry) => entry.length > 0)
-}
-
 /**
- * The scenario's own declared dataset cap, or `''` when it declares none and when the
- * scenario sizes itself by prompt generation instead. Read from the scenario's declared
- * limit rather than counted from the seeds this deployment happens to have loaded, so the
- * value means the same thing everywhere.
+ * Whether a dataset request carries nothing the scenario would not already do.
+ *
+ * The table always hands back a populated object, so without this an untouched editor
+ * would write `{max_per_dataset: 'default', max_total: 'default'}` into every stored
+ * document. A preset that says nothing about datasets should stay silent about them.
  */
-export function defaultMaxDatasetSize(scenario: RegisteredScenario): string {
-  const limit = scenario.default_run_size.dataset_limit
-  return limit.state === 'value' ? String(limit.value) : ''
-}
-
-/** A scenario sized by prompt generation has no dataset cap to set. */
-export function datasetSizeNotApplicable(scenario: RegisteredScenario): boolean {
-  return scenario.default_run_size.dataset_limit.state === 'not_applicable'
+export function datasetRequestIsEmpty(request: ScenarioDatasetRequest): boolean {
+  const isDefaultLimit = (value: ScenarioDatasetRequest['max_total']) => value === undefined || value === 'default'
+  return (
+    (request.sources ?? []).length === 0 &&
+    isDefaultLimit(request.max_per_dataset) &&
+    isDefaultLimit(request.max_total) &&
+    (request.fetch === undefined || request.fetch === null || request.fetch === 'default') &&
+    Object.keys(request.filters ?? {}).length === 0
+  )
 }
 
 export function uniqueTechniqueOptions(scenario: RegisteredScenario): TechniqueOptions {
@@ -130,10 +125,7 @@ export function initialScenarioConfigState(scenario: RegisteredScenario): Scenar
   return {
     techniques: uniqueTechniqueOptions(scenario).defaultTechniques,
     includeBaseline: scenario.baseline_policy !== 'forbidden' && scenario.include_baseline_by_default,
-    datasetOverride: '',
-    maxDatasetSize: defaultMaxDatasetSize(scenario),
-    harmCategoriesFilter: '',
-    dataTypesFilter: '',
+    datasets: {},
     scenarioParamValues: getInitialFormValues(dynamicScenarioParameters(scenario)),
   }
 }
@@ -142,10 +134,7 @@ interface BuildScenarioConfigInput {
   techniques: string[]
   dynamicParameters: Parameter[]
   scenarioParamValues: Record<string, ParameterFormValue>
-  datasetOverride: string
-  maxDatasetSize: string
-  harmCategoriesFilter: string
-  dataTypesFilter: string
+  datasets: ScenarioDatasetRequest
   includeBaseline: boolean
 }
 
@@ -158,10 +147,7 @@ export function buildScenarioConfig({
   techniques,
   dynamicParameters,
   scenarioParamValues,
-  datasetOverride,
-  maxDatasetSize,
-  harmCategoriesFilter,
-  dataTypesFilter,
+  datasets,
   includeBaseline,
 }: BuildScenarioConfigInput): BuildScenarioConfigResult {
   if (techniques.length === 0) {
@@ -177,31 +163,9 @@ export function buildScenarioConfig({
     scenarioParams = result.parameters
   }
 
-  let maxDatasetSizeValue: number | undefined
-  const trimmedMaxDatasetSize = maxDatasetSize.trim()
-  if (trimmedMaxDatasetSize.length > 0) {
-    const parsed = Number(trimmedMaxDatasetSize)
-    if (!Number.isInteger(parsed) || parsed < 1) {
-      return { ok: false, error: 'Max dataset size must be a positive integer.' }
-    }
-    maxDatasetSizeValue = parsed
-  }
-
   const config: ScenarioConfigFields = { techniques, include_baseline: includeBaseline }
-  const datasetNames = parseDatasetNames(datasetOverride)
-  if (datasetNames.length > 0) {
-    config.dataset_names = datasetNames
-  }
-  if (maxDatasetSizeValue !== undefined) {
-    config.max_dataset_size = maxDatasetSizeValue
-  }
-  const harmCategories = parseDatasetNames(harmCategoriesFilter)
-  const dataTypes = parseDatasetNames(dataTypesFilter)
-  if (harmCategories.length > 0 || dataTypes.length > 0) {
-    config.dataset_filters = {
-      ...(harmCategories.length > 0 ? { harm_categories: harmCategories } : {}),
-      ...(dataTypes.length > 0 ? { data_types: dataTypes } : {}),
-    }
+  if (!datasetRequestIsEmpty(datasets)) {
+    config.datasets = datasets
   }
   if (scenarioParams) {
     config.scenario_params = scenarioParams

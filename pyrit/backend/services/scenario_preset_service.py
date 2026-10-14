@@ -171,9 +171,7 @@ class ScenarioPresetService:
         return RunScenarioRequest(
             scenario_name=preset.scenario_name,
             techniques=preset.techniques,
-            dataset_names=preset.dataset_names,
-            max_dataset_size=preset.max_dataset_size,
-            dataset_filters=preset.dataset_filters,
+            datasets=preset.datasets,
             include_baseline=preset.include_baseline,
             scenario_params=preset.scenario_params,
             target_name=launch.target_name,
@@ -245,9 +243,7 @@ class ScenarioPresetService:
         """
         request = ScenarioRunSizeEstimateRequest(
             techniques=preset.techniques,
-            dataset_names=preset.dataset_names,
-            max_dataset_size=preset.max_dataset_size,
-            dataset_filters=preset.dataset_filters,
+            datasets=preset.datasets,
             include_baseline=preset.include_baseline,
             scenario_params=preset.scenario_params,
         )
