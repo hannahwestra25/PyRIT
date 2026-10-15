@@ -15,15 +15,6 @@ if TYPE_CHECKING:
         resolve_technique_factories,
         resolve_technique_factories_for_techniques,
     )
-    from pyrit.scenario.core.technique_tokens import (
-        CONVERTER_MODIFIER_PREFIX,
-        TechniqueToken,
-        TechniqueTokenIssue,
-        TechniqueTokenResolution,
-        converter_name_from_modifier,
-        parse_technique_token,
-        resolve_technique_tokens,
-    )
     from pyrit.scenario.core.atomic_attack import AtomicAttack
     from pyrit.scenario.core.attack_technique import AttackTechnique
     from pyrit.scenario.core.attack_technique_factory import AttackTechniqueFactory, ScorerOverridePolicy
@@ -46,6 +37,11 @@ if TYPE_CHECKING:
         override_default_adversarial_target,
     )
     from pyrit.scenario.core.scenario_technique import ScenarioTechnique
+    from pyrit.scenario.core.technique_requirements import (
+        IncompatibleTechniqueError,
+        IncompatibleTechniquePolicy,
+        TechniqueRequirements,
+    )
     from pyrit.scenario.core.technique_tokens import (
         CONVERTER_MODIFIER_PREFIX,
         TechniqueToken,
@@ -75,6 +71,9 @@ _LAZY_EXPORTS: dict[str, str | tuple[str, str | None]] = {
     "require_nonempty": "pyrit.scenario.core.dataset_configuration",
     "Scenario": "pyrit.scenario.core.scenario",
     "ScenarioTechnique": "pyrit.scenario.core.scenario_technique",
+    "TechniqueRequirements": "pyrit.scenario.core.technique_requirements",
+    "IncompatibleTechniqueError": "pyrit.scenario.core.technique_requirements",
+    "IncompatibleTechniquePolicy": "pyrit.scenario.core.technique_requirements",
     "ScorerOverridePolicy": "pyrit.scenario.core.attack_technique_factory",
     "TechniqueResolutionError": "pyrit.scenario.core._technique_resolution",
     "TechniqueToken": "pyrit.scenario.core.technique_tokens",
