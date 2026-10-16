@@ -56,6 +56,7 @@ from pyrit.scenario.core.scenario_context import ScenarioContext
 from pyrit.scenario.scenarios.airt.rapid_response import RapidResponse, _build_rapid_response_technique
 from pyrit.scenario.scenarios.foundry.red_team_agent import RedTeamAgent
 from pyrit.score import SubStringScorer
+from unit.async_utils import TEST_WATCHDOG_SECONDS
 from unit.mocks import MockPromptTarget
 
 _SCENARIO_NAME = "offline.resume"
@@ -140,12 +141,12 @@ async def resume_environment(
                 await service.shutdown_async()
 
 
-async def _wait_for_idle_async(service: ScenarioRunService, *, timeout: float = 10) -> None:
+async def _wait_for_idle_async(service: ScenarioRunService) -> None:
     async def wait_async() -> None:
         while service.get_queue_snapshot().active is not None:
             await asyncio.sleep(0.01)
 
-    await asyncio.wait_for(wait_async(), timeout=timeout)
+    await asyncio.wait_for(wait_async(), timeout=TEST_WATCHDOG_SECONDS)
 
 
 async def test_real_matrix_launch_keeps_heartbeat_alive_during_disk_reads_async(
@@ -179,7 +180,7 @@ async def test_real_matrix_launch_keeps_heartbeat_alive_during_disk_reads_async(
         assert threading.get_ident() != backend_thread
         assert get_default_adversarial_target() is target
         reads += 1
-        if not release.wait(5):
+        if not release.wait(TEST_WATCHDOG_SECONDS):
             raise TimeoutError("Many-shot disk read was not released.")
         return original_load()
 
@@ -227,11 +228,11 @@ async def test_real_matrix_launch_keeps_heartbeat_alive_during_disk_reads_async(
                 )
             )
             try:
-                await asyncio.wait_for(entered.wait(), 5)
-                await asyncio.wait_for(heartbeat.wait(), 1)
+                await asyncio.wait_for(entered.wait(), TEST_WATCHDOG_SECONDS)
+                await asyncio.wait_for(heartbeat.wait(), TEST_WATCHDOG_SECONDS)
                 assert not launch.done()
                 release.set()
-                response = await asyncio.wait_for(launch, 10)
+                response = await asyncio.wait_for(launch, TEST_WATCHDOG_SECONDS)
                 await _wait_for_idle_async(service)
                 stored = await sqlite_instance.get_scenario_result_header_async(
                     scenario_result_id=response.scenario_result_id
@@ -282,7 +283,7 @@ async def test_real_foundry_launch_keeps_heartbeat_alive_during_disk_reads_async
         assert threading.get_ident() != backend_thread
         assert get_default_adversarial_target() is target
         reads += 1
-        if not release.wait(5):
+        if not release.wait(TEST_WATCHDOG_SECONDS):
             raise TimeoutError("Foundry disk read was not released.")
         return original_load(file)
 
@@ -343,11 +344,11 @@ async def test_real_foundry_launch_keeps_heartbeat_alive_during_disk_reads_async
                 )
             )
             try:
-                await asyncio.wait_for(entered.wait(), 5)
-                await asyncio.wait_for(heartbeat.wait(), 1)
+                await asyncio.wait_for(entered.wait(), TEST_WATCHDOG_SECONDS)
+                await asyncio.wait_for(heartbeat.wait(), TEST_WATCHDOG_SECONDS)
                 assert not launch.done()
                 release.set()
-                response = await asyncio.wait_for(launch, 10)
+                response = await asyncio.wait_for(launch, TEST_WATCHDOG_SECONDS)
                 await _wait_for_idle_async(service)
                 stored = await sqlite_instance.get_scenario_result_header_async(
                     scenario_result_id=response.scenario_result_id
@@ -537,8 +538,7 @@ async def test_preparation_and_execution_share_sqlite_loop_resources_async(
                 include_baseline=False,
             )
         )
-        # This checks real SQLite completion, not latency under parallel CI disk load.
-        await _wait_for_idle_async(service, timeout=60)
+        await _wait_for_idle_async(service)
         dispose.assert_not_awaited()
         assert len(engines) == 2 and engines[0] is engines[1]
         assert sqlite_instance._get_async_engine() is engines[0]
@@ -789,7 +789,7 @@ async def test_overlapping_resume_requests_only_initialize_once_async(
 
     with patch.object(service, "_start_run_locked_async", side_effect=fail_launch_async) as start:
         first = asyncio.create_task(service.resume_run_async(scenario_result_id=str(stored.id)))
-        await asyncio.wait_for(entered.wait(), timeout=5)
+        await asyncio.wait_for(entered.wait(), timeout=TEST_WATCHDOG_SECONDS)
         with pytest.raises(ScenarioRunConflictError, match="already being resumed"):
             await service.resume_run_async(scenario_result_id=str(stored.id))
         with pytest.raises(ScenarioRunConflictError, match="already being resumed"):
@@ -866,7 +866,7 @@ async def test_resumed_run_uses_existing_fifo_scheduler_async(
         active = await service.start_run_async(
             request=RunScenarioRequest(scenario_name=_SCENARIO_NAME, target_name=_TARGET_NAME, max_concurrency=1)
         )
-        await asyncio.wait_for(entered.wait(), timeout=5)
+        await asyncio.wait_for(entered.wait(), timeout=TEST_WATCHDOG_SECONDS)
         resumed = await service.resume_run_async(scenario_result_id=run_id)
         assert resumed.status == ScenarioRunState.QUEUED
         assert resumed.queue_position == 1

@@ -196,6 +196,9 @@ jobs:
           fi
 
       - name: Run unit tests
+        # The macOS runner has 3 vCPUs; a fourth worker oversubscribes it and stretches timing-sensitive tests.
+        env:
+          PYTEST_WORKERS: ${{ runner.os == 'macOS' && '3' || '4' }}
         run: make unit-test-junit
 
       - name: Upload JUnit results

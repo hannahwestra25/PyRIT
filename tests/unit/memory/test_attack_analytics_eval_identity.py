@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
@@ -25,7 +24,6 @@ from pyrit.memory.memory_models import (
     AttackTechniqueIdentifierEntry,
     TargetIdentifierEntry,
 )
-from pyrit.memory.query_control import QueryControl
 from pyrit.models import (
     AtomicAttackIdentifier,
     AttackAnalyticsDimension,
@@ -43,6 +41,7 @@ from pyrit.models import (
     TargetIdentifier,
 )
 from pyrit.prompt_target import GandalfLevel, GandalfTarget, HTTPTarget
+from unit.memory.test_attack_analytics import control as _control
 
 if TYPE_CHECKING:
     from pyrit.memory import SQLiteMemory
@@ -75,10 +74,6 @@ def _result(*, index: int, target: TargetIdentifier, outcome: AttackOutcome, ope
             )
         ),
     )
-
-
-def _control() -> QueryControl:
-    return QueryControl(deadline=time.monotonic() + 20)
 
 
 def test_target_evaluation_v1_is_frozen_to_the_current_marker_rules() -> None:

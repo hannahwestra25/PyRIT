@@ -57,6 +57,7 @@ from pyrit.models import (
     TargetIdentifier,
 )
 from pyrit.prompt_normalizer import ConverterConfiguration
+from unit.async_utils import TEST_WATCHDOG_SECONDS
 from unit.mocks import MockPromptTarget
 
 if TYPE_CHECKING:
@@ -106,17 +107,17 @@ def make_result(
 
 def control() -> QueryControl:
     """Bound correctness queries without imposing a short CI performance limit."""
-    return QueryControl(deadline=time.monotonic() + 120)
+    return QueryControl(deadline=time.monotonic() + TEST_WATCHDOG_SECONDS)
 
 
 def test_correctness_query_control_retains_a_finite_deadline() -> None:
     with patch.object(time, "monotonic", return_value=100):
         query_control = control()
-        assert query_control.deadline == 220
+        assert query_control.deadline == 100 + TEST_WATCHDOG_SECONDS
     with patch.object(time, "monotonic", return_value=135):
         query_control.check()
-        assert query_control.remaining == 85
-    with patch.object(time, "monotonic", return_value=220):
+        assert query_control.remaining == TEST_WATCHDOG_SECONDS - 35
+    with patch.object(time, "monotonic", return_value=100 + TEST_WATCHDOG_SECONDS):
         with pytest.raises(AnalyticsTimeoutException):
             query_control.check()
 

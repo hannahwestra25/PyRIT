@@ -43,6 +43,7 @@ from pyrit.models import (
     AttackAnalyticsResultsQuery,
     AttackOutcome,
 )
+from unit.async_utils import TEST_WATCHDOG_SECONDS
 from unit.memory.test_attack_analytics import make_result
 
 
@@ -123,7 +124,12 @@ async def test_concurrent_first_requests_construct_one_sdk_on_the_runtime_loop_a
 
     assert get_analytics_service.cache_info().currsize == 0
     user = AuthenticatedUser(oid="test", name="Test", email="test@example.invalid", groups=["test-group"])
-    budgets = partial(AnalyticsExecution, report_timeout=30.0, quick_timeout=30.0, queue_timeout=30.0)
+    budgets = partial(
+        AnalyticsExecution,
+        report_timeout=TEST_WATCHDOG_SECONDS,
+        quick_timeout=TEST_WATCHDOG_SECONDS,
+        queue_timeout=TEST_WATCHDOG_SECONDS,
+    )
     with (
         patch("pyrit.backend.services.analytics_service.AttackResultAnalytics", side_effect=create),
         patch("pyrit.analytics.attack_result_analytics.AnalyticsExecution", side_effect=budgets),
@@ -412,13 +418,13 @@ async def test_full_quick_lane_returns_retry_after_without_coalescing_async(
             asyncio.create_task(analytics_client.post("/api/analytics/attacks/results", json={})) for _ in range(12)
         ]
         try:
-            await asyncio.wait_for(admitted.wait(), 10)
+            await asyncio.wait_for(admitted.wait(), TEST_WATCHDOG_SECONDS)
             rejected = await analytics_client.post("/api/analytics/attacks/results", json={})
             assert rejected.status_code == 503
             assert rejected.headers["Retry-After"] == "1"
             assert analytics_service.has_active_work
             release.set()
-            responses = await asyncio.wait_for(asyncio.gather(*requests), 30)
+            responses = await asyncio.wait_for(asyncio.gather(*requests), TEST_WATCHDOG_SECONDS)
             assert all(response.status_code == 200 for response in responses)
             assert read.await_count == 12
         finally:
@@ -466,10 +472,10 @@ async def test_production_deadlines_return_504_and_keep_capacity_through_cleanup
         clock.monotonic.return_value = 100.0
         request = asyncio.create_task(analytics_client.post(f"/api/analytics/attacks/{endpoint}", json=body))
         try:
-            await asyncio.wait_for(entered.wait(), 10)
+            await asyncio.wait_for(entered.wait(), TEST_WATCHDOG_SECONDS)
             assert observed == [deadline]
             expire.set()
-            response = await asyncio.wait_for(request, 10)
+            response = await asyncio.wait_for(request, TEST_WATCHDOG_SECONDS)
             assert response.status_code == response.json()["status"] == 504
             assert "Retry-After" not in response.headers
             assert analytics_service.has_active_work

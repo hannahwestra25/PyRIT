@@ -4,6 +4,7 @@
 import asyncio
 import json
 import logging
+from collections.abc import Awaitable
 from copy import deepcopy
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -12,6 +13,7 @@ import httpx
 import pytest
 from mcp.types import Tool as MCPToolDefinition
 from openai.types.chat import ChatCompletion
+from unit.async_utils import TEST_WATCHDOG_SECONDS
 from unit.mocks import MockPromptTarget
 
 from pyrit.models import Message, MessagePiece, PromptDataType, RequestTraceContext
@@ -792,14 +794,26 @@ async def test_responses_probes_suppress_provider_io_and_preserve_state(
         original_value_data_type="function_call",
     ).to_message()
 
+    requested = asyncio.Event()
+
     async def finish_async(**kwargs: object) -> Message:
         if outcome == "error":
             raise ValueError("Probe request failed")
         if outcome == "cancel":
             raise asyncio.CancelledError
         if outcome == "timeout":
+            requested.set()
             await asyncio.Event().wait()
         return response
+
+    original_wait_for = asyncio.wait_for
+
+    async def expire_once_requested_async(awaitable: Awaitable[list[Message]], *, timeout: float) -> list[Message]:
+        # Expire the probe deadline once the request is pending. A wall-clock deadline can
+        # expire during the preceding memory access on a stalled runner, so the request never starts.
+        probe = asyncio.ensure_future(awaitable)
+        await original_wait_for(requested.wait(), timeout=TEST_WATCHDOG_SECONDS)
+        return await original_wait_for(probe, timeout=0)
 
     with (
         patch.object(provider, "execution_scope_async") as scope,
@@ -816,13 +830,16 @@ async def test_responses_probes_suppress_provider_io_and_preserve_state(
                 capabilities=[CapabilityName.JSON_OUTPUT],
                 test_modalities=set(),
                 retries=0,
-                # The deadline includes async memory access before the mocked request.
-                per_probe_timeout_s=5.0,
+                per_probe_timeout_s=TEST_WATCHDOG_SECONDS,
             )
 
         if outcome == "cancel":
             with pytest.raises(asyncio.CancelledError):
                 await probe_async()
+        elif outcome == "timeout":
+            with patch.object(asyncio, "wait_for", side_effect=expire_once_requested_async) as deadline:
+                await probe_async()
+            deadline.assert_awaited_once()
         else:
             await probe_async()
         send.assert_awaited_once()
@@ -1188,7 +1205,7 @@ class TestVerifyTargetAsync:
         target._configuration = TargetConfiguration(capabilities=declared)
         target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
 
-        result = await discover_target_capabilities_async(target=target, per_probe_timeout_s=5.0)
+        result = await discover_target_capabilities_async(target=target, per_probe_timeout_s=TEST_WATCHDOG_SECONDS)
 
         assert isinstance(result, TargetCapabilities)
         # Single-piece probes that don't touch memory always succeed when
@@ -1286,7 +1303,7 @@ class TestVerifyTargetAsync:
             target=target,
             test_modalities={extra_combo},
             test_assets={"image_path": image_asset},
-            per_probe_timeout_s=2.0,
+            per_probe_timeout_s=TEST_WATCHDOG_SECONDS,
         )
 
         # The undeclared combination is in the result only if test_modalities was forwarded.
@@ -1306,7 +1323,7 @@ class TestVerifyTargetAsync:
             target=target,
             test_modalities={probed_combo},
             test_assets={"image_path": image_asset},
-            per_probe_timeout_s=2.0,
+            per_probe_timeout_s=TEST_WATCHDOG_SECONDS,
         )
 
         assert result.input_modalities == frozenset({declared_combo, probed_combo})
@@ -1319,7 +1336,7 @@ class TestVerifyTargetAsync:
         await discover_target_capabilities_async(
             target=target,
             capabilities={CapabilityName.JSON_OUTPUT},
-            per_probe_timeout_s=2.0,
+            per_probe_timeout_s=TEST_WATCHDOG_SECONDS,
         )
 
         # Only the JSON_OUTPUT probe (1 send) and the modality probe(s) should run;
@@ -1346,7 +1363,7 @@ class TestVerifyTargetAsync:
         result = await discover_target_capabilities_async(
             target=target,
             capabilities={CapabilityName.JSON_OUTPUT},
-            per_probe_timeout_s=2.0,
+            per_probe_timeout_s=TEST_WATCHDOG_SECONDS,
         )
 
         # The probed capability reflects the queried result.
@@ -1375,7 +1392,7 @@ class TestVerifyTargetAsync:
 
         target._send_prompt_to_target_async = AsyncMock(side_effect=selective_send)  # type: ignore[method-assign]
 
-        result = await discover_target_capabilities_async(target=target, per_probe_timeout_s=2.0)
+        result = await discover_target_capabilities_async(target=target, per_probe_timeout_s=TEST_WATCHDOG_SECONDS)
 
         assert result.supports_multi_turn is False
         assert result.supports_editable_history is False
@@ -1393,7 +1410,7 @@ class TestVerifyTargetAsync:
         result = await discover_target_capabilities_async(
             target=target,
             capabilities=gen,
-            per_probe_timeout_s=2.0,
+            per_probe_timeout_s=TEST_WATCHDOG_SECONDS,
         )
 
         assert result.supports_json_output is True
@@ -1408,7 +1425,9 @@ class TestVerifyTargetAsync:
 
         assert target.capabilities.supports_multi_turn is False
 
-        result = await discover_target_capabilities_async(target=target, per_probe_timeout_s=2.0, apply=True)
+        result = await discover_target_capabilities_async(
+            target=target, per_probe_timeout_s=TEST_WATCHDOG_SECONDS, apply=True
+        )
 
         assert target.capabilities == result
         assert target.capabilities.supports_multi_turn is True
@@ -1420,7 +1439,7 @@ class TestVerifyTargetAsync:
         target._configuration = TargetConfiguration(capabilities=declared)
         target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
 
-        result = await discover_target_capabilities_async(target=target, per_probe_timeout_s=2.0)
+        result = await discover_target_capabilities_async(target=target, per_probe_timeout_s=TEST_WATCHDOG_SECONDS)
 
         # Result reflects probe; target capabilities remain at declared values.
         assert result.supports_multi_turn is True

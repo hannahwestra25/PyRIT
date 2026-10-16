@@ -60,7 +60,7 @@ from pyrit.models import (
     PromptDataType,
 )
 from pyrit.prompt_normalizer import ConverterConfiguration, PromptNormalizer
-from unit.async_utils import wait_for_completion_async
+from unit.async_utils import TEST_WATCHDOG_SECONDS, wait_for_completion_async
 from unit.backend.mocks import (
     _make_matching_target_mock,
     _settle_send_async,
@@ -1614,7 +1614,7 @@ class TestConverterMetadata:
 
 
 @pytest.mark.usefixtures("patch_central_database")
-@pytest.mark.timeout(10)
+@pytest.mark.timeout(TEST_WATCHDOG_SECONDS)
 class TestConcurrentMessages:
     def test_default_service_instances_share_scheduler(self, mock_memory: MagicMock) -> None:
         first = MessageSendService()
@@ -1766,7 +1766,7 @@ class TestConcurrentMessages:
             await first_started.wait()
             await asyncio.wait_for(
                 service.add_message_async(attack_result_id="attack", request=_request(conversation_id="second")),
-                timeout=3,
+                timeout=TEST_WATCHDOG_SECONDS,
             )
             assert order == ["main", "second"]
             assert not active.done()
@@ -1774,7 +1774,6 @@ class TestConcurrentMessages:
             release_first.set()
             await active
 
-    @pytest.mark.timeout(90)
     async def test_target_pacing_does_not_block_another_target_async(
         self,
         *,
@@ -1824,12 +1823,12 @@ class TestConcurrentMessages:
             )
             tasks = [active]
             try:
-                await asyncio.wait_for(waiting.wait(), timeout=30)
+                await asyncio.wait_for(waiting.wait(), timeout=TEST_WATCHDOG_SECONDS)
                 independent = asyncio.create_task(
                     service.add_message_async(attack_result_id=other_attack.attack_result_id, request=other_request)
                 )
                 tasks.append(independent)
-                await asyncio.wait_for(metadata_started.wait(), timeout=30)
+                await asyncio.wait_for(metadata_started.wait(), timeout=TEST_WATCHDOG_SECONDS)
                 assert delays == [2.0, 1.0]
                 assert target.prompt_sent == []
                 assert other_target.prompt_sent == ["Hello"]
@@ -1921,7 +1920,8 @@ class TestConcurrentMessages:
                 )
                 await shared_waiting.wait()
                 await asyncio.wait_for(
-                    peer.add_message_async(attack_result_id=ar.attack_result_id, request=requests[2]), timeout=3
+                    peer.add_message_async(attack_result_id=ar.attack_result_id, request=requests[2]),
+                    timeout=TEST_WATCHDOG_SECONDS,
                 )
                 assert calls == 1
                 assert not any(task.done() for task in tasks)
@@ -1969,7 +1969,7 @@ class TestConcurrentMessages:
 
         async def hold_write_async(**_: Any) -> None:
             started.set()
-            await asyncio.wait_for(release.wait(), timeout=5)
+            await asyncio.wait_for(release.wait(), timeout=TEST_WATCHDOG_SECONDS)
             finished.set()
 
         with patch.object(mock_memory, write_method, side_effect=hold_write_async):
@@ -2148,7 +2148,7 @@ class TestConcurrentMessages:
             writes.append(update_fields)
             if len(writes) == 1:
                 first_write_started.set()
-                await asyncio.wait_for(release_first_write.wait(), timeout=5)
+                await asyncio.wait_for(release_first_write.wait(), timeout=TEST_WATCHDOG_SECONDS)
             await update(attack_result_id=attack_result_id, update_fields=update_fields)
 
         with (
@@ -3360,7 +3360,7 @@ class TestAsyncMessageSend:
         ).state == MessageSendState.INTERRUPTED
 
 
-@pytest.mark.timeout(20)
+@pytest.mark.timeout(TEST_WATCHDOG_SECONDS)
 @pytest.mark.usefixtures("patch_central_database")
 class TestRepeatedMessageSend:
     async def test_missing_validated_target_fails_before_branch_registration_async(
@@ -3720,7 +3720,7 @@ class TestRepeatedMessageSend:
                         request=_submission(conversation_id=attack.conversation_id, submission_id="too-early"),
                     )
                 release_metadata.set()
-                async with asyncio.timeout(5):
+                async with asyncio.timeout(TEST_WATCHDOG_SECONDS):
                     while during.conversations[0].state != MessageSendState.COMPLETED:
                         during = await service.get_status_async(
                             attack_result_id=attack.attack_result_id, send_id=status.send_id, wait_ms=1

@@ -10,6 +10,7 @@ from typing import Any, ClassVar
 from unittest.mock import ANY, AsyncMock, MagicMock, PropertyMock, patch
 
 import pytest
+from unit.async_utils import TEST_WATCHDOG_SECONDS
 from unit.mocks import MockPromptTarget, make_scenario_identifier, make_scenario_result
 
 from pyrit.analytics import compute_scenario_statistics
@@ -2152,7 +2153,7 @@ class TestScenarioParallelExecution:
                 if in_flight >= 3:
                     started.set()
                 try:
-                    await asyncio.wait_for(started.wait(), timeout=2.0)
+                    await asyncio.wait_for(started.wait(), timeout=TEST_WATCHDOG_SECONDS)
                 finally:
                     async with lock:
                         in_flight -= 1
@@ -2285,7 +2286,7 @@ class TestScenarioParallelExecution:
         await scenario.initialize_async()
 
         with pytest.raises(asyncio.CancelledError, match="atomic attack cancelled"):
-            await asyncio.wait_for(scenario.run_async(), timeout=5)
+            await asyncio.wait_for(scenario.run_async(), timeout=TEST_WATCHDOG_SECONDS)
 
         mock_atomic_attacks[2].run_async.assert_not_called()
         assert not scenario._active_atomic_groups

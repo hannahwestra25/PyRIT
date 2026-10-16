@@ -8,7 +8,7 @@ from typing import ClassVar
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 import pytest
-from unit.async_utils import wait_for_completion_async
+from unit.async_utils import TEST_WATCHDOG_SECONDS, wait_for_completion_async
 from unit.mocks import MockPromptTarget
 
 from pyrit.exceptions import ScenarioPartialFailureException
@@ -605,7 +605,7 @@ class TestScenarioPartialAttackCompletion:
 
         parent = asyncio.create_task(scenario.run_async())
         try:
-            await asyncio.wait_for(all_started.wait(), timeout=30)
+            await asyncio.wait_for(all_started.wait(), timeout=TEST_WATCHDOG_SECONDS)
             release_workers.set()
             parent.cancel("stop scenario")
             with pytest.raises(asyncio.CancelledError, match="stop scenario"):
@@ -677,10 +677,10 @@ class TestScenarioPartialAttackCompletion:
 
         parent = asyncio.create_task(scenario.run_async())
         try:
-            await asyncio.wait_for(all_started.wait(), timeout=30)
+            await asyncio.wait_for(all_started.wait(), timeout=TEST_WATCHDOG_SECONDS)
             release_sibling.set()
             parent.cancel("stop scenario")
-            await asyncio.wait_for(cleanup_started.wait(), timeout=30)
+            await asyncio.wait_for(cleanup_started.wait(), timeout=TEST_WATCHDOG_SECONDS)
             assert not parent.done()
             assert worker_tasks[0].cancelling() == 1
             [stored] = await scenario._memory.get_scenario_results_async(
@@ -747,7 +747,7 @@ class TestScenarioPartialAttackCompletion:
 
         parent = asyncio.create_task(cancel_then_resume_async())
         try:
-            await asyncio.wait_for(started.wait(), timeout=30)
+            await asyncio.wait_for(started.wait(), timeout=TEST_WATCHDOG_SECONDS)
             parent.cancel("stop first run")
             result = await wait_for_completion_async(future=parent)
             assert result.scenario_run_state is ScenarioRunState.COMPLETED
@@ -791,7 +791,7 @@ class TestScenarioPartialAttackCompletion:
 
         task = asyncio.create_task(scenario.run_async())
         try:
-            await asyncio.wait_for(cleanup_started.wait(), timeout=30)
+            await asyncio.wait_for(cleanup_started.wait(), timeout=TEST_WATCHDOG_SECONDS)
             task.cancel("caller cancelled during cleanup")
             await asyncio.sleep(0)
             allow_cleanup.set()
@@ -858,10 +858,10 @@ class TestScenarioPartialAttackCompletion:
         ):
             parent = asyncio.create_task(scenario.run_async())
             try:
-                await asyncio.wait_for(all_started.wait(), timeout=30)
+                await asyncio.wait_for(all_started.wait(), timeout=TEST_WATCHDOG_SECONDS)
                 parent.cancel("stop scenario")
-                await asyncio.wait_for(cleanup_started.wait(), timeout=30)
-                await asyncio.wait_for(fast_worker_finished.wait(), timeout=30)
+                await asyncio.wait_for(cleanup_started.wait(), timeout=TEST_WATCHDOG_SECONDS)
+                await asyncio.wait_for(fast_worker_finished.wait(), timeout=TEST_WATCHDOG_SECONDS)
                 assert sends["slow"].cancelling() == 1
                 assert not cleanup_finished.is_set()
                 assert not parent.done()

@@ -34,6 +34,7 @@ from pyrit.exceptions.analytics_exception import AnalyticsBusyException
 from pyrit.memory import CentralMemory, SQLiteMemory
 from pyrit.memory.memory_models import Base
 from pyrit.setup.configuration_loader import ConfigurationLoader
+from unit.async_utils import TEST_WATCHDOG_SECONDS
 
 
 @pytest.fixture
@@ -163,7 +164,7 @@ async def test_http_timeout_keeps_native_cleanup_busy_until_runtime_drain_async(
     cleanup = held_native_cleanup
 
     async def expire_async(tasks: set[asyncio.Task[Any]], *, timeout: float) -> tuple[set[Any], set[Any]]:
-        assert 0 < timeout <= 30
+        assert 0 < timeout <= TEST_WATCHDOG_SECONDS
         await expire.wait()
         return set(), tasks
 
@@ -186,10 +187,10 @@ async def test_http_timeout_keeps_native_cleanup_busy_until_runtime_drain_async(
             request = asyncio.create_task(client.post("/api/analytics/attacks/results", json={}))
             shutdown: asyncio.Task[None] | None = None
             try:
-                await asyncio.wait_for(cleanup.entered.wait(), 30)
+                await asyncio.wait_for(cleanup.entered.wait(), TEST_WATCHDOG_SECONDS)
                 assert has_active_analytics_work()
                 expire.set()
-                response = await asyncio.wait_for(request, 10)
+                response = await asyncio.wait_for(request, TEST_WATCHDOG_SECONDS)
                 assert response.status_code == 504
                 assert not analytics_runtime.operations
                 assert analytics_service.has_active_work
@@ -197,7 +198,7 @@ async def test_http_timeout_keeps_native_cleanup_busy_until_runtime_drain_async(
                 assert analytics_runtime.outcome == "busy"
                 assert analytics_runtime.generation == "original"
                 shutdown = asyncio.create_task(analytics_runtime.shutdown_async())
-                await asyncio.wait_for(closing.wait(), 10)
+                await asyncio.wait_for(closing.wait(), TEST_WATCHDOG_SECONDS)
                 assert not shutdown.done()
                 assert not analytics_service.is_closed
                 assert get_analytics_service() is analytics_service
@@ -212,9 +213,9 @@ async def test_http_timeout_keeps_native_cleanup_busy_until_runtime_drain_async(
                 cleanup.release.set()
                 if cancel_shutdown:
                     with pytest.raises(asyncio.CancelledError):
-                        await asyncio.wait_for(shutdown, 30)
+                        await asyncio.wait_for(shutdown, TEST_WATCHDOG_SECONDS)
                 else:
-                    await asyncio.wait_for(shutdown, 30)
+                    await asyncio.wait_for(shutdown, TEST_WATCHDOG_SECONDS)
                 assert cleanup.closed.is_set()
                 assert analytics_service.is_closed
                 assert not has_active_analytics_work()
@@ -233,7 +234,7 @@ async def test_caller_and_repeated_close_cancellation_retain_native_owner_async(
     request = asyncio.create_task(analytics_service.results_async())
     close: asyncio.Task[None] | None = None
     try:
-        await asyncio.wait_for(cleanup.entered.wait(), 30)
+        await asyncio.wait_for(cleanup.entered.wait(), TEST_WATCHDOG_SECONDS)
         request.cancel()
         with pytest.raises(asyncio.CancelledError):
             await request
@@ -247,7 +248,7 @@ async def test_caller_and_repeated_close_cancellation_retain_native_owner_async(
             assert get_analytics_service() is analytics_service
         cleanup.release.set()
         with pytest.raises(asyncio.CancelledError):
-            await asyncio.wait_for(close, 30)
+            await asyncio.wait_for(close, TEST_WATCHDOG_SECONDS)
         assert cleanup.closed.is_set()
         assert analytics_service.is_closed
         assert get_analytics_service.cache_info().currsize == 0
