@@ -6,8 +6,7 @@ from typing import TypeVar
 
 T = TypeVar("T")
 
-# Deadlock backstop for correctness tests, not a latency budget. Loaded CI runners (notably the
-# 3-vCPU macOS images) stall single tests for over a minute, so shorter waits fail healthy tests.
+# Deadlock backstop for correctness tests, not a latency budget.
 TEST_WATCHDOG_SECONDS = 300.0
 
 

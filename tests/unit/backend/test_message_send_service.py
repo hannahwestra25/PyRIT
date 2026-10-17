@@ -47,6 +47,7 @@ from pyrit.common.attack_result_scope import get_current_attack_result_id
 from pyrit.common.utils import to_sha256
 from pyrit.converter import Base64Converter, Converter, ConverterResult
 from pyrit.memory import CentralMemory, SQLiteMemory
+from pyrit.message_normalizer import HistorySquashNormalizer
 from pyrit.models import (
     AtomicAttackIdentifier,
     AttackIdentifier,
@@ -60,7 +61,9 @@ from pyrit.models import (
     PromptDataType,
 )
 from pyrit.prompt_normalizer import ConverterConfiguration, PromptNormalizer
-from unit.async_utils import TEST_WATCHDOG_SECONDS, wait_for_completion_async
+from pyrit.prompt_target.common.target_capabilities import CapabilityName, TargetCapabilities
+from pyrit.prompt_target.common.target_configuration import TargetConfiguration
+from unit.async_utils import wait_for_completion_async
 from unit.backend.mocks import (
     _make_matching_target_mock,
     _settle_send_async,
@@ -1614,7 +1617,7 @@ class TestConverterMetadata:
 
 
 @pytest.mark.usefixtures("patch_central_database")
-@pytest.mark.timeout(TEST_WATCHDOG_SECONDS)
+@pytest.mark.timeout(10)
 class TestConcurrentMessages:
     def test_default_service_instances_share_scheduler(self, mock_memory: MagicMock) -> None:
         first = MessageSendService()
@@ -1766,7 +1769,7 @@ class TestConcurrentMessages:
             await first_started.wait()
             await asyncio.wait_for(
                 service.add_message_async(attack_result_id="attack", request=_request(conversation_id="second")),
-                timeout=TEST_WATCHDOG_SECONDS,
+                timeout=3,
             )
             assert order == ["main", "second"]
             assert not active.done()
@@ -1774,6 +1777,7 @@ class TestConcurrentMessages:
             release_first.set()
             await active
 
+    @pytest.mark.timeout(90)
     async def test_target_pacing_does_not_block_another_target_async(
         self,
         *,
@@ -1823,12 +1827,12 @@ class TestConcurrentMessages:
             )
             tasks = [active]
             try:
-                await asyncio.wait_for(waiting.wait(), timeout=TEST_WATCHDOG_SECONDS)
+                await asyncio.wait_for(waiting.wait(), timeout=30)
                 independent = asyncio.create_task(
                     service.add_message_async(attack_result_id=other_attack.attack_result_id, request=other_request)
                 )
                 tasks.append(independent)
-                await asyncio.wait_for(metadata_started.wait(), timeout=TEST_WATCHDOG_SECONDS)
+                await asyncio.wait_for(metadata_started.wait(), timeout=30)
                 assert delays == [2.0, 1.0]
                 assert target.prompt_sent == []
                 assert other_target.prompt_sent == ["Hello"]
@@ -1920,8 +1924,7 @@ class TestConcurrentMessages:
                 )
                 await shared_waiting.wait()
                 await asyncio.wait_for(
-                    peer.add_message_async(attack_result_id=ar.attack_result_id, request=requests[2]),
-                    timeout=TEST_WATCHDOG_SECONDS,
+                    peer.add_message_async(attack_result_id=ar.attack_result_id, request=requests[2]), timeout=3
                 )
                 assert calls == 1
                 assert not any(task.done() for task in tasks)
@@ -1969,7 +1972,7 @@ class TestConcurrentMessages:
 
         async def hold_write_async(**_: Any) -> None:
             started.set()
-            await asyncio.wait_for(release.wait(), timeout=TEST_WATCHDOG_SECONDS)
+            await asyncio.wait_for(release.wait(), timeout=5)
             finished.set()
 
         with patch.object(mock_memory, write_method, side_effect=hold_write_async):
@@ -2148,7 +2151,7 @@ class TestConcurrentMessages:
             writes.append(update_fields)
             if len(writes) == 1:
                 first_write_started.set()
-                await asyncio.wait_for(release_first_write.wait(), timeout=TEST_WATCHDOG_SECONDS)
+                await asyncio.wait_for(release_first_write.wait(), timeout=5)
             await update(attack_result_id=attack_result_id, update_fields=update_fields)
 
         with (
@@ -3030,6 +3033,91 @@ class TestAsyncMessageSend:
             await service.get_status_async(attack_result_id=ar.attack_result_id, send_id=status.send_id)
         ).state == MessageSendState.COMPLETED
 
+    async def test_repeat_send_rejects_copying_history_without_replay_support_async(
+        self,
+        *,
+        real_send_context: tuple[MessageSendService, AttackResult, MockPromptTarget, Base64Converter],
+        sqlite_instance: SQLiteMemory,
+    ) -> None:
+        """Copies would be answered by a target that never saw the earlier turns, so refuse up front."""
+        service, ar, target, _ = real_send_context
+        first = await service.submit_async(
+            attack_result_id=ar.attack_result_id, request=_submission(conversation_id=ar.conversation_id)
+        )
+        assert (await _settle_send_async(service=service, status=first)).state == MessageSendState.COMPLETED
+        target._configuration = TargetConfiguration(
+            capabilities=TargetCapabilities(supports_multi_turn=True, supports_multi_message_pieces=True)
+        )
+
+        with pytest.raises(ValueError, match="cannot initialize copies"):
+            await service.submit_async(
+                attack_result_id=ar.attack_result_id,
+                request=_submission(conversation_id=ar.conversation_id, submission_id="repeat", count=3),
+            )
+
+        pieces = await sqlite_instance.get_message_pieces_async(conversation_id=ar.conversation_id)
+        assert [piece.role for piece in pieces] == ["user", "assistant"]
+        assert not service._scheduler._conversations
+
+    @pytest.mark.parametrize("capability", [CapabilityName.EDITABLE_HISTORY, CapabilityName.MULTI_TURN])
+    async def test_repeat_send_replays_history_through_a_configured_adapter_async(
+        self,
+        *,
+        real_send_context: tuple[MessageSendService, AttackResult, MockPromptTarget, Base64Converter],
+        capability: CapabilityName,
+    ) -> None:
+        service, ar, target, _ = real_send_context
+        first = await service.submit_async(
+            attack_result_id=ar.attack_result_id, request=_submission(conversation_id=ar.conversation_id)
+        )
+        assert (await _settle_send_async(service=service, status=first)).state == MessageSendState.COMPLETED
+        target._configuration = TargetConfiguration(
+            capabilities=TargetCapabilities(supports_multi_turn=capability == CapabilityName.EDITABLE_HISTORY),
+            normalizer_overrides={capability: HistorySquashNormalizer()},
+        )
+
+        with patch.object(
+            target, "_send_prompt_to_target_async", wraps=target._send_prompt_to_target_async
+        ) as provider:
+            status = await service.submit_async(
+                attack_result_id=ar.attack_result_id,
+                request=_submission(conversation_id=ar.conversation_id, submission_id="repeat", count=3),
+            )
+            assert (await _settle_send_async(service=service, status=status)).state == MessageSendState.COMPLETED
+
+        assert provider.await_count == 3
+        for call in provider.call_args_list:
+            conversation = call.kwargs["normalized_conversation"]
+            assert len(conversation) == 1
+            prompt = conversation[0].get_piece().converted_value
+            assert "[Conversation History]" in prompt
+            assert "User: Hello" in prompt
+            assert "Assistant: default" in prompt
+            assert "[Current Message]" in prompt
+
+    @pytest.mark.parametrize("system_history", [False, True])
+    async def test_repeat_send_without_replay_support_is_fine_on_a_new_conversation_async(
+        self,
+        *,
+        real_send_context: tuple[MessageSendService, AttackResult, MockPromptTarget, Base64Converter],
+        system_history: bool,
+    ) -> None:
+        service, ar, target, _ = real_send_context
+        target._configuration = TargetConfiguration(
+            capabilities=TargetCapabilities(
+                supports_multi_turn=True, supports_multi_message_pieces=True, supports_system_prompt=True
+            )
+        )
+        if system_history:
+            await target.set_system_prompt_async(system_prompt="Be brief.", conversation_id=ar.conversation_id)
+
+        status = await service.submit_async(
+            attack_result_id=ar.attack_result_id,
+            request=_submission(conversation_id=ar.conversation_id, count=3),
+        )
+
+        assert (await _settle_send_async(service=service, status=status)).state == MessageSendState.COMPLETED
+
     @pytest.mark.parametrize("invalid", ["attack", "conversation", "target", "converter"])
     async def test_validation_does_not_accept_or_write_async(
         self,
@@ -3360,7 +3448,7 @@ class TestAsyncMessageSend:
         ).state == MessageSendState.INTERRUPTED
 
 
-@pytest.mark.timeout(TEST_WATCHDOG_SECONDS)
+@pytest.mark.timeout(20)
 @pytest.mark.usefixtures("patch_central_database")
 class TestRepeatedMessageSend:
     async def test_missing_validated_target_fails_before_branch_registration_async(
@@ -3720,7 +3808,7 @@ class TestRepeatedMessageSend:
                         request=_submission(conversation_id=attack.conversation_id, submission_id="too-early"),
                     )
                 release_metadata.set()
-                async with asyncio.timeout(TEST_WATCHDOG_SECONDS):
+                async with asyncio.timeout(5):
                     while during.conversations[0].state != MessageSendState.COMPLETED:
                         during = await service.get_status_async(
                             attack_result_id=attack.attack_result_id, send_id=status.send_id, wait_ms=1

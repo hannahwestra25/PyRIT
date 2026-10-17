@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from aiosqlite import Cursor
 from sqlalchemy import event
-from unit.async_utils import TEST_WATCHDOG_SECONDS, wait_for_completion_async
+from unit.async_utils import wait_for_completion_async
 from unit.mocks import MockPromptTarget, store_message_async
 
 from pyrit.exceptions import (
@@ -291,7 +291,7 @@ class TestExecutionExpectationTransport:
         else:
             execution = executor.execute_attack_async(objectives=objectives, **kwargs)
 
-        batch = await asyncio.wait_for(execution, timeout=TEST_WATCHDOG_SECONDS)
+        batch = await asyncio.wait_for(execution, timeout=10)
 
         expected = [
             supplied.model_copy(update={"objective": objectives[0]}),
@@ -638,9 +638,10 @@ class TestExecutionExpectationTransport:
                     attack.execute_async(objective="attack objective", expectation=_expectation())
                 )
                 try:
-                    await asyncio.wait_for(validation_started.wait(), timeout=TEST_WATCHDOG_SECONDS)
+                    # Time cancellation cleanup separately from attack startup and target persistence.
+                    await asyncio.wait_for(validation_started.wait(), timeout=30)
                     with pytest.raises(RuntimeError, match="Strategy execution failed for auxiliary_scorer") as raised:
-                        await wait_for_completion_async(future=task)
+                        await wait_for_completion_async(future=task, timeout=5)
                     assert validation_cancelled.is_set()
                     assert not release_read.is_set()
                 finally:

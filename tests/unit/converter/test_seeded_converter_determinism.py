@@ -7,7 +7,6 @@ import threading
 from collections.abc import Callable
 
 import pytest
-from unit.async_utils import TEST_WATCHDOG_SECONDS
 
 from pyrit.common.random_context import configure_random_seed
 from pyrit.converter import (
@@ -48,6 +47,7 @@ def _stochastic_converter_cases() -> list[tuple[Callable[[], Converter], str]]:
     return [
         (AskToDecodeConverter, "encoded text"),
         (lambda: AsciiArtConverter(font="rand"), "random font"),
+        (lambda: AsciiArtConverter(font="mix"), "mixed random font"),
         (lambda: RandomCapitalLettersConverter(percentage=50.0), "abcdefghijklmnopqrstuvwxyz"),
         (EmojiConverter, "deterministic emoji output"),
         (
@@ -134,7 +134,7 @@ class _ParallelThreadRandomConverter(Converter):
         barrier = threading.Barrier(2)
 
         def draw() -> tuple[random.Random, float]:
-            barrier.wait(timeout=TEST_WATCHDOG_SECONDS)
+            barrier.wait(timeout=5)
             rng = self._get_random_generator(stream="values")
             return (rng, rng.random())
 

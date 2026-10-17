@@ -22,7 +22,7 @@ from pyrit.memory import SQLiteMemory
 from pyrit.memory import sqlite_memory as sqlite_memory_module
 from pyrit.memory.sqlite_memory import _CursorClosingSQLiteConnection
 from pyrit.models import AttackOutcome, AttackResult, MessagePiece, MessageScorable, Score
-from unit.async_utils import TEST_WATCHDOG_SECONDS, wait_for_completion_async
+from unit.async_utils import wait_for_completion_async
 from unit.mocks import get_mock_scorer_identifier
 
 
@@ -125,9 +125,9 @@ async def test_cancelled_score_transaction_finishes_cleanup_before_return_async(
     ):
         task = asyncio.create_task(sqlite_memory_async.add_scores_to_memory_async(scores=[persistable_score_async]))
         try:
-            await asyncio.wait_for(started.wait(), timeout=TEST_WATCHDOG_SECONDS)
+            await asyncio.wait_for(started.wait(), timeout=30)
             task.cancel("cancel score transaction")
-            await asyncio.wait_for(closing_connection.wait(), timeout=TEST_WATCHDOG_SECONDS)
+            await asyncio.wait_for(closing_connection.wait(), timeout=30)
             for _ in range(additional_cancellations):
                 task.cancel("cancel connection cleanup again")
                 await asyncio.sleep(0)
@@ -181,9 +181,9 @@ async def test_cancelled_session_finishes_rollback_before_return_async(
     with patch.object(Connection, "rollback", new=delayed_rollback_async):
         task = asyncio.create_task(write_async())
         try:
-            await asyncio.wait_for(inserted.wait(), timeout=TEST_WATCHDOG_SECONDS)
+            await asyncio.wait_for(inserted.wait(), timeout=30)
             task.cancel("cancel transaction body")
-            await asyncio.wait_for(rolling_back.wait(), timeout=TEST_WATCHDOG_SECONDS)
+            await asyncio.wait_for(rolling_back.wait(), timeout=30)
             for _ in range(additional_cancellations):
                 task.cancel("cancel rollback again")
                 await asyncio.sleep(0)
@@ -258,10 +258,10 @@ async def test_failed_session_rollback_discards_connection_async(
             patch.object(Connection, "rollback", new=failed_rollback_async),
             patch.object(Connection, "close", new=observed_close_async),
         ):
-            await asyncio.wait_for(inserted.wait(), timeout=TEST_WATCHDOG_SECONDS)
+            await asyncio.wait_for(inserted.wait(), timeout=30)
             if cancel_in_body:
                 task.cancel(cancellation_message)
-            await asyncio.wait_for(rolling_back.wait(), timeout=TEST_WATCHDOG_SECONDS)
+            await asyncio.wait_for(rolling_back.wait(), timeout=30)
             if cancel_in_body is False:
                 task.cancel(cancellation_message)
                 await asyncio.sleep(0)
@@ -302,7 +302,7 @@ async def test_cancelled_database_worker_finishes_before_return_async(
 
     def wait_in_database() -> int:
         started.set()
-        if not release.wait(timeout=TEST_WATCHDOG_SECONDS):
+        if not release.wait(timeout=60):
             raise RuntimeError("Database worker was not released")
         finished.set()
         return 1
@@ -331,9 +331,9 @@ async def test_cancelled_database_worker_finishes_before_return_async(
     with patch.object(sqlite_memory_module, "_finish_sqlite_cleanup_async", new=observed_cleanup_async):
         task = asyncio.create_task(read_async())
         try:
-            assert await asyncio.to_thread(started.wait, TEST_WATCHDOG_SECONDS)
+            assert await asyncio.to_thread(started.wait, 30)
             task.cancel("cancel database worker")
-            await asyncio.wait_for(closing.wait(), timeout=TEST_WATCHDOG_SECONDS)
+            await asyncio.wait_for(closing.wait(), timeout=30)
             task.cancel("cancel worker cleanup again")
             await asyncio.sleep(0)
             assert not task.done()
@@ -406,9 +406,9 @@ async def test_invalidation_failure_preserves_cancellation_and_cause_async(
     ):
         task = asyncio.create_task(sqlite_memory_async.add_scores_to_memory_async(scores=[persistable_score_async]))
         try:
-            await asyncio.wait_for(started.wait(), timeout=TEST_WATCHDOG_SECONDS)
+            await asyncio.wait_for(started.wait(), timeout=30)
             task.cancel("cancel failed cleanup")
-            await asyncio.wait_for(closing_cleanup.wait(), timeout=TEST_WATCHDOG_SECONDS)
+            await asyncio.wait_for(closing_cleanup.wait(), timeout=30)
             for _ in range(additional_cancellations):
                 task.cancel("cancel cleanup again")
                 await asyncio.sleep(0)

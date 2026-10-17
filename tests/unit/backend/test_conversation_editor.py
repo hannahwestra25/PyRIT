@@ -46,7 +46,6 @@ from pyrit.models.target.request_trace_context import RequestTraceContext
 from pyrit.models.target.target_capabilities import TargetCapabilities
 from pyrit.prompt_target import OpenAIResponseTarget
 from pyrit.score.scorer_prompt_validator import ScorerPromptValidator
-from unit.async_utils import TEST_WATCHDOG_SECONDS
 from unit.backend.mocks import _settle_send_async, message_send_lifecycle_async
 from unit.mocks import MockPromptTarget, get_mock_target_identifier, run_memory_session_async
 
@@ -1306,7 +1305,7 @@ class TestConversationEditor:
 
         with patch.object(storage, "write_file_async", side_effect=interrupted_write_async):
             task = asyncio.create_task(AttackService().save_conversation_async(request=request))
-            await asyncio.wait_for(started.wait(), timeout=TEST_WATCHDOG_SECONDS)
+            await asyncio.wait_for(started.wait(), timeout=5)
             if cancel:
                 task.cancel()
                 finish.set()

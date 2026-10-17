@@ -388,7 +388,7 @@ async def test_distinct_conversations_progress_on_shared_client_async(
     )
     second_task: asyncio.Task[list[Message]] | None = None
     try:
-        await asyncio.wait_for(first_send_started.wait(), timeout=TEST_WATCHDOG_SECONDS)
+        await asyncio.wait_for(first_send_started.wait(), timeout=2.0)
         second_task = asyncio.create_task(
             target.send_prompt_async(
                 message=_user_message(
@@ -398,7 +398,7 @@ async def test_distinct_conversations_progress_on_shared_client_async(
                 )
             )
         )
-        second_response = await asyncio.wait_for(second_task, timeout=TEST_WATCHDOG_SECONDS)
+        second_response = await asyncio.wait_for(second_task, timeout=2.0)
         assert not release_first_send.is_set()
         assert (second_response[0].get_piece().conversation_id, second_response[0].get_piece().converted_value) == (
             "conversation-b",
@@ -406,7 +406,7 @@ async def test_distinct_conversations_progress_on_shared_client_async(
         )
 
         release_first_send.set()
-        first_response = await asyncio.wait_for(first_task, timeout=TEST_WATCHDOG_SECONDS)
+        first_response = await asyncio.wait_for(first_task, timeout=2.0)
         assert (first_response[0].get_piece().conversation_id, first_response[0].get_piece().converted_value) == (
             "conversation-a",
             "A",
@@ -417,7 +417,7 @@ async def test_distinct_conversations_progress_on_shared_client_async(
         release_first_send.set()
         await _cancel_tasks_async(first_task, second_task)
         with suppress(Exception):
-            await asyncio.wait_for(target.cleanup_target_async(), timeout=TEST_WATCHDOG_SECONDS)
+            await asyncio.wait_for(target.cleanup_target_async(), timeout=2.0)
 
     sdk.CopilotClient.assert_called_once_with(github_token=None, working_directory=None)
     client.start.assert_awaited_once()
@@ -547,12 +547,12 @@ async def test_retained_reset_does_not_confirm_failed_sdk_disconnect_async(
             )
         reset_task = asyncio.create_task(target.reset_conversation_async(conversation_id="conversation-a"))
         try:
-            await asyncio.wait_for(release_started.wait(), timeout=TEST_WATCHDOG_SECONDS)
+            await asyncio.wait_for(release_started.wait(), timeout=2.0)
             first_failure: BaseException
             if cancel_release:
                 reset_task.cancel("cancel selected reset")
                 with pytest.raises(asyncio.CancelledError) as cancellation:
-                    await asyncio.wait_for(reset_task, timeout=TEST_WATCHDOG_SECONDS)
+                    await asyncio.wait_for(reset_task, timeout=2.0)
                 assert reset_task.cancelled()
                 assert cancellation.value is release_cancellation
                 assert cancellation.value.args == ("cancel selected reset",)
@@ -560,7 +560,7 @@ async def test_retained_reset_does_not_confirm_failed_sdk_disconnect_async(
             else:
                 finish_release.set()
                 with pytest.raises(RuntimeError) as first_reset:
-                    await asyncio.wait_for(reset_task, timeout=TEST_WATCHDOG_SECONDS)
+                    await asyncio.wait_for(reset_task, timeout=2.0)
                 assert first_reset.value is release_error
                 first_failure = first_reset.value
 
@@ -603,7 +603,7 @@ async def test_retained_reset_does_not_confirm_failed_sdk_disconnect_async(
             finish_release.set()
             await _cancel_tasks_async(reset_task)
             with suppress(Exception):
-                await asyncio.wait_for(target.cleanup_target_async(), timeout=TEST_WATCHDOG_SECONDS)
+                await asyncio.wait_for(target.cleanup_target_async(), timeout=2.0)
 
 
 @pytest.mark.usefixtures("patch_central_database")
@@ -630,14 +630,14 @@ async def test_reset_waits_for_in_progress_cleanup_release_async(
     cleanup_task = asyncio.create_task(target.cleanup_target_async())
     reset_task: asyncio.Task[None] | None = None
     try:
-        await asyncio.wait_for(disconnect_started.wait(), timeout=TEST_WATCHDOG_SECONDS)
+        await asyncio.wait_for(disconnect_started.wait(), timeout=2.0)
         reset_task = asyncio.create_task(target.reset_conversation_async(conversation_id="conversation-a"))
         await asyncio.sleep(0)
         assert not reset_task.done()
 
         release_disconnect.set()
-        await asyncio.wait_for(cleanup_task, timeout=TEST_WATCHDOG_SECONDS)
-        await asyncio.wait_for(reset_task, timeout=TEST_WATCHDOG_SECONDS)
+        await asyncio.wait_for(cleanup_task, timeout=2.0)
+        await asyncio.wait_for(reset_task, timeout=2.0)
         session.disconnect.assert_awaited_once()
         client.delete_session.assert_not_awaited()
         client.stop.assert_awaited_once()
@@ -676,14 +676,14 @@ async def test_reset_waits_for_conversation_creation_async(
     )
     reset_task: asyncio.Task[None] | None = None
     try:
-        await asyncio.wait_for(create_started.wait(), timeout=TEST_WATCHDOG_SECONDS)
+        await asyncio.wait_for(create_started.wait(), timeout=2.0)
         reset_task = asyncio.create_task(target.reset_conversation_async(conversation_id=conversation_id))
         await asyncio.sleep(0)
         assert not reset_task.done()
 
         release_creation.set()
-        first_response = await asyncio.wait_for(first_task, timeout=TEST_WATCHDOG_SECONDS)
-        await asyncio.wait_for(reset_task, timeout=TEST_WATCHDOG_SECONDS)
+        first_response = await asyncio.wait_for(first_task, timeout=2.0)
+        await asyncio.wait_for(reset_task, timeout=2.0)
         assert first_response[0].get_piece().converted_value == "FIRST"
         session.send_and_wait.assert_awaited_once_with("first prepared", timeout=60.0)
         client.create_session.assert_awaited_once()
@@ -696,7 +696,7 @@ async def test_reset_waits_for_conversation_creation_async(
         release_creation.set()
         await _cancel_tasks_async(first_task, reset_task)
         with suppress(Exception):
-            await asyncio.wait_for(target.cleanup_target_async(), timeout=TEST_WATCHDOG_SECONDS)
+            await asyncio.wait_for(target.cleanup_target_async(), timeout=2.0)
 
 
 @pytest.mark.usefixtures("patch_central_database")
@@ -740,7 +740,7 @@ async def test_repeated_reset_does_not_join_unrelated_cleanup_async(
     cleanup_task = asyncio.create_task(target.cleanup_target_async())
     reset_task: asyncio.Task[None] | None = None
     try:
-        await asyncio.wait_for(disconnect_started.wait(), timeout=TEST_WATCHDOG_SECONDS)
+        await asyncio.wait_for(disconnect_started.wait(), timeout=2.0)
         if not reset_before_cleanup:
             session_a.disconnect.assert_awaited_once()
         reset_task = asyncio.create_task(target.reset_conversation_async(conversation_id="conversation-a"))
@@ -752,7 +752,7 @@ async def test_repeated_reset_does_not_join_unrelated_cleanup_async(
 
         release_disconnect.set()
         with pytest.raises(RuntimeError, match="B disconnect failed"):
-            await asyncio.wait_for(cleanup_task, timeout=TEST_WATCHDOG_SECONDS)
+            await asyncio.wait_for(cleanup_task, timeout=2.0)
         session_b.disconnect.assert_awaited_once()
         client.stop.assert_awaited_once()
     finally:
@@ -839,41 +839,41 @@ async def test_reset_during_cleanup_propagates_only_selected_session_failure_asy
     cleanup_task = asyncio.create_task(target.cleanup_target_async())
     reset_task: asyncio.Task[None] | None = None
     try:
-        await asyncio.wait_for(a_release_started.wait(), timeout=TEST_WATCHDOG_SECONDS)
+        await asyncio.wait_for(a_release_started.wait(), timeout=2.0)
         reset_task = asyncio.create_task(target.reset_conversation_async(conversation_id="conversation-a"))
         await asyncio.sleep(0)
         assert not reset_task.done()
 
         release_a.set()
-        await asyncio.wait_for(a_release_finished.wait(), timeout=TEST_WATCHDOG_SECONDS)
-        await asyncio.wait_for(b_release_started.wait(), timeout=TEST_WATCHDOG_SECONDS)
+        await asyncio.wait_for(a_release_finished.wait(), timeout=2.0)
+        await asyncio.wait_for(b_release_started.wait(), timeout=2.0)
         assert a_release_finished.is_set()
 
         if failure_kind == "caller-cancel":
             reset_task.cancel()
             with pytest.raises(asyncio.CancelledError):
-                await asyncio.wait_for(reset_task, timeout=TEST_WATCHDOG_SECONDS)
+                await asyncio.wait_for(reset_task, timeout=2.0)
             assert reset_task.cancelled()
             assert not cleanup_task.done()
             client.stop.assert_not_awaited()
             release_b.set()
-            await asyncio.wait_for(cleanup_task, timeout=TEST_WATCHDOG_SECONDS)
+            await asyncio.wait_for(cleanup_task, timeout=2.0)
         else:
             release_b.set()
             if failure_kind == "error":
                 expected_cleanup_failure = a_failure if failed_conversation == "conversation-a" else b_failure
                 with pytest.raises(RuntimeError) as cleanup_error:
-                    await asyncio.wait_for(cleanup_task, timeout=TEST_WATCHDOG_SECONDS)
+                    await asyncio.wait_for(cleanup_task, timeout=2.0)
                 assert cleanup_error.value is expected_cleanup_failure
                 if failed_conversation == "conversation-a":
                     with pytest.raises(RuntimeError) as reset_error:
-                        await asyncio.wait_for(reset_task, timeout=TEST_WATCHDOG_SECONDS)
+                        await asyncio.wait_for(reset_task, timeout=2.0)
                     assert reset_error.value is a_failure
                 else:
-                    await asyncio.wait_for(reset_task, timeout=TEST_WATCHDOG_SECONDS)
+                    await asyncio.wait_for(reset_task, timeout=2.0)
             elif failure_kind == "release-cancel-stop-error":
                 with pytest.raises(BaseExceptionGroup) as cleanup_error:
-                    await asyncio.wait_for(cleanup_task, timeout=TEST_WATCHDOG_SECONDS)
+                    await asyncio.wait_for(cleanup_task, timeout=2.0)
                 expected_release_failure = (
                     selected_cancellation if failed_conversation == "conversation-a" else unrelated_cancellation
                 )
@@ -882,18 +882,18 @@ async def test_reset_during_cleanup_propagates_only_selected_session_failure_asy
                 assert cleanup_error.value.exceptions[1] is stop_failure
                 if failed_conversation == "conversation-a":
                     with pytest.raises(BaseExceptionGroup) as reset_error:
-                        await asyncio.wait_for(reset_task, timeout=TEST_WATCHDOG_SECONDS)
+                        await asyncio.wait_for(reset_task, timeout=2.0)
                     assert reset_error.value is cleanup_error.value
                 else:
-                    await asyncio.wait_for(reset_task, timeout=TEST_WATCHDOG_SECONDS)
+                    await asyncio.wait_for(reset_task, timeout=2.0)
             else:
                 with pytest.raises(asyncio.CancelledError):
-                    await asyncio.wait_for(cleanup_task, timeout=TEST_WATCHDOG_SECONDS)
+                    await asyncio.wait_for(cleanup_task, timeout=2.0)
                 if failed_conversation == "conversation-a":
                     with pytest.raises(asyncio.CancelledError):
-                        await asyncio.wait_for(reset_task, timeout=TEST_WATCHDOG_SECONDS)
+                        await asyncio.wait_for(reset_task, timeout=2.0)
                 else:
-                    await asyncio.wait_for(reset_task, timeout=TEST_WATCHDOG_SECONDS)
+                    await asyncio.wait_for(reset_task, timeout=2.0)
 
         assert client.create_session.await_count == 2
         session_a.send_and_wait.assert_awaited_once()
@@ -1206,7 +1206,7 @@ async def test_cancelled_send_preserves_cancellation_when_retirement_fails_async
         await asyncio.wait_for(send_started.wait(), timeout=TEST_WATCHDOG_SECONDS)
         send_task.cancel()
         with pytest.raises(asyncio.CancelledError) as exc_info:
-            await asyncio.wait_for(send_task, timeout=TEST_WATCHDOG_SECONDS)
+            await asyncio.wait_for(send_task, timeout=2.0)
         assert exc_info.value.__cause__ is release_error
         client.delete_session.assert_awaited_once_with(session.session_id)
     finally:
@@ -1245,7 +1245,7 @@ async def test_cleanup_rejects_queued_turn_and_drains_active_send_async(
     queued_task: asyncio.Task[list[Message]] | None = None
     cleanup_task: asyncio.Task[None] | None = None
     try:
-        await asyncio.wait_for(first_send_started.wait(), timeout=TEST_WATCHDOG_SECONDS)
+        await asyncio.wait_for(first_send_started.wait(), timeout=2.0)
         queued_task = asyncio.create_task(
             target.send_prompt_async(
                 message=_user_message(conversation_id=conversation_id, original_value="queued"),
@@ -1263,18 +1263,18 @@ async def test_cleanup_rejects_queued_turn_and_drains_active_send_async(
                         original_value="fresh",
                     )
                 ),
-                timeout=TEST_WATCHDOG_SECONDS,
+                timeout=2.0,
             )
         _assert_no_resource_release(client=client)
 
         release_first_send.set()
-        first_response = await asyncio.wait_for(first_task, timeout=TEST_WATCHDOG_SECONDS)
+        first_response = await asyncio.wait_for(first_task, timeout=2.0)
         assert first_response[0].get_piece().converted_value == "FIRST"
         assert queued_task is not None
         with pytest.raises(RuntimeError, match="cleaned up"):
-            await asyncio.wait_for(queued_task, timeout=TEST_WATCHDOG_SECONDS)
+            await asyncio.wait_for(queued_task, timeout=2.0)
         assert cleanup_task is not None
-        await asyncio.wait_for(cleanup_task, timeout=TEST_WATCHDOG_SECONDS)
+        await asyncio.wait_for(cleanup_task, timeout=2.0)
     finally:
         release_first_send.set()
         await _cancel_tasks_async(first_task, queued_task, cleanup_task)
@@ -1283,6 +1283,56 @@ async def test_cleanup_rejects_queued_turn_and_drains_active_send_async(
     client.create_session.assert_awaited_once()
     client.delete_session.assert_awaited_once_with(session.session_id)
     client.stop.assert_awaited_once()
+
+
+@pytest.mark.usefixtures("patch_central_database")
+async def test_continuing_a_conversation_without_its_session_raises_async(
+    *,
+    sdk: Any,
+    client: NonCallableMagicMock,
+    sqlite_instance: MemoryInterface,
+) -> None:
+    """A copied or restarted conversation must not be answered by a fresh session that never saw its turns."""
+    conversation_id = "conversation-started-elsewhere"
+    session = client.create_session.return_value
+    session.send_and_wait.side_effect = [_assistant_reply("FIRST")]
+    first_target = GitHubCopilotTarget(model_name="gpt-5-mini")
+    await _send_normalized_async(
+        target=first_target, original_value="My secret word is avocado.", conversation_id=conversation_id
+    )
+
+    # A new target instance (e.g. after a backend restart) has the memory but not the Copilot session.
+    second_target = GitHubCopilotTarget(model_name="gpt-5-mini")
+    with pytest.raises(Exception, match="Error sending prompt") as raised:
+        await _send_normalized_async(
+            target=second_target, original_value="What is my secret word?", conversation_id=conversation_id
+        )
+    assert isinstance(raised.value.__cause__, ValueError)
+    assert "no Copilot session for conversation" in str(raised.value.__cause__)
+
+    client.create_session.assert_awaited_once()
+    assert session.send_and_wait.await_count == 1
+    await first_target.cleanup_target_async()
+    await second_target.cleanup_target_async()
+
+
+@pytest.mark.usefixtures("patch_central_database")
+async def test_system_prompt_alone_still_starts_a_session_async(
+    *,
+    sdk: Any,
+    client: NonCallableMagicMock,
+    sqlite_instance: MemoryInterface,
+) -> None:
+    conversation_id = "system-only-conversation"
+    client.create_session.return_value.send_and_wait.side_effect = [_assistant_reply("OK")]
+    target = GitHubCopilotTarget(model_name="gpt-5-mini")
+    await target.set_system_prompt_async(system_prompt="Be brief.", conversation_id=conversation_id)
+
+    response = await _send_normalized_async(target=target, original_value="hi", conversation_id=conversation_id)
+
+    assert response.get_piece().converted_value == "OK"
+    client.create_session.assert_awaited_once()
+    await target.cleanup_target_async()
 
 
 @pytest.mark.usefixtures("patch_central_database", "sdk")
@@ -1424,12 +1474,12 @@ async def test_direct_send_captures_model_identity_before_startup_async(
         )
     )
     try:
-        await asyncio.wait_for(startup_entered.wait(), timeout=TEST_WATCHDOG_SECONDS)
+        await asyncio.wait_for(startup_entered.wait(), timeout=2.0)
         with pytest.raises(RuntimeError, match="new target"):
             target.set_model_name(model_name="gpt-5.4")
 
         release_startup.set()
-        response = await asyncio.wait_for(first_task, timeout=TEST_WATCHDOG_SECONDS)
+        response = await asyncio.wait_for(first_task, timeout=2.0)
         assert response[0].get_piece().converted_value == "HELLO"
         assert client.create_session.await_args.kwargs["model"] == "gpt-5-mini"
         with pytest.raises(RuntimeError, match="new target"):
@@ -1440,7 +1490,7 @@ async def test_direct_send_captures_model_identity_before_startup_async(
         release_startup.set()
         await _cancel_tasks_async(first_task)
         with suppress(Exception):
-            await asyncio.wait_for(target.cleanup_target_async(), timeout=TEST_WATCHDOG_SECONDS)
+            await asyncio.wait_for(target.cleanup_target_async(), timeout=2.0)
 
 
 @pytest.mark.usefixtures("patch_central_database")
@@ -1576,10 +1626,10 @@ async def test_normalizer_surfaces_dispatch_timeout_and_cleans_up_without_replay
     request.side_effect = stall_send_async
     send_task = asyncio.create_task(_send_normalized_async(target=target, original_value="Reply exactly HELLO."))
     try:
-        await asyncio.wait_for(send_entered.wait(), timeout=TEST_WATCHDOG_SECONDS)
+        await asyncio.wait_for(send_entered.wait(), timeout=10.0)
         with pytest.raises(Exception, match="Error sending prompt with conversation ID:") as exc_info:
             # A bare watchdog TimeoutError must not satisfy the normalizer-wrapped failure.
-            await asyncio.wait_for(send_task, timeout=TEST_WATCHDOG_SECONDS)
+            await asyncio.wait_for(send_task, timeout=10.0)
         assert isinstance(exc_info.value.__cause__, TimeoutError)
         request.assert_awaited_once()
         assert request.await_args.args[0] == "session.send"
@@ -2170,11 +2220,11 @@ async def test_failed_startup_stop_preserves_cancellation_and_ownership_async(
         target.send_prompt_async(message=_user_message(conversation_id="failed-startup", original_value="hello"))
     )
     try:
-        await asyncio.wait_for(stop_started.wait(), timeout=TEST_WATCHDOG_SECONDS)
+        await asyncio.wait_for(stop_started.wait(), timeout=2.0)
         if stop_failure == "caller-cancel":
             send_task.cancel("caller cancelled during startup cleanup")
             with pytest.raises(asyncio.CancelledError) as cancellation:
-                await asyncio.wait_for(send_task, timeout=TEST_WATCHDOG_SECONDS)
+                await asyncio.wait_for(send_task, timeout=2.0)
             assert send_task.cancelled()
             assert cancellation.value is caller_cancellation
             assert cancellation.value.args == ("caller cancelled during startup cleanup",)
@@ -2182,7 +2232,7 @@ async def test_failed_startup_stop_preserves_cancellation_and_ownership_async(
         else:
             finish_stop.set()
             with pytest.raises(BaseExceptionGroup) as failure:
-                await asyncio.wait_for(send_task, timeout=TEST_WATCHDOG_SECONDS)
+                await asyncio.wait_for(send_task, timeout=2.0)
             assert failure.value.exceptions == (startup_error, cleanup_error)
             assert failure.value.__cause__ is startup_error
             assert not send_task.cancelled()
@@ -2217,7 +2267,7 @@ async def test_failed_startup_stop_preserves_cancellation_and_ownership_async(
         finish_stop.set()
         await _cancel_tasks_async(send_task)
         with suppress(Exception):
-            await asyncio.wait_for(target.cleanup_target_async(), timeout=TEST_WATCHDOG_SECONDS)
+            await asyncio.wait_for(target.cleanup_target_async(), timeout=2.0)
 
 
 @pytest.mark.usefixtures("patch_central_database", "mock_copilot_startup_io")
@@ -2249,7 +2299,7 @@ async def test_normalizer_stops_owned_client_when_startup_is_cancelled_async(
     target = GitHubCopilotTarget(model_name="gpt-5-mini")
     request_task = asyncio.create_task(_send_normalized_async(target=target, original_value="Reply exactly HELLO."))
     try:
-        await asyncio.wait_for(allocated.wait(), timeout=TEST_WATCHDOG_SECONDS)
+        await asyncio.wait_for(allocated.wait(), timeout=2.0)
         request_task.cancel()
         with pytest.raises(asyncio.CancelledError) as exc_info:
             await request_task
@@ -2389,7 +2439,7 @@ async def test_normalizer_keeps_event_loop_responsive_during_client_construction
         try:
             loop.call_soon_threadsafe(constructor_entered.set)
             # The bound lets a blocked event loop escape without satisfying the responsiveness assertion.
-            released_while_constructing = release.wait(timeout=TEST_WATCHDOG_SECONDS)
+            released_while_constructing = release.wait(timeout=5.0)
             return client
         finally:
             loop.call_soon_threadsafe(constructor_finished.set)
@@ -2410,11 +2460,11 @@ async def test_normalizer_keeps_event_loop_responsive_during_client_construction
     )
     release_task = asyncio.create_task(release_constructor_async())
     try:
-        await asyncio.wait_for(asyncio.gather(request_task, release_task), timeout=TEST_WATCHDOG_SECONDS)
+        await asyncio.wait_for(asyncio.gather(request_task, release_task), timeout=10.0)
     finally:
         release.set()
         await _cancel_tasks_async(request_task, release_task)
-        await asyncio.wait_for(constructor_finished.wait(), timeout=TEST_WATCHDOG_SECONDS)
+        await asyncio.wait_for(constructor_finished.wait(), timeout=5.0)
 
     await target.cleanup_target_async()
     client.stop.assert_awaited_once()

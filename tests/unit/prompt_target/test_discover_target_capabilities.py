@@ -795,6 +795,7 @@ async def test_responses_probes_suppress_provider_io_and_preserve_state(
     ).to_message()
 
     requested = asyncio.Event()
+    cancelled = asyncio.Event()
 
     async def finish_async(**kwargs: object) -> Message:
         if outcome == "error":
@@ -803,17 +804,23 @@ async def test_responses_probes_suppress_provider_io_and_preserve_state(
             raise asyncio.CancelledError
         if outcome == "timeout":
             requested.set()
-            await asyncio.Event().wait()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.set()
         return response
 
     original_wait_for = asyncio.wait_for
 
     async def expire_once_requested_async(awaitable: Awaitable[list[Message]], *, timeout: float) -> list[Message]:
-        # Expire the probe deadline once the request is pending. A wall-clock deadline can
-        # expire during the preceding memory access on a stalled runner, so the request never starts.
         probe = asyncio.ensure_future(awaitable)
-        await original_wait_for(requested.wait(), timeout=TEST_WATCHDOG_SECONDS)
-        return await original_wait_for(probe, timeout=0)
+        try:
+            await original_wait_for(requested.wait(), timeout=TEST_WATCHDOG_SECONDS)
+            return await original_wait_for(probe, timeout=0)
+        finally:
+            if not probe.done():
+                probe.cancel()
+            await asyncio.gather(probe, return_exceptions=True)
 
     with (
         patch.object(provider, "execution_scope_async") as scope,
@@ -840,6 +847,7 @@ async def test_responses_probes_suppress_provider_io_and_preserve_state(
             with patch.object(asyncio, "wait_for", side_effect=expire_once_requested_async) as deadline:
                 await probe_async()
             deadline.assert_awaited_once()
+            assert cancelled.is_set()
         else:
             await probe_async()
         send.assert_awaited_once()
@@ -1205,7 +1213,7 @@ class TestVerifyTargetAsync:
         target._configuration = TargetConfiguration(capabilities=declared)
         target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
 
-        result = await discover_target_capabilities_async(target=target, per_probe_timeout_s=TEST_WATCHDOG_SECONDS)
+        result = await discover_target_capabilities_async(target=target, per_probe_timeout_s=5.0)
 
         assert isinstance(result, TargetCapabilities)
         # Single-piece probes that don't touch memory always succeed when
@@ -1303,7 +1311,7 @@ class TestVerifyTargetAsync:
             target=target,
             test_modalities={extra_combo},
             test_assets={"image_path": image_asset},
-            per_probe_timeout_s=TEST_WATCHDOG_SECONDS,
+            per_probe_timeout_s=2.0,
         )
 
         # The undeclared combination is in the result only if test_modalities was forwarded.
@@ -1323,7 +1331,7 @@ class TestVerifyTargetAsync:
             target=target,
             test_modalities={probed_combo},
             test_assets={"image_path": image_asset},
-            per_probe_timeout_s=TEST_WATCHDOG_SECONDS,
+            per_probe_timeout_s=2.0,
         )
 
         assert result.input_modalities == frozenset({declared_combo, probed_combo})
@@ -1336,7 +1344,7 @@ class TestVerifyTargetAsync:
         await discover_target_capabilities_async(
             target=target,
             capabilities={CapabilityName.JSON_OUTPUT},
-            per_probe_timeout_s=TEST_WATCHDOG_SECONDS,
+            per_probe_timeout_s=2.0,
         )
 
         # Only the JSON_OUTPUT probe (1 send) and the modality probe(s) should run;
@@ -1363,7 +1371,7 @@ class TestVerifyTargetAsync:
         result = await discover_target_capabilities_async(
             target=target,
             capabilities={CapabilityName.JSON_OUTPUT},
-            per_probe_timeout_s=TEST_WATCHDOG_SECONDS,
+            per_probe_timeout_s=2.0,
         )
 
         # The probed capability reflects the queried result.
@@ -1392,7 +1400,7 @@ class TestVerifyTargetAsync:
 
         target._send_prompt_to_target_async = AsyncMock(side_effect=selective_send)  # type: ignore[method-assign]
 
-        result = await discover_target_capabilities_async(target=target, per_probe_timeout_s=TEST_WATCHDOG_SECONDS)
+        result = await discover_target_capabilities_async(target=target, per_probe_timeout_s=2.0)
 
         assert result.supports_multi_turn is False
         assert result.supports_editable_history is False
@@ -1410,7 +1418,7 @@ class TestVerifyTargetAsync:
         result = await discover_target_capabilities_async(
             target=target,
             capabilities=gen,
-            per_probe_timeout_s=TEST_WATCHDOG_SECONDS,
+            per_probe_timeout_s=2.0,
         )
 
         assert result.supports_json_output is True
@@ -1425,9 +1433,7 @@ class TestVerifyTargetAsync:
 
         assert target.capabilities.supports_multi_turn is False
 
-        result = await discover_target_capabilities_async(
-            target=target, per_probe_timeout_s=TEST_WATCHDOG_SECONDS, apply=True
-        )
+        result = await discover_target_capabilities_async(target=target, per_probe_timeout_s=2.0, apply=True)
 
         assert target.capabilities == result
         assert target.capabilities.supports_multi_turn is True
@@ -1439,7 +1445,7 @@ class TestVerifyTargetAsync:
         target._configuration = TargetConfiguration(capabilities=declared)
         target._send_prompt_to_target_async = AsyncMock(return_value=_ok_response())  # type: ignore[method-assign]
 
-        result = await discover_target_capabilities_async(target=target, per_probe_timeout_s=TEST_WATCHDOG_SECONDS)
+        result = await discover_target_capabilities_async(target=target, per_probe_timeout_s=2.0)
 
         # Result reflects probe; target capabilities remain at declared values.
         assert result.supports_multi_turn is True

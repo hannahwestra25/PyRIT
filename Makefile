@@ -8,7 +8,6 @@ INTEGRATION_TESTS:=tests/integration
 PARTNER_INTEGRATION_TESTS:=tests/partner_integration
 END_TO_END_TESTS:=tests/end_to_end
 JUNIT_XML?=junit/test-results.xml
-PYTEST_WORKERS?=4
 DIFF_COVER_BASE?=origin/main
 
 all: pre-commit
@@ -39,22 +38,21 @@ docs-api:
 	uv run python -m build_scripts.pydoc2json pyrit --submodules -o doc/_api/pyrit_all.json
 	uv run python -m build_scripts.gen_api_md
 
-# Because of import time, "auto" seemed to actually go slower than just using 4 processes.
-# Override PYTEST_WORKERS on hosts with fewer cores (CI uses 3 on the 3-vCPU macOS runner).
+# Because of import time, "auto" seemed to actually go slower than just using 4 processes
 unit-test:
-	$(CMD) pytest -n $(PYTEST_WORKERS) --dist=loadfile $(UNIT_TESTS)
+	$(CMD) pytest -n 4 --dist=loadfile $(UNIT_TESTS)
 
 unit-test-junit:
-	$(CMD) pytest -n $(PYTEST_WORKERS) --dist=loadfile $(UNIT_TESTS) --junitxml=$(JUNIT_XML) --durations=25
+	$(CMD) pytest -n 4 --dist=loadfile $(UNIT_TESTS) --junitxml=$(JUNIT_XML) --durations=25
 
 unit-test-cov-html:
-	$(CMD) pytest -n $(PYTEST_WORKERS) --dist=loadfile --cov=$(PYMODULE) --cov-fail-under=78 $(UNIT_TESTS) --cov-report html
+	$(CMD) pytest -n 4 --dist=loadfile --cov=$(PYMODULE) --cov-fail-under=78 $(UNIT_TESTS) --cov-report html
 
 unit-test-cov-xml:
-	$(CMD) pytest -n $(PYTEST_WORKERS) --dist=loadfile --cov=$(PYMODULE) --cov-fail-under=78 $(UNIT_TESTS) --cov-report xml --cov-report term --junitxml=$(JUNIT_XML) --durations=25
+	$(CMD) pytest -n 4 --dist=loadfile --cov=$(PYMODULE) --cov-fail-under=78 $(UNIT_TESTS) --cov-report xml --cov-report term --junitxml=$(JUNIT_XML) --durations=25
 
 diff-cover:
-	$(CMD) pytest -n $(PYTEST_WORKERS) --dist=loadfile --cov=$(PYMODULE) --cov-fail-under=78 $(UNIT_TESTS) --cov-report xml
+	$(CMD) pytest -n 4 --dist=loadfile --cov=$(PYMODULE) --cov-fail-under=78 $(UNIT_TESTS) --cov-report xml
 	uv run python -m diff_cover.diff_cover_tool coverage.xml --compare-branch="$(DIFF_COVER_BASE)" --diff-range-notation=.. --fail-under=90
 
 unit-test-diff-cover:

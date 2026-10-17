@@ -12,7 +12,6 @@ import pytest
 from pyrit.analytics import AttackResultAnalytics
 from pyrit.analytics._execution import AnalyticsExecution
 from pyrit.memory import SQLiteMemory
-from unit.async_utils import TEST_WATCHDOG_SECONDS
 
 
 @pytest.fixture
@@ -24,12 +23,7 @@ async def analytics(sqlite_instance: SQLiteMemory) -> AsyncGenerator[AttackResul
     Default budgets and expiration/cleanup are tested independently in
     test_execution.py. Admission capacities and native database work are unchanged.
     """
-    execution = partial(
-        AnalyticsExecution,
-        queue_timeout=TEST_WATCHDOG_SECONDS,
-        report_timeout=TEST_WATCHDOG_SECONDS,
-        quick_timeout=TEST_WATCHDOG_SECONDS,
-    )
+    execution = partial(AnalyticsExecution, queue_timeout=300.0, report_timeout=300.0, quick_timeout=300.0)
     with patch("pyrit.analytics.attack_result_analytics.AnalyticsExecution", side_effect=execution):
         async with AttackResultAnalytics(memory=sqlite_instance) as analytics:
             yield analytics
