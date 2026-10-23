@@ -127,6 +127,9 @@ class ScenarioSuiteExecutionService:
     remains an ordinary persisted ``ScenarioResult`` managed by ``ScenarioRunService``.
     """
 
+    SUBMISSION_FAILURE_MESSAGE = "The scenario run could not be created. Check server logs before retrying."
+    CHILD_STATUS_FAILURE_MESSAGE = "The scenario run status could not be loaded. Refresh the page or check server logs."
+
     def __init__(
         self,
         *,
@@ -382,7 +385,7 @@ class ScenarioSuiteExecutionService:
                     )
                     async with state.lock:
                         entry.state = ScenarioSuiteExecutionEntryState.SUBMISSION_FAILED
-                        entry.error = str(exc)
+                        entry.error = self.SUBMISSION_FAILURE_MESSAGE
                         entry.error_type = type(exc).__name__
                         state.updated_at = datetime.now(UTC)
                     continue
@@ -473,8 +476,14 @@ class ScenarioSuiteExecutionService:
             error_type = entry.error_type
             entry_state = entry.state
             if isinstance(run_or_error, BaseException):
+                logger.warning(
+                    "Scenario suite execution %s entry %s child run status could not be loaded.",
+                    snapshot.execution_id,
+                    entry.resolved.entry_id,
+                    exc_info=(type(run_or_error), run_or_error, run_or_error.__traceback__),
+                )
                 entry_state = ScenarioSuiteExecutionEntryState.FAILED
-                error = str(run_or_error)
+                error = self.CHILD_STATUS_FAILURE_MESSAGE
                 error_type = type(run_or_error).__name__
             elif run_or_error is not None:
                 run = run_or_error

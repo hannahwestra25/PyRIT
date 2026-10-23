@@ -386,7 +386,11 @@ async def test_submission_failure_does_not_prevent_later_entries_from_queueing(
     ) -> ScenarioRunSummary:
         calls.append((request, initial_metadata))
         if len(calls) == 1:
-            raise ValueError("first entry could not initialize")
+            raise ValueError(
+                "(sqlite3.OperationalError) database is locked "
+                "[SQL: INSERT INTO ScenarioResultEntries ...] "
+                "[parameters: ('secret-token',)]"
+            )
         summary = _run_summary(
             run_id="run-2",
             scenario_name=request.scenario_name,
@@ -410,9 +414,50 @@ async def test_submission_failure_does_not_prevent_later_entries_from_queueing(
         ScenarioSuiteExecutionEntryState.SUBMISSION_FAILED,
         ScenarioSuiteExecutionEntryState.COMPLETED,
     ]
-    assert summary.entries[0].error == "first entry could not initialize"
+    assert summary.entries[0].error == service.SUBMISSION_FAILURE_MESSAGE
+    assert summary.entries[0].error_type == "ValueError"
+    assert "database is locked" not in summary.model_dump_json()
+    assert "secret-token" not in summary.model_dump_json()
     assert summary.entries[1].run is not None
     assert len(calls) == 2
+
+
+async def test_child_status_failure_does_not_expose_exception_details(
+    execution_context: tuple[
+        ScenarioSuiteExecutionService,
+        ScenarioSuiteRegistry,
+        MagicMock,
+        MagicMock,
+        list[tuple[RunScenarioRequest, dict[str, Any]]],
+        dict[str, ScenarioRunSummary],
+    ],
+) -> None:
+    """Test child status lookup failures retain diagnostics without exposing exception text."""
+    service, suite_registry, _, run_service, _, runs = execution_context
+    stored = suite_registry.save_suite(suite=_suite(), expected_version=None)
+
+    accepted = await service.launch_async(
+        name="weekly",
+        request=_launch_request(suite_version=stored.version),
+    )
+    await _wait_for_submissions(service)
+
+    async def get_run_async(*, scenario_result_id: str) -> ScenarioRunSummary | None:
+        if scenario_result_id == "run-1":
+            raise RuntimeError("SELECT secret_column FROM private_table")
+        return runs.get(scenario_result_id)
+
+    runs["run-2"] = runs["run-2"].model_copy(update={"status": ScenarioRunState.COMPLETED})
+    run_service.get_run_async.side_effect = get_run_async
+    summary = await service.get_execution_async(execution_id=accepted.suite_execution_id)
+
+    assert summary is not None
+    assert summary.status == ScenarioSuiteExecutionStatus.FAILED
+    assert summary.entries[0].state == ScenarioSuiteExecutionEntryState.FAILED
+    assert summary.entries[0].error == service.CHILD_STATUS_FAILURE_MESSAGE
+    assert summary.entries[0].error_type == "RuntimeError"
+    assert "secret_column" not in summary.model_dump_json()
+    assert summary.entries[1].run is not None
 
 
 async def test_cancel_stops_pending_submission_and_cancels_created_children(

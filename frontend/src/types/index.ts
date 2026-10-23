@@ -1498,7 +1498,9 @@ export interface ScenarioSuiteExecutionEntrySummary {
   preset_version: string | null
   state: ScenarioSuiteExecutionEntryState
   run: ScenarioRunSummary | null
+  /** User-safe failure text. The UI still maps it to state-owned copy before display. */
   error: string | null
+  /** Internal exception class for diagnostics; never display it to operators. */
   error_type: string | null
 }
 

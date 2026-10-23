@@ -172,7 +172,12 @@ describe('ScenarioSuiteExecutionPage', () => {
     expect(within(rows[1]).getAllByText('Queued')).toHaveLength(2)
   })
 
-  it('surfaces entry submission failures without inventing a child run', () => {
+  it('shows safe entry failures without rendering backend exception details', () => {
+    const rawError = (
+      "(sqlite3.OperationalError) database is locked "
+      + "[SQL: INSERT INTO ScenarioResultEntries ...] "
+      + "[parameters: ('secret-token',)]"
+    )
     setHookResult({
       loadStatus: 'ready',
       execution: makeExecution({
@@ -183,7 +188,14 @@ describe('ScenarioSuiteExecutionPage', () => {
             position: 1,
             presetName: 'first_preset',
             state: 'SUBMISSION_FAILED',
-            error: 'Scenario could not initialize.',
+            error: rawError,
+          }),
+          makeEntry({
+            entryId: SECOND_ENTRY_ID,
+            position: 2,
+            presetName: 'second_preset',
+            state: 'FAILED',
+            error: rawError,
           }),
         ],
       }),
@@ -193,8 +205,15 @@ describe('ScenarioSuiteExecutionPage', () => {
 
     renderPage()
 
-    expect(screen.getByText('Scenario could not initialize.')).toBeInTheDocument()
-    expect(screen.getByText('Not created')).toBeInTheDocument()
+    expect(screen.getByText(
+      'The scenario run could not be created. Check server logs before retrying.',
+    )).toBeInTheDocument()
+    expect(screen.getByText(
+      'The scenario run status could not be loaded. Refresh the page or check server logs.',
+    )).toBeInTheDocument()
+    expect(screen.queryByText(/database is locked/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/secret-token/i)).not.toBeInTheDocument()
+    expect(screen.getAllByText('Not created')).toHaveLength(2)
     expect(screen.getAllByText('Submission failed')).toHaveLength(2)
   })
 

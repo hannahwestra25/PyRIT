@@ -74,6 +74,13 @@ const ENTRY_BADGE_COLORS: Record<
   CANCELLED: 'warning',
 }
 
+const ENTRY_SUBMISSION_FAILURE_MESSAGE = (
+  'The scenario run could not be created. Check server logs before retrying.'
+)
+const ENTRY_STATUS_FAILURE_MESSAGE = (
+  'The scenario run status could not be loaded. Refresh the page or check server logs.'
+)
+
 export default function ScenarioSuiteExecutionPage() {
   const { executionId } = useParams<{ executionId: string }>()
   const decodedExecutionId = routerPathParamValue(executionId)
@@ -300,7 +307,7 @@ function ScenarioSuiteExecutionPageContent({
                         </Text>
                         {entry.error && (
                           <Text size={200} className={styles.errorText}>
-                            {entry.error}
+                            {entryErrorMessage(entry)}
                           </Text>
                         )}
                       </div>
@@ -406,6 +413,12 @@ function entryProgress(entry: ScenarioSuiteExecutionEntrySummary): string {
     return formatState(entry.run.status)
   }
   return `${entry.run.completed_attacks} of ${entry.run.total_attacks} attacks`
+}
+
+function entryErrorMessage(entry: ScenarioSuiteExecutionEntrySummary): string {
+  return entry.state === 'SUBMISSION_FAILED'
+    ? ENTRY_SUBMISSION_FAILURE_MESSAGE
+    : ENTRY_STATUS_FAILURE_MESSAGE
 }
 
 function statusIcon(

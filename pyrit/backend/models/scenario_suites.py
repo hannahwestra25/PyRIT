@@ -187,8 +187,14 @@ class ScenarioSuiteExecutionEntrySummary(BaseModel):
     )
     state: ScenarioSuiteExecutionEntryState = Field(..., description="Submission or child-run state")
     run: ScenarioRunSummary | None = Field(None, description="Current child run summary after successful submission")
-    error: str | None = Field(None, description="Submission failure when no child run could be created")
-    error_type: str | None = Field(None, description="Submission exception class name")
+    error: str | None = Field(
+        None,
+        description="User-safe submission or status failure message when no child run can be shown",
+    )
+    error_type: str | None = Field(
+        None,
+        description="Internal exception class name for diagnostics; clients should not display it",
+    )
 
 
 class ScenarioSuiteExecutionSummary(BaseModel):
