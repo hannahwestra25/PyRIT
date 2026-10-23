@@ -5,6 +5,7 @@
 
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Literal
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID
 
@@ -20,8 +21,14 @@ from pyrit.backend.models.scenario_suites import (
     ScenarioSuiteResponse,
 )
 from pyrit.backend.services.scenario_suite_service import ScenarioSuiteService
-from pyrit.models.catalog import PresetIssue, ScenarioSuite, ScenarioSuiteEntry, StoredScenarioSuite
-from pyrit.registry import ScenarioPresetRegistry, ScenarioSuiteConflictError, ScenarioSuiteStorage
+from pyrit.models.catalog import PresetIssue, ScenarioSuite, ScenarioSuiteEntry, ScenarioSuiteRegistryEntry
+from pyrit.registry import (
+    ScenarioPresetRegistry,
+    ScenarioSuiteConflictError,
+    ScenarioSuiteNameRegisteredError,
+    ScenarioSuiteRegistry,
+    ScenarioSuiteStorage,
+)
 
 SUITE_NAME = "weekly"
 ENTRY_ID = UUID("11111111-1111-4111-8111-111111111111")
@@ -39,13 +46,15 @@ def _suite(*, name: str = SUITE_NAME, author: str | None = None) -> ScenarioSuit
 def _response(
     *,
     suite: ScenarioSuite | None = None,
-    version: str = "suite-v1",
+    origin: Literal["stored", "registered"] = "stored",
+    version: str | None = "suite-v1",
     issues: list[PresetIssue] | None = None,
 ) -> ScenarioSuiteResponse:
     """Build a scenario suite response envelope."""
     definition = suite or _suite()
     return ScenarioSuiteResponse(
         suite=definition,
+        origin=origin,
         version=version,
         entry_statuses=[
             ScenarioSuiteEntryStatus(
@@ -80,7 +89,11 @@ def service() -> Iterator[MagicMock]:
     """Patch the scenario suite service resolved by the routes."""
     mock_service = MagicMock(spec=ScenarioSuiteService)
     mock_service.get_suite_async.return_value = _response()
-    mock_service.load_suite_async.return_value = StoredScenarioSuite(suite=_suite(), version="suite-v1")
+    mock_service.load_suite_async.return_value = ScenarioSuiteRegistryEntry(
+        suite=_suite(),
+        origin="stored",
+        version="suite-v1",
+    )
     with patch("pyrit.backend.routes.scenario_suites.get_scenario_suite_service", return_value=mock_service):
         yield mock_service
 
@@ -93,7 +106,7 @@ def unavailable_preset_backend(
     registry = MagicMock(spec=ScenarioPresetRegistry)
     registry.get_preset.side_effect = AzureError("expired preset container signature")
     storage = ScenarioSuiteStorage(source=str(tmp_path))
-    scenario_service = ScenarioSuiteService(storage=storage)
+    scenario_service = ScenarioSuiteService(registry=ScenarioSuiteRegistry(storage=storage))
     with (
         patch.object(ScenarioPresetRegistry, "get_registry_singleton", return_value=registry),
         patch(
@@ -135,6 +148,7 @@ def test_get_returns_suite_and_version(client: TestClient, service: MagicMock) -
     response = client.get(f"/api/scenario-suites/{SUITE_NAME}")
 
     assert response.status_code == 200
+    assert response.json()["origin"] == "stored"
     assert response.json()["version"] == "suite-v1"
     assert response.json()["suite"]["entries"][0]["entry_id"] == str(ENTRY_ID)
 
@@ -144,6 +158,17 @@ def test_get_reports_missing_suite(client: TestClient, service: MagicMock) -> No
     service.get_suite_async = AsyncMock(return_value=None)
 
     assert client.get("/api/scenario-suites/missing").status_code == 404
+
+
+def test_get_registered_suite_returns_origin_and_null_version(client: TestClient, service: MagicMock) -> None:
+    """Test the read-only registered suite response contract."""
+    service.get_suite_async = AsyncMock(return_value=_response(origin="registered", version=None))
+
+    response = client.get(f"/api/scenario-suites/{SUITE_NAME}")
+
+    assert response.status_code == 200
+    assert response.json()["origin"] == "registered"
+    assert response.json()["version"] is None
 
 
 def test_storage_failure_is_sanitized(client: TestClient, service: MagicMock) -> None:
@@ -246,6 +271,16 @@ def test_create_over_existing_name_is_conflict(client: TestClient, service: Magi
     assert response.status_code == 409
 
 
+def test_create_over_registered_name_is_actionable_conflict(client: TestClient, service: MagicMock) -> None:
+    """Test code-owned names are not reported as retryable version conflicts."""
+    service.save_suite_async = AsyncMock(side_effect=ScenarioSuiteNameRegisteredError(SUITE_NAME))
+
+    response = client.post("/api/scenario-suites", json=_suite().model_dump(mode="json"))
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == f"Scenario suite '{SUITE_NAME}' is registered in code and cannot be stored"
+
+
 def test_update_passes_expected_version(client: TestClient, service: MagicMock) -> None:
     """Test optimistic concurrency on update."""
     service.save_suite_async = AsyncMock(return_value=_response(version="suite-v2"))
@@ -262,7 +297,11 @@ def test_update_passes_expected_version(client: TestClient, service: MagicMock) 
 def test_update_preserves_stored_author(client: TestClient, service: MagicMock) -> None:
     """Test author preservation when the editor omits it."""
     stored = _suite(author="Grace Hopper")
-    service.load_suite_async.return_value = StoredScenarioSuite(suite=stored, version="suite-v1")
+    service.load_suite_async.return_value = ScenarioSuiteRegistryEntry(
+        suite=stored,
+        origin="stored",
+        version="suite-v1",
+    )
     service.save_suite_async.return_value = _response(suite=stored, version="suite-v2")
 
     response = client.put(
@@ -324,6 +363,23 @@ def test_update_reports_version_conflict(client: TestClient, service: MagicMock)
 
     assert response.status_code == 409
     assert "re-read" in response.json()["detail"]
+
+
+def test_update_registered_name_is_actionable_conflict(client: TestClient, service: MagicMock) -> None:
+    """Test a direct update cannot mutate a code-defined suite."""
+    service.load_suite_async.return_value = ScenarioSuiteRegistryEntry(
+        suite=_suite(),
+        origin="registered",
+    )
+    service.save_suite_async = AsyncMock(side_effect=ScenarioSuiteNameRegisteredError(SUITE_NAME))
+
+    response = client.put(
+        f"/api/scenario-suites/{SUITE_NAME}",
+        json={"suite": _suite().model_dump(mode="json"), "expected_version": "suite-v1"},
+    )
+
+    assert response.status_code == 409
+    assert "registered in code" in response.json()["detail"]
 
 
 def test_update_requires_admin(anonymous_client: TestClient, service: MagicMock) -> None:

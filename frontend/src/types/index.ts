@@ -1428,8 +1428,13 @@ export interface ScenarioSuiteEntryStatus {
 
 export interface ScenarioSuiteResponse {
   suite: ScenarioSuite
-  /** Opaque document version required to update the suite. */
-  version: string
+  /**
+   * Whether a stored document or registering code contributed this suite. A
+   * registered suite cannot be updated or deleted through the API.
+   */
+  origin: 'stored' | 'registered'
+  /** Opaque document version required to update a stored suite. Null when registered in code. */
+  version: string | null
   /** Ordered exactly like `suite.entries`. */
   entry_statuses: ScenarioSuiteEntryStatus[]
 }

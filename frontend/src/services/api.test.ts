@@ -137,7 +137,7 @@ describe("api service", () => {
   describe("scenarioSuitesApi", () => {
     it("supports collection and encoded item CRUD with optimistic concurrency", async () => {
       const suite = { name: "nightly_suite", schema_version: 1, entries: [] };
-      const response = { suite, version: "v1", entry_statuses: [] };
+      const response = { suite, origin: "stored", version: "v1", entry_statuses: [] };
       const controller = new AbortController();
       (apiClient.get as jest.Mock).mockResolvedValue({ data: response });
       (apiClient.post as jest.Mock).mockResolvedValue({ data: response });

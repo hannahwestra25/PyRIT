@@ -39,6 +39,7 @@ function makeSuite(): ScenarioSuiteResponse {
         { entry_id: SECOND_ENTRY_ID, preset_name: 'nightly_probe' },
       ],
     },
+    origin: 'stored',
     version: 'suite-v1',
     entry_statuses: [
       {
@@ -56,6 +57,14 @@ function makeSuite(): ScenarioSuiteResponse {
         issues: [],
       },
     ],
+  }
+}
+
+function makeRegisteredSuite(): ScenarioSuiteResponse {
+  return {
+    ...makeSuite(),
+    origin: 'registered',
+    version: null,
   }
 }
 
@@ -130,6 +139,22 @@ describe('ScenarioSuiteLibrary', () => {
 
     await waitFor(() => expect(mockRemove).toHaveBeenCalledWith('nightly_suite'))
     expect(await screen.findByTestId('suite-empty-state')).toBeInTheDocument()
+  })
+
+  it('identifies registered suites and exposes only a read-only view action', async () => {
+    const user = userEvent.setup()
+    mockList.mockResolvedValue({ source: 'suites', items: [makeRegisteredSuite()] })
+
+    renderLibrary()
+
+    const row = await screen.findByTestId('suite-row-nightly_suite')
+    expect(within(row).getByText('Defined in code')).toBeInTheDocument()
+    expect(within(row).getByRole('button', { name: 'View' })).toBeEnabled()
+    expect(within(row).getByRole('button', { name: 'Delete' })).toBeDisabled()
+
+    await user.click(within(row).getByRole('button', { name: 'View' }))
+    expect(mockNavigate).toHaveBeenCalledWith('/registry/scenario-suites/nightly_suite/edit')
+    expect(mockRemove).not.toHaveBeenCalled()
   })
 
   it('reports load failures and retries', async () => {

@@ -30,6 +30,8 @@ import type { ScenarioSuiteResponse } from '@/types'
 import { useScenarioSuiteLibraryStyles } from './ScenarioSuiteLibrary.styles'
 import { NEW_SUITE_ROUTE, suiteEditorRoutePath } from './suiteRoutes'
 
+const DEFINED_IN_CODE_HINT = 'Defined in code, so it cannot be edited or deleted here.'
+
 function issueCount(item: ScenarioSuiteResponse): number {
   return item.entry_statuses.reduce(
     (count, status) => count + status.issues.length,
@@ -188,6 +190,7 @@ export default function ScenarioSuiteLibrary() {
             <TableBody>
               {items.map((item) => {
                 const issues = issueCount(item)
+                const editable = item.origin === 'stored'
                 return (
                   <TableRow key={item.suite.name} data-testid={`suite-row-${item.suite.name}`}>
                     <TableCell className={styles.nameCell}>
@@ -198,6 +201,11 @@ export default function ScenarioSuiteLibrary() {
                         {issues > 0 && (
                           <Badge appearance="tint" color="warning">
                             Needs attention
+                          </Badge>
+                        )}
+                        {!editable && (
+                          <Badge appearance="tint" color="informative">
+                            Defined in code
                           </Badge>
                         )}
                       </div>
@@ -247,12 +255,14 @@ export default function ScenarioSuiteLibrary() {
                           onClick={() => navigate(suiteEditorRoutePath(item.suite.name))}
                           data-testid={`edit-suite-${item.suite.name}`}
                         >
-                          Edit
+                          {editable ? 'Edit' : 'View'}
                         </Button>
                         <Button
                           className={styles.touchTarget}
                           appearance="subtle"
                           icon={<DeleteRegular />}
+                          disabled={!editable}
+                          title={editable ? undefined : DEFINED_IN_CODE_HINT}
                           onClick={() => {
                             setActionError(null)
                             setPendingDelete(item)
