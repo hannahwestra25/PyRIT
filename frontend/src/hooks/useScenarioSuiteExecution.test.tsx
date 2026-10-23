@@ -110,21 +110,37 @@ describe('useScenarioSuiteExecution', () => {
     expect(screen.getByTestId('error')).toHaveTextContent('Execution is no longer available.')
   })
 
-  it('keeps the last good execution visible when a later poll fails', async () => {
+  it('keeps stale progress visible and resumes polling after consecutive refresh failures', async () => {
     mockGetExecution
       .mockResolvedValueOnce(makeExecution('IN_PROGRESS'))
-      .mockRejectedValue(new Error('refresh failed'))
+      .mockRejectedValueOnce(new Error('first refresh failed'))
+      .mockRejectedValueOnce(new Error('second refresh failed'))
+      .mockResolvedValueOnce(makeExecution('COMPLETED'))
 
     render(<Harness />)
 
     await waitFor(() => expect(screen.getByTestId('execution-status')).toHaveTextContent('IN_PROGRESS'))
     await act(async () => {
-      await jest.advanceTimersByTimeAsync(SCENARIO_SUITE_EXECUTION_POLL_INTERVAL_MS * 2)
+      await jest.advanceTimersByTimeAsync(SCENARIO_SUITE_EXECUTION_POLL_INTERVAL_MS)
+    })
+    expect(screen.getByTestId('stale')).toHaveTextContent('false')
+
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(SCENARIO_SUITE_EXECUTION_POLL_INTERVAL_MS)
     })
 
     expect(screen.getByTestId('execution-status')).toHaveTextContent('IN_PROGRESS')
     expect(screen.getByTestId('stale')).toHaveTextContent('true')
-    expect(screen.getByTestId('error')).toHaveTextContent('refresh failed')
+    expect(screen.getByTestId('error')).toHaveTextContent('second refresh failed')
+
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(SCENARIO_SUITE_EXECUTION_POLL_INTERVAL_MS)
+    })
+
+    expect(screen.getByTestId('execution-status')).toHaveTextContent('COMPLETED')
+    expect(screen.getByTestId('stale')).toHaveTextContent('false')
+    expect(screen.getByTestId('error')).toHaveTextContent('')
+    expect(mockGetExecution).toHaveBeenCalledTimes(4)
   })
 
   it('stops polling when cancellation applies a terminal response', async () => {

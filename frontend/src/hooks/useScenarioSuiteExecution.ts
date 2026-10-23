@@ -120,6 +120,13 @@ export function useScenarioSuiteExecution(
           error: apiError.detail,
           stale: previous !== null,
         })
+        if (
+          apiError.status !== 404
+          && previous !== null
+          && !isTerminalSuiteExecutionStatus(previous.status)
+        ) {
+          schedulePoll()
+        }
       }
     }
 
