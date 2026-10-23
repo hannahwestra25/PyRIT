@@ -13,6 +13,7 @@ from uuid import UUID
 
 import pytest
 
+import pyrit.backend.services.scenario_suite_execution_service as _execution_mod
 from pyrit.backend.models.scenario_suites import (
     LaunchScenarioSuiteRequest,
     ScenarioSuiteExecutionEntryState,
@@ -21,6 +22,7 @@ from pyrit.backend.models.scenario_suites import (
 )
 from pyrit.backend.services.scenario_run_service import ScenarioRunService
 from pyrit.backend.services.scenario_suite_execution_service import (
+    ScenarioSuiteExecutionCapacityError,
     ScenarioSuiteExecutionService,
     ScenarioSuiteLaunchConflictError,
     ScenarioSuiteNotRunnableError,
@@ -422,7 +424,7 @@ async def test_submission_failure_does_not_prevent_later_entries_from_queueing(
     assert len(calls) == 2
 
 
-async def test_child_status_failure_does_not_expose_exception_details(
+async def test_child_status_failure_is_nonterminal_and_recovers(
     execution_context: tuple[
         ScenarioSuiteExecutionService,
         ScenarioSuiteRegistry,
@@ -432,7 +434,7 @@ async def test_child_status_failure_does_not_expose_exception_details(
         dict[str, ScenarioRunSummary],
     ],
 ) -> None:
-    """Test child status lookup failures retain diagnostics without exposing exception text."""
+    """Test a temporary child status error stays nonterminal and clears after recovery."""
     service, suite_registry, _, run_service, _, runs = execution_context
     stored = suite_registry.save_suite(suite=_suite(), expected_version=None)
 
@@ -442,25 +444,35 @@ async def test_child_status_failure_does_not_expose_exception_details(
     )
     await _wait_for_submissions(service)
 
+    failed_once = False
+
     async def get_run_async(*, scenario_result_id: str) -> ScenarioRunSummary | None:
-        if scenario_result_id == "run-1":
+        nonlocal failed_once
+        if scenario_result_id == "run-1" and not failed_once:
+            failed_once = True
             raise RuntimeError("SELECT secret_column FROM private_table")
         return runs.get(scenario_result_id)
 
     runs["run-2"] = runs["run-2"].model_copy(update={"status": ScenarioRunState.COMPLETED})
     run_service.get_run_async.side_effect = get_run_async
-    summary = await service.get_execution_async(execution_id=accepted.suite_execution_id)
+    unavailable = await service.get_execution_async(execution_id=accepted.suite_execution_id)
+    recovered = await service.get_execution_async(execution_id=accepted.suite_execution_id)
 
-    assert summary is not None
-    assert summary.status == ScenarioSuiteExecutionStatus.FAILED
-    assert summary.entries[0].state == ScenarioSuiteExecutionEntryState.FAILED
-    assert summary.entries[0].error == service.CHILD_STATUS_FAILURE_MESSAGE
-    assert summary.entries[0].error_type == "RuntimeError"
-    assert "secret_column" not in summary.model_dump_json()
-    assert summary.entries[1].run is not None
+    assert unavailable is not None
+    assert unavailable.status == ScenarioSuiteExecutionStatus.IN_PROGRESS
+    assert unavailable.entries[0].state == ScenarioSuiteExecutionEntryState.QUEUED
+    assert unavailable.entries[0].error == service.CHILD_STATUS_FAILURE_MESSAGE
+    assert unavailable.entries[0].error_type == "RuntimeError"
+    assert "secret_column" not in unavailable.model_dump_json()
+    assert unavailable.entries[1].run is not None
+    assert recovered is not None
+    assert recovered.status == ScenarioSuiteExecutionStatus.IN_PROGRESS
+    assert recovered.entries[0].run is not None
+    assert recovered.entries[0].error is None
+    assert recovered.entries[0].error_type is None
 
 
-async def test_cancel_stops_pending_submission_and_cancels_created_children(
+async def test_child_status_failure_does_not_suppress_cancellation(
     execution_context: tuple[
         ScenarioSuiteExecutionService,
         ScenarioSuiteRegistry,
@@ -470,10 +482,56 @@ async def test_cancel_stops_pending_submission_and_cancels_created_children(
         dict[str, ScenarioRunSummary],
     ],
 ) -> None:
-    """Test best-effort whole-execution cancellation without a persisted parent."""
+    """Test cancellation remains available while a child status read is failing."""
+    service, suite_registry, _, run_service, _, runs = execution_context
+    stored = suite_registry.save_suite(suite=_suite(), expected_version=None)
+
+    accepted = await service.launch_async(
+        name="weekly",
+        request=_launch_request(suite_version=stored.version),
+    )
+    await _wait_for_submissions(service)
+
+    fail_reads = True
+
+    async def get_run_async(*, scenario_result_id: str) -> ScenarioRunSummary | None:
+        if scenario_result_id == "run-1" and fail_reads:
+            raise TimeoutError("temporary read timeout")
+        return runs.get(scenario_result_id)
+
+    run_service.get_run_async.side_effect = get_run_async
+    cancelling = await service.cancel_execution_async(execution_id=accepted.suite_execution_id)
+
+    assert cancelling is not None
+    assert cancelling.status == ScenarioSuiteExecutionStatus.CANCELLED
+    assert run_service.cancel_run_async.await_count == 2
+
+    fail_reads = False
+    recovered = await service.get_execution_async(execution_id=accepted.suite_execution_id)
+
+    assert recovered is not None
+    assert recovered.status == ScenarioSuiteExecutionStatus.CANCELLED
+    assert [entry.state for entry in recovered.entries] == [
+        ScenarioSuiteExecutionEntryState.CANCELLED,
+        ScenarioSuiteExecutionEntryState.CANCELLED,
+    ]
+
+
+async def test_cancel_recovers_and_cancels_child_admitted_before_response(
+    execution_context: tuple[
+        ScenarioSuiteExecutionService,
+        ScenarioSuiteRegistry,
+        MagicMock,
+        MagicMock,
+        list[tuple[RunScenarioRequest, dict[str, Any]]],
+        dict[str, ScenarioRunSummary],
+    ],
+) -> None:
+    """Test cancellation retains an admitted child ID until the response handoff completes."""
     service, suite_registry, _, run_service, calls, runs = execution_context
     stored = suite_registry.save_suite(suite=_suite(), expected_version=None)
-    hold_second = asyncio.Event()
+    admitted = asyncio.Event()
+    release_response = asyncio.Event()
 
     async def start_run_async(
         *,
@@ -481,32 +539,40 @@ async def test_cancel_stops_pending_submission_and_cancels_created_children(
         initial_metadata: dict[str, Any],
     ) -> ScenarioRunSummary:
         calls.append((request, initial_metadata))
-        if len(calls) == 2:
-            await hold_second.wait()
         summary = _run_summary(
             run_id=f"run-{len(calls)}",
             scenario_name=request.scenario_name,
         )
         runs[summary.scenario_result_id] = summary
+        admitted.set()
+        await release_response.wait()
         return summary
 
     run_service.start_run_async.side_effect = start_run_async
 
-    accepted = await service.launch_async(
-        name="weekly",
-        request=_launch_request(suite_version=stored.version),
-    )
-    for _ in range(100):
-        current = await service.get_execution_async(execution_id=accepted.suite_execution_id)
-        if current is not None and current.entries[0].run is not None:
-            break
-        await asyncio.sleep(0)
-    else:
-        raise AssertionError("First suite child was not submitted")
+    summary = None
+    try:
+        accepted = await service.launch_async(
+            name="weekly",
+            request=_launch_request(suite_version=stored.version),
+        )
+        await asyncio.wait_for(admitted.wait(), timeout=5)
 
-    await service.cancel_execution_async(execution_id=accepted.suite_execution_id)
-    await _wait_for_submissions(service)
-    summary = await service.get_execution_async(execution_id=accepted.suite_execution_id)
+        cancelling = await service.cancel_execution_async(execution_id=accepted.suite_execution_id)
+
+        assert cancelling is not None
+        assert cancelling.status == ScenarioSuiteExecutionStatus.QUEUING
+        assert [entry.state for entry in cancelling.entries] == [
+            ScenarioSuiteExecutionEntryState.SUBMITTING,
+            ScenarioSuiteExecutionEntryState.CANCELLED,
+        ]
+        run_service.cancel_run_async.assert_not_awaited()
+
+        release_response.set()
+        await _wait_for_submissions(service)
+        summary = await service.get_execution_async(execution_id=accepted.suite_execution_id)
+    finally:
+        release_response.set()
 
     assert summary is not None
     assert summary.status == ScenarioSuiteExecutionStatus.CANCELLED
@@ -515,3 +581,42 @@ async def test_cancel_stops_pending_submission_and_cancels_created_children(
         ScenarioSuiteExecutionEntryState.CANCELLED,
     ]
     run_service.cancel_run_async.assert_awaited_once_with(scenario_result_id="run-1")
+    assert len(calls) == 1
+
+
+async def test_retention_rejects_active_capacity_and_evicts_terminal_execution(
+    execution_context: tuple[
+        ScenarioSuiteExecutionService,
+        ScenarioSuiteRegistry,
+        MagicMock,
+        MagicMock,
+        list[tuple[RunScenarioRequest, dict[str, Any]]],
+        dict[str, ScenarioRunSummary],
+    ],
+) -> None:
+    """Test the actual retention boundary never evicts queued or running children."""
+    service, suite_registry, _, _, _, runs = execution_context
+    stored = suite_registry.save_suite(suite=_suite(), expected_version=None)
+    request = _launch_request(suite_version=stored.version)
+
+    accepted = [
+        await service.launch_async(name="weekly", request=request)
+        for _ in range(_execution_mod._MAX_RETAINED_EXECUTIONS)
+    ]
+    await _wait_for_submissions(service)
+
+    with pytest.raises(ScenarioSuiteExecutionCapacityError, match="still active"):
+        await service.launch_async(name="weekly", request=request)
+
+    first = await service.get_execution_async(execution_id=accepted[0].suite_execution_id)
+    assert first is not None
+    assert first.status == ScenarioSuiteExecutionStatus.IN_PROGRESS
+
+    for entry in first.entries:
+        assert entry.run is not None
+        runs[entry.run.scenario_result_id] = entry.run.model_copy(update={"status": ScenarioRunState.COMPLETED})
+
+    replacement = await service.launch_async(name="weekly", request=request)
+
+    assert await service.get_execution_async(execution_id=accepted[0].suite_execution_id) is None
+    assert await service.get_execution_async(execution_id=replacement.suite_execution_id) is not None

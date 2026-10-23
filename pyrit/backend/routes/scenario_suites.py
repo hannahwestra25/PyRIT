@@ -19,6 +19,7 @@ from pyrit.backend.models.scenario_suites import (
     UpdateScenarioSuiteRequest,
 )
 from pyrit.backend.services.scenario_suite_execution_service import (
+    ScenarioSuiteExecutionCapacityError,
     ScenarioSuiteExecutionNotFoundError,
     ScenarioSuiteLaunchConflictError,
     ScenarioSuiteNotRunnableError,
@@ -144,6 +145,7 @@ async def cancel_scenario_suite_execution(  # pyrit-async-suffix-exempt
         400: {"model": ProblemDetail, "description": "The suite has unresolved or invalid entries"},
         404: {"model": ProblemDetail, "description": "Scenario suite not found"},
         409: {"model": ProblemDetail, "description": "The suite or a referenced preset changed"},
+        429: {"model": ProblemDetail, "description": "Active suite execution capacity is full"},
         503: {"model": ProblemDetail, "description": "Runtime or definition storage unavailable"},
     },
 )
@@ -178,6 +180,8 @@ async def launch_scenario_suite(  # pyrit-async-suffix-exempt
         ) from exc
     except ScenarioSuiteNotRunnableError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from None
+    except ScenarioSuiteExecutionCapacityError as exc:
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(exc)) from None
     except AzureError as exc:
         raise _storage_unavailable() from exc
     except RuntimeError as exc:

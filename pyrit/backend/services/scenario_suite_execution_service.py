@@ -32,10 +32,24 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _MAX_RETAINED_EXECUTIONS = 256
+_CAPACITY_MESSAGE = (
+    "Too many scenario suites are still active. Wait for an active suite to finish before launching another."
+)
+_TERMINAL_EXECUTION_STATUSES = frozenset(
+    {
+        ScenarioSuiteExecutionStatus.COMPLETED,
+        ScenarioSuiteExecutionStatus.FAILED,
+        ScenarioSuiteExecutionStatus.CANCELLED,
+    }
+)
 
 
 class ScenarioSuiteExecutionNotFoundError(LookupError):
     """A requested suite definition or transient execution does not exist."""
+
+
+class ScenarioSuiteExecutionCapacityError(RuntimeError):
+    """Active suite executions fill the transient coordinator capacity."""
 
 
 class ScenarioSuiteLaunchConflictError(ValueError):
@@ -143,6 +157,7 @@ class ScenarioSuiteExecutionService:
         self._run_service = run_service
         self._executions: OrderedDict[UUID, _ExecutionState] = OrderedDict()
         self._tasks: set[asyncio.Task[None]] = set()
+        self._admission_lock = asyncio.Lock()
         self._stopping = False
 
     def has_active_work(self) -> bool:
@@ -177,20 +192,24 @@ class ScenarioSuiteExecutionService:
         if self._stopping:
             raise RuntimeError("Scenario suite launch scheduling is stopping.")
 
-        now = datetime.now(UTC)
-        state = _ExecutionState(
-            execution_id=uuid4(),
-            suite=suite,
-            entries=[_ExecutionEntryState(resolved=entry) for entry in resolved_entries],
-            created_at=now,
-            updated_at=now,
-        )
-        self._evict_completed_submissions()
-        self._executions[state.execution_id] = state
-        task = asyncio.create_task(self._submit_entries_async(state=state))
-        state.task = task
-        self._tasks.add(task)
-        task.add_done_callback(self._submission_done)
+        async with self._admission_lock:
+            if self._stopping:
+                raise RuntimeError("Scenario suite launch scheduling is stopping.")
+            await self._ensure_execution_capacity_async()
+
+            now = datetime.now(UTC)
+            state = _ExecutionState(
+                execution_id=uuid4(),
+                suite=suite,
+                entries=[_ExecutionEntryState(resolved=entry) for entry in resolved_entries],
+                created_at=now,
+                updated_at=now,
+            )
+            self._executions[state.execution_id] = state
+            task = asyncio.create_task(self._submit_entries_async(state=state))
+            state.task = task
+            self._tasks.add(task)
+            task.add_done_callback(self._submission_done)
         return await self._build_summary_async(state=state)
 
     async def get_execution_async(self, *, execution_id: UUID) -> ScenarioSuiteExecutionSummary | None:
@@ -217,38 +236,20 @@ class ScenarioSuiteExecutionService:
             return None
 
         current = await self._build_summary_async(state=state)
-        if current.status in {
-            ScenarioSuiteExecutionStatus.COMPLETED,
-            ScenarioSuiteExecutionStatus.FAILED,
-            ScenarioSuiteExecutionStatus.CANCELLED,
-        }:
+        if current.status in _TERMINAL_EXECUTION_STATUSES:
             return current
 
-        run_ids: list[str] = []
-        async with state.lock:
-            state.cancel_requested = True
-            state.updated_at = datetime.now(UTC)
-            for entry in state.entries:
-                if entry.submission_task is not None and not entry.submission_task.done():
-                    entry.submission_task.cancel()
-                if entry.state == ScenarioSuiteExecutionEntryState.PENDING:
-                    entry.state = ScenarioSuiteExecutionEntryState.CANCELLED
-                if entry.scenario_result_id is not None:
-                    run_ids.append(entry.scenario_result_id)
-
-        if run_ids:
-            await asyncio.gather(
-                *(self._get_run_service().cancel_run_async(scenario_result_id=run_id) for run_id in run_ids),
-                return_exceptions=True,
-            )
+        await self._request_cancellation_async(state=state)
         return await self._build_summary_async(state=state)
 
     async def shutdown_async(self) -> None:
-        """Cancel retained submission tasks and wait for run-service cleanup."""
+        """Request child cancellation and finish in-flight admission handoffs."""
         self.stop_admission()
+        await asyncio.gather(
+            *(self._request_cancellation_async(state=state) for state in list(self._executions.values())),
+            return_exceptions=True,
+        )
         tasks = list(self._tasks)
-        for task in tasks:
-            task.cancel()
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -345,16 +346,14 @@ class ScenarioSuiteExecutionService:
     async def _submit_entries_async(self, *, state: _ExecutionState) -> None:
         """Submit every resolved entry in declared order through the FIFO run service."""
         try:
-            async with state.lock:
-                if state.cancel_requested:
-                    for entry in state.entries:
-                        entry.state = ScenarioSuiteExecutionEntryState.CANCELLED
-                    state.updated_at = datetime.now(UTC)
-                    return
-
-                for entry in state.entries:
+            for entry in state.entries:
+                async with state.lock:
+                    if state.cancel_requested:
+                        self._mark_unstarted_entries_cancelled(state=state)
+                        state.updated_at = datetime.now(UTC)
+                        return
                     entry.state = ScenarioSuiteExecutionEntryState.SUBMITTING
-                    entry.submission_task = asyncio.create_task(
+                    task = asyncio.create_task(
                         self._get_run_service().start_run_async(
                             request=entry.resolved.request,
                             initial_metadata=entry.resolved.metadata(
@@ -363,19 +362,11 @@ class ScenarioSuiteExecutionService:
                             ),
                         )
                     )
-                state.updated_at = datetime.now(UTC)
+                    entry.submission_task = task
+                    state.updated_at = datetime.now(UTC)
 
-            for entry in state.entries:
-                task = entry.submission_task
-                if task is None:
-                    continue
                 try:
-                    result = await task
-                except asyncio.CancelledError:
-                    async with state.lock:
-                        entry.state = ScenarioSuiteExecutionEntryState.CANCELLED
-                        state.updated_at = datetime.now(UTC)
-                    continue
+                    result = await asyncio.shield(task)
                 except Exception as exc:
                     logger.warning(
                         "Scenario suite execution %s entry %s could not be submitted.",
@@ -390,31 +381,35 @@ class ScenarioSuiteExecutionService:
                         state.updated_at = datetime.now(UTC)
                     continue
 
-                async with state.lock:
-                    entry.scenario_result_id = result.scenario_result_id
-                    entry.state = ScenarioSuiteExecutionEntryState(result.status.value)
-                    should_cancel = state.cancel_requested
-                    state.updated_at = datetime.now(UTC)
-                if should_cancel:
-                    await self._get_run_service().cancel_run_async(scenario_result_id=result.scenario_result_id)
+                await self._record_submission_result_async(state=state, entry=entry, result=result)
         except asyncio.CancelledError:
             async with state.lock:
-                tasks = [
-                    entry.submission_task
+                state.cancel_requested = True
+                self._mark_unstarted_entries_cancelled(state=state)
+                in_flight = [
+                    (entry, entry.submission_task)
                     for entry in state.entries
-                    if entry.submission_task is not None and not entry.submission_task.done()
+                    if entry.state == ScenarioSuiteExecutionEntryState.SUBMITTING
+                    and entry.submission_task is not None
+                    and entry.scenario_result_id is None
                 ]
-                for task in tasks:
-                    task.cancel()
-                for entry in state.entries:
-                    if entry.state in {
-                        ScenarioSuiteExecutionEntryState.PENDING,
-                        ScenarioSuiteExecutionEntryState.SUBMITTING,
-                    }:
-                        entry.state = ScenarioSuiteExecutionEntryState.CANCELLED
                 state.updated_at = datetime.now(UTC)
-            if tasks:
-                await asyncio.gather(*tasks, return_exceptions=True)
+            for entry, task in in_flight:
+                try:
+                    result = await asyncio.shield(task)
+                except asyncio.CancelledError:
+                    async with state.lock:
+                        if entry.scenario_result_id is None:
+                            entry.state = ScenarioSuiteExecutionEntryState.CANCELLED
+                            state.updated_at = datetime.now(UTC)
+                except Exception as exc:
+                    async with state.lock:
+                        entry.state = ScenarioSuiteExecutionEntryState.SUBMISSION_FAILED
+                        entry.error = self.SUBMISSION_FAILURE_MESSAGE
+                        entry.error_type = type(exc).__name__
+                        state.updated_at = datetime.now(UTC)
+                else:
+                    await self._record_submission_result_async(state=state, entry=entry, result=result)
             raise
 
     async def _build_summary_async(self, *, state: _ExecutionState) -> ScenarioSuiteExecutionSummary:
@@ -482,7 +477,6 @@ class ScenarioSuiteExecutionService:
                     entry.resolved.entry_id,
                     exc_info=(type(run_or_error), run_or_error, run_or_error.__traceback__),
                 )
-                entry_state = ScenarioSuiteExecutionEntryState.FAILED
                 error = self.CHILD_STATUS_FAILURE_MESSAGE
                 error_type = type(run_or_error).__name__
             elif run_or_error is not None:
@@ -518,6 +512,101 @@ class ScenarioSuiteExecutionService:
             updated_at=updated_at,
             entries=summaries,
         )
+
+    async def _request_cancellation_async(self, *, state: _ExecutionState) -> None:
+        """Cancel known children without interrupting an in-flight admission handoff."""
+        async with state.lock:
+            state.cancel_requested = True
+            self._mark_unstarted_entries_cancelled(state=state)
+            admitted_entries = [
+                (entry, entry.scenario_result_id) for entry in state.entries if entry.scenario_result_id is not None
+            ]
+            state.updated_at = datetime.now(UTC)
+
+        await asyncio.gather(
+            *(
+                self._cancel_child_run_async(
+                    state=state,
+                    entry=entry,
+                    scenario_result_id=scenario_result_id,
+                )
+                for entry, scenario_result_id in admitted_entries
+            )
+        )
+
+    async def _record_submission_result_async(
+        self,
+        *,
+        state: _ExecutionState,
+        entry: _ExecutionEntryState,
+        result: ScenarioRunSummary,
+    ) -> None:
+        """Record an admitted child and honor cancellation requested during admission."""
+        async with state.lock:
+            entry.scenario_result_id = result.scenario_result_id
+            entry.state = ScenarioSuiteExecutionEntryState(result.status.value)
+            entry.error = result.error
+            entry.error_type = result.error_type
+            should_cancel = state.cancel_requested
+            state.updated_at = datetime.now(UTC)
+
+        if should_cancel:
+            await self._cancel_child_run_async(
+                state=state,
+                entry=entry,
+                scenario_result_id=result.scenario_result_id,
+            )
+
+    async def _cancel_child_run_async(
+        self,
+        *,
+        state: _ExecutionState,
+        entry: _ExecutionEntryState,
+        scenario_result_id: str,
+    ) -> None:
+        """Cancel one admitted child and retain the scheduler's authoritative state."""
+        try:
+            result = await self._get_run_service().cancel_run_async(scenario_result_id=scenario_result_id)
+        except Exception:
+            logger.warning(
+                "Scenario suite execution %s child run %s could not be cancelled.",
+                state.execution_id,
+                scenario_result_id,
+                exc_info=True,
+            )
+            return
+        if result is None:
+            return
+
+        async with state.lock:
+            entry.state = ScenarioSuiteExecutionEntryState(result.status.value)
+            entry.error = result.error
+            entry.error_type = result.error_type
+            state.updated_at = datetime.now(UTC)
+
+    @staticmethod
+    def _mark_unstarted_entries_cancelled(*, state: _ExecutionState) -> None:
+        """Mark entries that have not begun admission as cancelled."""
+        for entry in state.entries:
+            if entry.state == ScenarioSuiteExecutionEntryState.PENDING:
+                entry.state = ScenarioSuiteExecutionEntryState.CANCELLED
+
+    async def _ensure_execution_capacity_async(self) -> None:
+        """Evict only terminal executions or reject admission when active work fills capacity."""
+        while len(self._executions) >= _MAX_RETAINED_EXECUTIONS:
+            evicted = False
+            for execution_id, state in list(self._executions.items()):
+                if state.task is None or not state.task.done():
+                    continue
+                summary = await self._build_summary_async(state=state)
+                if summary.status not in _TERMINAL_EXECUTION_STATUSES:
+                    continue
+                if self._executions.get(execution_id) is state:
+                    self._executions.pop(execution_id)
+                    evicted = True
+                    break
+            if not evicted:
+                raise ScenarioSuiteExecutionCapacityError(_CAPACITY_MESSAGE)
 
     @staticmethod
     def _execution_status(
@@ -556,21 +645,6 @@ class ScenarioSuiteExecutionService:
         ):
             return ScenarioSuiteExecutionStatus.FAILED
         return ScenarioSuiteExecutionStatus.COMPLETED
-
-    def _evict_completed_submissions(self) -> None:
-        """Bound transient coordinator state after submission tasks have finished."""
-        while len(self._executions) >= _MAX_RETAINED_EXECUTIONS:
-            execution_id = next(
-                (
-                    execution_id
-                    for execution_id, state in self._executions.items()
-                    if state.task is not None and state.task.done()
-                ),
-                None,
-            )
-            if execution_id is None:
-                return
-            self._executions.pop(execution_id, None)
 
     def _submission_done(self, task: asyncio.Task[None]) -> None:
         """Retrieve unexpected task failures and release active-task ownership."""

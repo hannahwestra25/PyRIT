@@ -26,6 +26,7 @@ from pyrit.backend.models.scenario_suites import (
     ScenarioSuiteResponse,
 )
 from pyrit.backend.services.scenario_suite_execution_service import (
+    ScenarioSuiteExecutionCapacityError,
     ScenarioSuiteExecutionNotFoundError,
     ScenarioSuiteExecutionService,
     ScenarioSuiteLaunchConflictError,
@@ -247,6 +248,7 @@ def test_launch_is_rejected_during_runtime_reinitialization(
         (ScenarioSuiteExecutionNotFoundError("missing"), 404),
         (ScenarioSuiteLaunchConflictError("changed"), 409),
         (ScenarioSuiteNotRunnableError("not runnable"), 400),
+        (ScenarioSuiteExecutionCapacityError("wait for an active suite"), 429),
         (AzureError("storage unavailable"), 503),
         (RuntimeError("scheduling is stopping"), 503),
     ],
@@ -265,6 +267,8 @@ def test_launch_maps_preflight_failures(
     assert response.status_code == expected_status
     if isinstance(error, AzureError):
         assert "storage unavailable" not in response.text
+    if isinstance(error, ScenarioSuiteExecutionCapacityError):
+        assert response.json()["detail"] == "wait for an active suite"
 
 
 def test_get_and_cancel_transient_execution(
