@@ -65,7 +65,7 @@ export const useScenarioSuiteLibraryStyles = makeStyles({
     overflowX: 'auto',
   },
   table: {
-    minWidth: '760px',
+    minWidth: '900px',
     backgroundColor: tokens.colorNeutralBackground1,
   },
   nameCell: {

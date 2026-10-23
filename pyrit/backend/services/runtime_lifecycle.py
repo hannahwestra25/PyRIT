@@ -16,6 +16,7 @@ from pyrit.backend.services.analytics_service import get_analytics_service
 from pyrit.backend.services.configuration_file_service import ConfigurationFileService
 from pyrit.backend.services.environment_file_service import EnvironmentFileService
 from pyrit.backend.services.scenario_run_service import get_scenario_run_service, peek_scenario_run_service
+from pyrit.backend.services.scenario_suite_execution_service import peek_scenario_suite_execution_service
 from pyrit.backend.services.service_lifecycle import (
     close_services_async,
     has_active_analytics_work,
@@ -243,8 +244,10 @@ class RuntimeLifecycle:
     def _has_active_work(self) -> bool:
         """Return whether any admitted or background runtime operation remains."""
         service = peek_scenario_run_service()
+        suite_execution_service = peek_scenario_suite_execution_service()
         return bool(
             (service and service.has_active_work())
+            or (suite_execution_service and suite_execution_service.has_active_work())
             or self.operations
             or outstanding_estimates()
             or has_active_manual_sends()
@@ -268,6 +271,9 @@ class RuntimeLifecycle:
     async def _shutdown_runtime_async(self) -> None:
         """Finish retained requests without cancelling their offloaded writes."""
         service = peek_scenario_run_service()
+        suite_execution_service = peek_scenario_suite_execution_service()
+        if suite_execution_service:
+            suite_execution_service.stop_admission()
         if service:
             service.stop_admission()
         pending = self.operations | self.management_operations
@@ -276,6 +282,13 @@ class RuntimeLifecycle:
         results = await asyncio.gather(*pending, return_exceptions=True)
         errors = [result for result in results if isinstance(result, BaseException)]
         self.state = "stopping"
+        try:
+            suite_execution_service = peek_scenario_suite_execution_service()
+            if suite_execution_service:
+                await suite_execution_service.shutdown_async()
+        except (Exception, asyncio.CancelledError) as error:
+            error.add_note("Runtime shutdown phase: scenario suite execution shutdown.")
+            errors.append(error)
         try:
             service = peek_scenario_run_service()
             if service:

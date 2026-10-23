@@ -4,6 +4,7 @@
 """Tests for scenario suite definition routes."""
 
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -17,8 +18,18 @@ from pyrit.backend.main import app
 from pyrit.backend.middleware.auth import current_user_name, require_admin
 from pyrit.backend.models.scenario_suites import (
     ScenarioSuiteEntryStatus,
+    ScenarioSuiteExecutionEntryState,
+    ScenarioSuiteExecutionEntrySummary,
+    ScenarioSuiteExecutionStatus,
+    ScenarioSuiteExecutionSummary,
     ScenarioSuiteListResponse,
     ScenarioSuiteResponse,
+)
+from pyrit.backend.services.scenario_suite_execution_service import (
+    ScenarioSuiteExecutionNotFoundError,
+    ScenarioSuiteExecutionService,
+    ScenarioSuiteLaunchConflictError,
+    ScenarioSuiteNotRunnableError,
 )
 from pyrit.backend.services.scenario_suite_service import ScenarioSuiteService
 from pyrit.models.catalog import PresetIssue, ScenarioSuite, ScenarioSuiteEntry, ScenarioSuiteRegistryEntry
@@ -32,6 +43,7 @@ from pyrit.registry import (
 
 SUITE_NAME = "weekly"
 ENTRY_ID = UUID("11111111-1111-4111-8111-111111111111")
+EXECUTION_ID = UUID("eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee")
 
 
 def _suite(*, name: str = SUITE_NAME, author: str | None = None) -> ScenarioSuite:
@@ -68,6 +80,51 @@ def _response(
     )
 
 
+def _execution_summary(
+    *,
+    status_value: ScenarioSuiteExecutionStatus = ScenarioSuiteExecutionStatus.QUEUING,
+) -> ScenarioSuiteExecutionSummary:
+    """Build one transient suite execution response."""
+    now = datetime(2025, 1, 1, tzinfo=UTC)
+    return ScenarioSuiteExecutionSummary(
+        suite_execution_id=EXECUTION_ID,
+        suite_name=SUITE_NAME,
+        suite_origin="stored",
+        suite_version="suite-v1",
+        status=status_value,
+        created_at=now,
+        updated_at=now,
+        entries=[
+            ScenarioSuiteExecutionEntrySummary(
+                entry_id=ENTRY_ID,
+                entry_position=1,
+                preset_name="nightly",
+                preset_origin="stored",
+                preset_version="preset-v1",
+                state=ScenarioSuiteExecutionEntryState.PENDING,
+            )
+        ],
+    )
+
+
+def _launch_body() -> dict[str, object]:
+    """Build the suite launch payload sent by the browser."""
+    return {
+        "expected_version": "suite-v1",
+        "entries": [
+            {
+                "entry_id": str(ENTRY_ID),
+                "preset_name": "nightly",
+                "origin": "stored",
+                "preset_version": "preset-v1",
+            }
+        ],
+        "target_name": "objective-target",
+        "max_concurrency": 5,
+        "max_retries": 2,
+    }
+
+
 @pytest.fixture
 def client(compatibility_headers: dict[str, str]) -> Iterator[TestClient]:
     """Create a client with administrator authorization satisfied."""
@@ -95,6 +152,17 @@ def service() -> Iterator[MagicMock]:
         version="suite-v1",
     )
     with patch("pyrit.backend.routes.scenario_suites.get_scenario_suite_service", return_value=mock_service):
+        yield mock_service
+
+
+@pytest.fixture
+def execution_service() -> Iterator[MagicMock]:
+    """Patch the transient suite execution coordinator resolved by the routes."""
+    mock_service = MagicMock(spec=ScenarioSuiteExecutionService)
+    with patch(
+        "pyrit.backend.routes.scenario_suites.get_scenario_suite_execution_service",
+        return_value=mock_service,
+    ):
         yield mock_service
 
 
@@ -139,6 +207,94 @@ def test_list_is_open_and_returns_entry_issues(anonymous_client: TestClient, ser
     assert response.status_code == 200
     assert response.json()["source"] == "/tmp/suites"
     assert response.json()["items"][0]["entry_statuses"][0]["issues"][0]["message"] == "Preset is missing."
+
+
+def test_launch_is_open_and_returns_server_execution_id(
+    anonymous_client: TestClient,
+    execution_service: MagicMock,
+) -> None:
+    """Test one launch action creates a server-owned transient execution."""
+    execution_service.launch_async = AsyncMock(return_value=_execution_summary())
+
+    response = anonymous_client.post(f"/api/scenario-suites/{SUITE_NAME}/launch", json=_launch_body())
+
+    assert response.status_code == 202
+    assert response.json()["suite_execution_id"] == str(EXECUTION_ID)
+    launch = execution_service.launch_async.call_args.kwargs["request"]
+    assert launch.expected_version == "suite-v1"
+    assert launch.entries[0].preset_version == "preset-v1"
+    assert launch.max_concurrency == 5
+
+
+def test_launch_is_rejected_during_runtime_reinitialization(
+    anonymous_client: TestClient,
+    execution_service: MagicMock,
+) -> None:
+    """Test runtime transitions reject new suite work before preflight."""
+    with patch.object(app.state, "runtime_lifecycle", MagicMock(state="initializing"), create=True):
+        response = anonymous_client.post(
+            f"/api/scenario-suites/{SUITE_NAME}/launch",
+            json=_launch_body(),
+        )
+
+    assert response.status_code == 503
+    execution_service.launch_async.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("error", "expected_status"),
+    [
+        (ScenarioSuiteExecutionNotFoundError("missing"), 404),
+        (ScenarioSuiteLaunchConflictError("changed"), 409),
+        (ScenarioSuiteNotRunnableError("not runnable"), 400),
+        (AzureError("storage unavailable"), 503),
+        (RuntimeError("scheduling is stopping"), 503),
+    ],
+)
+def test_launch_maps_preflight_failures(
+    anonymous_client: TestClient,
+    execution_service: MagicMock,
+    error: Exception,
+    expected_status: int,
+) -> None:
+    """Test actionable launch failures without exposing storage details."""
+    execution_service.launch_async = AsyncMock(side_effect=error)
+
+    response = anonymous_client.post(f"/api/scenario-suites/{SUITE_NAME}/launch", json=_launch_body())
+
+    assert response.status_code == expected_status
+    if isinstance(error, AzureError):
+        assert "storage unavailable" not in response.text
+
+
+def test_get_and_cancel_transient_execution(
+    anonymous_client: TestClient,
+    execution_service: MagicMock,
+) -> None:
+    """Test grouped progress reads and best-effort cancellation."""
+    execution_service.get_execution_async = AsyncMock(return_value=_execution_summary())
+    execution_service.cancel_execution_async = AsyncMock(
+        return_value=_execution_summary(status_value=ScenarioSuiteExecutionStatus.CANCELLED)
+    )
+
+    get_response = anonymous_client.get(f"/api/scenario-suites/executions/{EXECUTION_ID}")
+    cancel_response = anonymous_client.post(f"/api/scenario-suites/executions/{EXECUTION_ID}/cancel")
+
+    assert get_response.status_code == 200
+    assert cancel_response.status_code == 200
+    assert cancel_response.json()["status"] == "CANCELLED"
+
+
+def test_missing_transient_execution_returns_not_found(
+    anonymous_client: TestClient,
+    execution_service: MagicMock,
+) -> None:
+    """Test process-local progress expiry is explicit."""
+    execution_service.get_execution_async = AsyncMock(return_value=None)
+    execution_service.cancel_execution_async = AsyncMock(return_value=None)
+
+    assert anonymous_client.get(f"/api/scenario-suites/executions/{EXECUTION_ID}").status_code == 404
+    assert anonymous_client.post(f"/api/scenario-suites/executions/{EXECUTION_ID}/cancel").status_code == 404
 
 
 def test_get_returns_suite_and_version(client: TestClient, service: MagicMock) -> None:

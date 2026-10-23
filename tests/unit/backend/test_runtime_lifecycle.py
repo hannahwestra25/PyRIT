@@ -315,6 +315,18 @@ async def test_active_work_rejects_apply_without_stopping_or_mutating(runtime: R
     assert not hasattr(service, "request_stop") or not service.request_stop.called
 
 
+async def test_active_suite_submission_rejects_apply_without_mutating(runtime: RuntimeLifecycle) -> None:
+    """Test process-local suite coordination participates in the idle barrier."""
+    service = MagicMock()
+    service.has_active_work.return_value = True
+    with patch.object(lifecycle_module, "peek_scenario_suite_execution_service", return_value=service):
+        await apply_async(runtime)
+
+    assert runtime.outcome == "busy"
+    assert runtime.state == "ready"
+    lifecycle_module.close_services_async.assert_not_awaited()
+
+
 @pytest.mark.parametrize("count", [1, 3])
 async def test_admitted_manual_send_blocks_reinitialization_without_an_http_request_async(
     runtime: RuntimeLifecycle,
