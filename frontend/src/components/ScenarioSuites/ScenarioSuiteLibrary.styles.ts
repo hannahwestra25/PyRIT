@@ -69,6 +69,10 @@ export const useScenarioSuiteLibraryStyles = makeStyles({
     backgroundColor: tokens.colorNeutralBackground1,
   },
   nameCell: {
+    verticalAlign: 'top',
+    minWidth: 0,
+  },
+  nameContent: {
     display: 'flex',
     flexDirection: 'column',
     gap: tokens.spacingVerticalXXS,

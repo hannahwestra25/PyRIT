@@ -194,42 +194,44 @@ export default function ScenarioSuiteLibrary() {
                 return (
                   <TableRow key={item.suite.name} data-testid={`suite-row-${item.suite.name}`}>
                     <TableCell className={styles.nameCell}>
-                      <div className={styles.titleRow}>
-                        <Link to={suiteEditorRoutePath(item.suite.name)}>
-                          <Text weight="semibold">{item.suite.name}</Text>
-                        </Link>
-                        {issues > 0 && (
-                          <Badge appearance="tint" color="warning">
-                            Needs attention
-                          </Badge>
+                      <div className={styles.nameContent}>
+                        <div className={styles.titleRow}>
+                          <Link to={suiteEditorRoutePath(item.suite.name)}>
+                            <Text weight="semibold">{item.suite.name}</Text>
+                          </Link>
+                          {issues > 0 && (
+                            <Badge appearance="tint" color="warning">
+                              Needs attention
+                            </Badge>
+                          )}
+                          {!editable && (
+                            <Badge appearance="tint" color="informative">
+                              Defined in code
+                            </Badge>
+                          )}
+                        </div>
+                        {item.suite.description && (
+                          <Text size={200} className={styles.meta}>
+                            {item.suite.description}
+                          </Text>
                         )}
-                        {!editable && (
-                          <Badge appearance="tint" color="informative">
-                            Defined in code
-                          </Badge>
+                        {issues > 0 && (
+                          <ul
+                            className={styles.issueList}
+                            data-testid={`suite-issues-${item.suite.name}`}
+                          >
+                            {item.entry_statuses.flatMap((entryStatus, entryIndex) => (
+                              entryStatus.issues.map((issue) => (
+                                <li key={`${entryStatus.entry_id}:${issue.field}:${issue.message}`}>
+                                  <Text size={200}>
+                                    Entry {entryIndex + 1} ({entryStatus.preset_name}): {issue.message}
+                                  </Text>
+                                </li>
+                              ))
+                            ))}
+                          </ul>
                         )}
                       </div>
-                      {item.suite.description && (
-                        <Text size={200} className={styles.meta}>
-                          {item.suite.description}
-                        </Text>
-                      )}
-                      {issues > 0 && (
-                        <ul
-                          className={styles.issueList}
-                          data-testid={`suite-issues-${item.suite.name}`}
-                        >
-                          {item.entry_statuses.flatMap((entryStatus, entryIndex) => (
-                            entryStatus.issues.map((issue) => (
-                              <li key={`${entryStatus.entry_id}:${issue.field}:${issue.message}`}>
-                                <Text size={200}>
-                                  Entry {entryIndex + 1} ({entryStatus.preset_name}): {issue.message}
-                                </Text>
-                              </li>
-                            ))
-                          ))}
-                        </ul>
-                      )}
                     </TableCell>
                     <TableCell>
                       <Text>
