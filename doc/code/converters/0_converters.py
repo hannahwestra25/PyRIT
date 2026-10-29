@@ -66,9 +66,9 @@ print(df)
 # [LSB steganography example](3_image_converters.ipynb#lsb-image-steganography)
 # using `LSBImageStegoConverter` and `LSBImageStegoDecodeConverter`.
 #
-# `UglyGerryConverter` converts `text` to `image_path`, rendering letters as
-# congressional-district shapes with a bundled font. See the
-# [Ugly Gerry example](3_image_converters.ipynb#ugly-gerry).
+# `TextToImageConverter` converts `text` to `image_path` with a configurable font,
+# including the bundled Ugly Gerry font's congressional-district shapes. See the
+# [font rendering examples](3_image_converters.ipynb#text-to-image-converter).
 
 # %% [markdown]
 # ## Simple Converter Example

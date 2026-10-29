@@ -2,6 +2,7 @@
 # Licensed under the MIT license.
 
 import asyncio
+import hashlib
 import math
 import string
 from collections.abc import Iterator
@@ -9,6 +10,7 @@ from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
 
+import regex
 from PIL import Image, ImageDraw, ImageFont
 from PIL.ImageFont import FreeTypeFont
 
@@ -18,26 +20,28 @@ from pyrit.memory import data_serializer_factory
 from pyrit.models import ComponentIdentifier, PromptDataType
 
 
-class UglyGerryConverter(_BaseImageTextConverter):
+class TextToImageConverter(_BaseImageTextConverter):
     """
-    Render text as a PNG using congressional-district shapes from the bundled Ugly Gerry font.
+    Render text as a PNG using Pillow's default font, a bundled font, or a local font file.
 
-    ASCII letters are rendered as capitals. Spaces, newlines, and the punctuation
-    ``! ' , . ?`` are supported; other characters are rejected rather than lost.
-    Lines wrap at character boundaries to fit the configured maximum image width.
-    No font installation, network access, or model is required.
+    Text retains its case, tabs expand to four-column stops, and lines wrap at
+    grapheme boundaries to fit the maximum image width. Glyph coverage depends on
+    the selected font. The bundled ``ugly_gerry`` option instead renders ASCII
+    letters as capitals and rejects characters outside its limited repertoire.
+    No font installation, network access, or model is required for bundled fonts.
     """
 
     SUPPORTED_INPUT_TYPES = ("text",)
     SUPPORTED_OUTPUT_TYPES = ("image_path",)
-    _FONT_PATH = Path(__file__).parent / "fonts" / "Gerry.otf"
-    _SUPPORTED_CHARACTERS = frozenset(string.ascii_letters + " \n\r!',.?")
+    _UGLY_GERRY_FONT_PATH = Path(__file__).parent / "fonts" / "Gerry.otf"
+    _UGLY_GERRY_CHARACTERS = frozenset(string.ascii_letters + " \n\r!',.?")
     _MAX_PIXELS = 16_000_000
     _MEASUREMENT_CACHE_SIZE = 1024
 
     def __init__(
         self,
         *,
+        font: str | Path | None = None,
         font_size: int = 64,
         max_width: int = 1200,
         padding: int = 20,
@@ -48,6 +52,9 @@ class UglyGerryConverter(_BaseImageTextConverter):
         Initialize the local font renderer.
 
         Args:
+            font (str | Path | None): ``None`` or ``default`` uses Pillow's built-in font;
+                ``ugly_gerry`` selects the bundled district-shaped font. Otherwise,
+                provide a local ``.ttf`` or ``.otf`` file. Defaults to None.
             font_size (int): Font size in pixels. Defaults to 64.
             max_width (int): Maximum image width, including padding. Defaults to 1200.
             padding (int): Blank border in pixels. Defaults to 20.
@@ -56,7 +63,7 @@ class UglyGerryConverter(_BaseImageTextConverter):
 
         Raises:
             ValueError: If sizes or colors are invalid, or the colors are identical.
-            OSError: If the bundled font is missing or cannot be loaded.
+            OSError: If a selected font is missing or cannot be loaded. No fallback is used.
         """
         super().__init__()
         for name, value, minimum in (("font_size", font_size, 1), ("max_width", max_width, 1), ("padding", padding, 0)):
@@ -73,15 +80,23 @@ class UglyGerryConverter(_BaseImageTextConverter):
         self._padding = padding
         self._color = color
         self._background_color = background_color
-        self._font_data = self._FONT_PATH.read_bytes()
-        ImageFont.truetype(BytesIO(self._font_data), size=font_size)
+        self._font_name = "default" if font is None else str(font)
+        self._font_data: bytes | None = None
+        if isinstance(font, str) and font == "ugly_gerry":
+            self._font_data = self._UGLY_GERRY_FONT_PATH.read_bytes()
+        elif font is not None and not (isinstance(font, str) and font == "default"):
+            font_path = Path(font)
+            if font_path.suffix.lower() not in (".ttf", ".otf"):
+                raise ValueError("font must be 'default', 'ugly_gerry', or a local .ttf or .otf path")
+            self._font_data = font_path.read_bytes()
+        self._load_font()
 
     async def convert_async(self, *, prompt: str, input_type: PromptDataType = "text") -> ConverterResult:
         """
         Render a prompt and save a uniquely named PNG through PyRIT's image serializer.
 
         Args:
-            prompt (str): Text containing only the supported letters, punctuation, and whitespace.
+            prompt (str): Text to render. Choose a font that covers the prompt's characters.
             input_type (PromptDataType): Must be ``text``.
 
         Returns:
@@ -95,10 +110,14 @@ class UglyGerryConverter(_BaseImageTextConverter):
             raise ValueError(f"Input type {input_type} not supported")
         if not prompt.strip():
             raise ValueError("Please provide valid text value")
-        unsupported = set(prompt) - self._SUPPORTED_CHARACTERS
-        if unsupported:
-            raise ValueError(f"Ugly Gerry does not support these characters: {sorted(unsupported)!r}")
-        text = prompt.replace("\r\n", "\n").replace("\r", "\n").upper()
+        text = prompt.replace("\r\n", "\n").replace("\r", "\n")
+        if self._font_name == "ugly_gerry":
+            unsupported = set(prompt) - self._UGLY_GERRY_CHARACTERS
+            if unsupported:
+                raise ValueError(f"Ugly Gerry does not support these characters: {sorted(unsupported)!r}")
+            text = text.upper()
+        else:
+            text = text.expandtabs(4)
         image_bytes = await asyncio.to_thread(self._render_png, text)
         serializer = data_serializer_factory(category="prompt-memory-entries", data_type="image_path", extension="png")
         await serializer.save_data_async(data=image_bytes)
@@ -107,6 +126,8 @@ class UglyGerryConverter(_BaseImageTextConverter):
     def _build_identifier(self) -> ComponentIdentifier:
         return self._create_identifier(
             params={
+                "font": self._font_name,
+                "font_sha256": hashlib.sha256(self._font_data).hexdigest() if self._font_data is not None else None,
                 "font_size": self._font_size,
                 "max_width": self._max_width,
                 "padding": self._padding,
@@ -115,6 +136,14 @@ class UglyGerryConverter(_BaseImageTextConverter):
             }
         )
 
+    def _load_font(self) -> FreeTypeFont:
+        if self._font_data is not None:
+            return ImageFont.truetype(BytesIO(self._font_data), size=self._font_size)
+        font = ImageFont.load_default(size=self._font_size)
+        if not isinstance(font, FreeTypeFont):
+            raise RuntimeError("TextToImageConverter requires Pillow with FreeType support")
+        return font
+
     def _iter_wrapped_lines(
         self, *, text: str, font: FreeTypeFont
     ) -> Iterator[tuple[str, tuple[float, float, float, float]]]:
@@ -122,7 +151,8 @@ class UglyGerryConverter(_BaseImageTextConverter):
         width = self._max_width - 2 * self._padding
         for paragraph in text.split("\n"):
             line = ""
-            for character in paragraph:
+            for match in regex.finditer(r"\X", paragraph):
+                character: str = match.group()
                 candidate = line + character
                 left, _, right, _ = measure(candidate)
                 if right - left > width:
@@ -146,7 +176,7 @@ class UglyGerryConverter(_BaseImageTextConverter):
         return width, height
 
     def _render_png(self, text: str) -> bytes:
-        font = ImageFont.truetype(BytesIO(self._font_data), size=self._font_size)
+        font = self._load_font()
         lines: list[str] = []
         bounds: list[tuple[float, float, float, float]] = []
         top, bottom, text_width = math.inf, -math.inf, 0.0
