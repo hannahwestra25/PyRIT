@@ -41,8 +41,9 @@
 # `ValueError` rather than silently disappearing or using a different font.
 # Lines wrap at character boundaries to fit `max_width` (including `padding`);
 # the image grows vertically without clipping. Images over 16 million pixels
-# are rejected. The result is `image_path`, intended for an image-capable target;
-# it is not a Unicode text encoding.
+# are rejected as soon as completed lines exceed that budget, and repeated font
+# measurements use a bounded per-render cache. The result is `image_path`,
+# intended for an image-capable target; it is not a Unicode text encoding.
 #
 # ```python
 # from pyrit.converter import UglyGerryConverter

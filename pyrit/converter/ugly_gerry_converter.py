@@ -4,6 +4,8 @@
 import asyncio
 import math
 import string
+from collections.abc import Iterator
+from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
 
@@ -31,6 +33,7 @@ class UglyGerryConverter(_BaseImageTextConverter):
     _FONT_PATH = Path(__file__).parent / "fonts" / "Gerry.otf"
     _SUPPORTED_CHARACTERS = frozenset(string.ascii_letters + " \n\r!',.?")
     _MAX_PIXELS = 16_000_000
+    _MEASUREMENT_CACHE_SIZE = 1024
 
     def __init__(
         self,
@@ -112,39 +115,51 @@ class UglyGerryConverter(_BaseImageTextConverter):
             }
         )
 
-    def _wrap_lines(self, *, text: str, font: FreeTypeFont) -> list[str]:
-        lines: list[str] = []
+    def _iter_wrapped_lines(
+        self, *, text: str, font: FreeTypeFont
+    ) -> Iterator[tuple[str, tuple[float, float, float, float]]]:
+        measure = lru_cache(maxsize=self._MEASUREMENT_CACHE_SIZE)(font.getbbox)
         width = self._max_width - 2 * self._padding
         for paragraph in text.split("\n"):
             line = ""
             for character in paragraph:
                 candidate = line + character
-                left, _, right, _ = font.getbbox(candidate)
+                left, _, right, _ = measure(candidate)
                 if right - left > width:
                     if not line:
                         raise ValueError(f"max_width is too small to render character {character!r}")
-                    lines.append(line)
+                    yield line, measure(line)
                     line = character
-                    left, _, right, _ = font.getbbox(line)
+                    left, _, right, _ = measure(line)
                     if right - left > width:
                         raise ValueError(f"max_width is too small to render character {character!r}")
                 else:
                     line = candidate
-            lines.append(line)
-        return lines
+            yield line, measure(line)
+
+    def _get_image_size(self, *, text_width: float, text_height: float, line_count: int) -> tuple[int, int]:
+        line_height = max(1, text_height) + self._font_size // 4
+        width = max(1, math.ceil(text_width)) + 2 * self._padding
+        height = math.ceil(max(1, text_height) + (line_count - 1) * line_height) + 2 * self._padding
+        if width * height > self._MAX_PIXELS:
+            raise ValueError("Rendered image exceeds 16 million pixels; shorten the prompt or reduce font_size")
+        return width, height
 
     def _render_png(self, text: str) -> bytes:
         font = ImageFont.truetype(BytesIO(self._font_data), size=self._font_size)
-        lines = self._wrap_lines(text=text, font=font)
-        bounds = [font.getbbox(line) for line in lines]
-        top = min(box[1] for box in bounds)
-        bottom = max(box[3] for box in bounds)
-        spacing = self._font_size // 4
-        line_height = max(1, bottom - top) + spacing
-        width = max(1, math.ceil(max(box[2] - box[0] for box in bounds))) + 2 * self._padding
-        height = math.ceil(max(1, bottom - top) + (len(lines) - 1) * line_height) + 2 * self._padding
-        if width * height > self._MAX_PIXELS:
-            raise ValueError("Rendered image exceeds 16 million pixels; shorten the prompt or reduce font_size")
+        lines: list[str] = []
+        bounds: list[tuple[float, float, float, float]] = []
+        top, bottom, text_width = math.inf, -math.inf, 0.0
+        for line, box in self._iter_wrapped_lines(text=text, font=font):
+            lines.append(line)
+            bounds.append(box)
+            top = min(top, box[1])
+            bottom = max(bottom, box[3])
+            text_width = max(text_width, box[2] - box[0])
+            # Completed-line bounds are a lower bound on the final image's dimensions.
+            self._get_image_size(text_width=text_width, text_height=bottom - top, line_count=len(lines))
+        width, height = self._get_image_size(text_width=text_width, text_height=bottom - top, line_count=len(lines))
+        line_height = max(1, bottom - top) + self._font_size // 4
         with Image.new("RGB", (width, height), self._background_color) as image, BytesIO() as output:
             draw = ImageDraw.Draw(image)
             for index, (line, box) in enumerate(zip(lines, bounds, strict=True)):

@@ -3,7 +3,9 @@
 
 import asyncio
 import hashlib
+import math
 import string
+from collections import Counter
 from io import BytesIO
 from pathlib import Path
 from threading import get_ident
@@ -139,7 +141,7 @@ def test_init_does_not_fall_back_when_font_is_corrupt(tmp_path: Path) -> None:
 def test_wrapping_preserves_characters_and_fits_pixel_width(text: str) -> None:
     converter = UglyGerryConverter(max_width=180)
     font = ImageFont.truetype(str(converter._FONT_PATH), size=64)
-    lines = converter._wrap_lines(text=text, font=font)
+    lines = [line for line, _ in converter._iter_wrapped_lines(text=text, font=font)]
     assert "".join(lines) == text.replace("\n", "")
     assert all(font.getbbox(line)[2] - font.getbbox(line)[0] <= 140 for line in lines)
     with Image.open(BytesIO(converter._render_png(text))) as image:
@@ -150,6 +152,99 @@ def test_wrapping_preserves_characters_and_fits_pixel_width(text: str) -> None:
             assert bbox is not None
             assert bbox[0] >= 20 and bbox[1] >= 20
             assert bbox[2] <= image.width - 20 and bbox[3] <= image.height - 20
+
+
+def test_wrapping_measures_repeated_candidates_once() -> None:
+    converter = UglyGerryConverter()
+    font = ImageFont.truetype(str(converter._FONT_PATH), size=64)
+    prompt = "A" * 10_000
+    with patch.object(font, "getbbox", wraps=font.getbbox) as measure:
+        wrapped = list(converter._iter_wrapped_lines(text=prompt, font=font))
+    lines = [line for line, _ in wrapped]
+    assert "".join(lines) == prompt
+    assert lines[:-1] == ["A" * 14] * (len(lines) - 1)
+    assert lines[-1] == "A" * 4
+    counts = Counter(call.args[0] for call in measure.call_args_list)
+    assert len(counts) == 15
+    assert all(count == 1 for count in counts.values())
+
+
+def test_wrapping_measurement_cache_is_bounded() -> None:
+    converter = UglyGerryConverter(max_width=122)
+    font = ImageFont.truetype(str(converter._FONT_PATH), size=64)
+    with (
+        patch.object(converter, "_MEASUREMENT_CACHE_SIZE", 2),
+        patch.object(font, "getbbox", wraps=font.getbbox) as measure,
+    ):
+        lines = [line for line, _ in converter._iter_wrapped_lines(text="ABAB", font=font)]
+    assert lines == ["A", "B", "A", "B"]
+    counts = Counter(call.args[0] for call in measure.call_args_list)
+    assert counts["A"] == 2
+    assert counts["B"] == 2
+
+
+def test_wrapping_measurement_cache_is_local_to_each_layout() -> None:
+    converter = UglyGerryConverter()
+    font = ImageFont.truetype(str(converter._FONT_PATH), size=64)
+    with patch.object(font, "getbbox", wraps=font.getbbox) as measure:
+        first = list(converter._iter_wrapped_lines(text="AAA", font=font))
+        second = list(converter._iter_wrapped_lines(text="AAA", font=font))
+    assert first == second
+    counts = Counter(call.args[0] for call in measure.call_args_list)
+    assert counts == {"A": 2, "AA": 2, "AAA": 2}
+
+
+def test_rendering_reuses_measurements_for_completed_lines() -> None:
+    converter = UglyGerryConverter()
+    font = ImageFont.truetype(str(converter._FONT_PATH), size=64)
+    with (
+        patch.object(ImageFont, "truetype", return_value=font),
+        patch.object(font, "getbbox", wraps=font.getbbox) as measure,
+    ):
+        converter._render_png("A" * 70)
+    counts = Counter(call.args[0] for call in measure.call_args_list)
+    assert len(counts) == 15
+    assert all(count == 1 for count in counts.values())
+
+
+def test_rendering_rejects_oversized_layout_before_consuming_all_lines() -> None:
+    converter = UglyGerryConverter()
+    font = ImageFont.truetype(str(converter._FONT_PATH), size=64)
+    prompt = "A" * 10_000
+    layout = converter._iter_wrapped_lines(text=prompt, font=font)
+    with (
+        patch.object(converter, "_iter_wrapped_lines", return_value=layout),
+        patch.object(ImageFont, "truetype", return_value=font),
+        patch.object(Image, "new", side_effect=AssertionError("Oversized images must not be allocated")),
+    ):
+        with pytest.raises(ValueError, match="exceeds 16 million pixels"):
+            converter._render_png(prompt)
+    remaining = list(layout)
+    total_lines = math.ceil(len(prompt) / 14)
+    assert 0 < len(remaining) < total_lines
+    completed = total_lines - len(remaining)
+    left, top, right, bottom = font.getbbox("A" * 14)
+    width = right - left + 40
+    line_height = bottom - top + 16
+    assert width * (bottom - top + (completed - 2) * line_height + 40) <= converter._MAX_PIXELS
+    assert width * (bottom - top + (completed - 1) * line_height + 40) > converter._MAX_PIXELS
+
+
+@pytest.mark.parametrize("line_count", [1, 3])
+@pytest.mark.parametrize("padding", [0, 20])
+def test_rendering_preserves_the_exact_pixel_budget_boundary(line_count: int, padding: int) -> None:
+    converter = UglyGerryConverter(padding=padding)
+    font = ImageFont.truetype(str(converter._FONT_PATH), size=64)
+    left, top, right, bottom = font.getbbox("A")
+    width = right - left + 2 * padding
+    height = bottom - top + (line_count - 1) * (bottom - top + 16) + 2 * padding
+    prompt = "\n".join(["A"] * line_count)
+    with patch.object(converter, "_MAX_PIXELS", width * height):
+        with Image.open(BytesIO(converter._render_png(prompt))) as image:
+            assert image.size == (width, height)
+    with patch.object(converter, "_MAX_PIXELS", width * height - 1):
+        with pytest.raises(ValueError, match="exceeds 16 million pixels"):
+            converter._render_png(prompt)
 
 
 async def test_convert_async_rejects_width_smaller_than_one_glyph() -> None:
