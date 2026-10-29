@@ -134,6 +134,7 @@ if TYPE_CHECKING:
     from pyrit.converter.toxic_sentence_generator_converter import ToxicSentenceGeneratorConverter
     from pyrit.converter.translation_converter import TranslationConverter
     from pyrit.converter.transparency_attack_converter import TransparencyAttackConverter
+    from pyrit.converter.ugly_gerry_converter import UglyGerryConverter
     from pyrit.converter.unicode_confusable_converter import UnicodeConfusableConverter
     from pyrit.converter.unicode_replacement_converter import UnicodeReplacementConverter
     from pyrit.converter.unicode_sub_converter import UnicodeSubstitutionConverter
@@ -251,6 +252,7 @@ _LAZY_EXPORTS: dict[str, str | tuple[str, str | None]] = {
     "ToxicSentenceGeneratorConverter": "pyrit.converter.toxic_sentence_generator_converter",
     "TranslationConverter": "pyrit.converter.translation_converter",
     "TransparencyAttackConverter": "pyrit.converter.transparency_attack_converter",
+    "UglyGerryConverter": "pyrit.converter.ugly_gerry_converter",
     "UnicodeConfusableConverter": "pyrit.converter.unicode_confusable_converter",
     "UnicodeReplacementConverter": "pyrit.converter.unicode_replacement_converter",
     "UnicodeSubstitutionConverter": "pyrit.converter.unicode_sub_converter",

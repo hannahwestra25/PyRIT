@@ -26,6 +26,34 @@
 # ## Text to Image
 #
 #
+# (ugly-gerry)=
+# ### UglyGerryConverter
+#
+# `UglyGerryConverter` renders a text prompt into a PNG using
+# [Ugly Gerry](https://en.wikipedia.org/wiki/Ugly_Gerry), whose letters are
+# shaped like United States congressional districts. The original font is bundled
+# with PyRIT, so no font installation, download, model, or credentials are needed.
+# The font's attribution and original "No Rights Reserved" statement are recorded
+# in `LICENSES/Ugly-Gerry.txt`.
+#
+# ASCII letters are rendered as capitals. Spaces, newlines, and `! ' , . ?` are
+# supported. Numbers, other punctuation, tabs, and non-ASCII characters raise
+# `ValueError` rather than silently disappearing or using a different font.
+# Lines wrap at character boundaries to fit `max_width` (including `padding`);
+# the image grows vertically without clipping. Images over 16 million pixels
+# are rejected. The result is `image_path`, intended for an image-capable target;
+# it is not a Unicode text encoding.
+#
+# ```python
+# from pyrit.converter import UglyGerryConverter
+# from pyrit.setup import IN_MEMORY, initialize_pyrit_async
+#
+# await initialize_pyrit_async(memory_db_type=IN_MEMORY)
+# converter = UglyGerryConverter(font_size=64, max_width=1200, padding=20)
+# result = await converter.convert_async(prompt="Hello, world!")
+# # result.output_text is the PNG path; result.output_type is "image_path".
+# ```
+#
 # ### GridCompositeConverter
 #
 # The `GridCompositeConverter` renders the prompt text into a composite grid where one cell carries the text payload and the remaining cells are innocuous images, targeting weaknesses in a model's ability to reason across multiple regions of an image at once and accurately evaluate overall safety when a majority of the image is benign.
